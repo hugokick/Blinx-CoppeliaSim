@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "scene_id": "robot-basics",
+  "generated_at": "2026-07-30T18:11:40.115225+00:00",
+  "generator": "simulation.training_scenes.build_scene",
+  "template": {
+    "path": "simulation/vision_lab/BL23_vision_lab.ttt",
+    "sha256": "5154dfc3132cd29aafcbe5de83c1a6b61960595681ac5c90d2d92a5b642bda55"
+  },
+  "scene": {
+    "path": "simulation/robot_basics/BL23_robot_basics.ttt",
+    "sha256": "fedce59679d9587afe2d83624ec5b7078a0d9dad42a993b36e40ea6ed757ad49",
+    "size_bytes": 11599773
+  },
+  "required_paths": [
+    "/BLX_base_link",
+    "/BLX_joint1",
+    "/BLX_joint2",
+    "/BLX_joint3",
+    "/BLX_joint4",
+    "/BLX_joint5",
+    "/BLX_joint6",
+    "/BLX_tool_suction",
+    "/RobotBasics",
+    "/RobotBasics/Workspace",
+    "/RobotBasics/Camera",
+    "/RobotBasics/TeachPoints/TeachPoint1",
+    "/RobotBasics/TeachPoints/TeachPoint2",
+    "/RobotBasics/TeachPoints/TeachPoint3",
+    "/RobotBasics/TeachPoints/TeachPoint4"
+  ],
+  "task_contracts": {},
+  "protected_assets_unchanged": true
+}

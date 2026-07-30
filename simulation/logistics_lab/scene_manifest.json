@@ -1,0 +1,379 @@
+{
+  "schema_version": 1,
+  "scene_id": "logistics-lab",
+  "generated_at": "2026-07-30T18:11:44.523397+00:00",
+  "generator": "simulation.training_scenes.build_scene",
+  "template": {
+    "path": "simulation/vision_lab/BL23_vision_lab.ttt",
+    "sha256": "5154dfc3132cd29aafcbe5de83c1a6b61960595681ac5c90d2d92a5b642bda55"
+  },
+  "scene": {
+    "path": "simulation/logistics_lab/BL23_logistics_lab.ttt",
+    "sha256": "53d97dc3ae875e1a61fd041013cf9925be2dd3bdb057614cabb6abf25602eefc",
+    "size_bytes": 11663400
+  },
+  "required_paths": [
+    "/BLX_base_link",
+    "/BLX_joint1",
+    "/BLX_joint2",
+    "/BLX_joint3",
+    "/BLX_joint4",
+    "/BLX_joint5",
+    "/BLX_joint6",
+    "/BLX_tool_suction",
+    "/LogisticsLab",
+    "/LogisticsLab/Workspace",
+    "/LogisticsLab/Camera",
+    "/LogisticsLab/Tasks/Stack",
+    "/LogisticsLab/Tasks/Stack/Pickables",
+    "/LogisticsLab/Tasks/Stack/Targets",
+    "/LogisticsLab/Tasks/Digits",
+    "/LogisticsLab/Tasks/Digits/Pickables",
+    "/LogisticsLab/Tasks/Digits/Targets",
+    "/LogisticsLab/Tasks/Classes",
+    "/LogisticsLab/Tasks/Classes/Pickables",
+    "/LogisticsLab/Tasks/Classes/Targets"
+  ],
+  "task_contracts": {
+    "Stack": {
+      "objects": [
+        {
+          "alias": "stack_01",
+          "shape": "cuboid",
+          "size_mm": [
+            18,
+            18,
+            18
+          ],
+          "position_mm": [
+            45,
+            -60,
+            20
+          ],
+          "color": [
+            0.85,
+            0.2,
+            0.18
+          ]
+        },
+        {
+          "alias": "stack_02",
+          "shape": "cuboid",
+          "size_mm": [
+            18,
+            18,
+            18
+          ],
+          "position_mm": [
+            70,
+            -60,
+            20
+          ],
+          "color": [
+            0.2,
+            0.55,
+            0.9
+          ]
+        },
+        {
+          "alias": "stack_03",
+          "shape": "cuboid",
+          "size_mm": [
+            18,
+            18,
+            18
+          ],
+          "position_mm": [
+            95,
+            -60,
+            20
+          ],
+          "color": [
+            0.2,
+            0.7,
+            0.32
+          ]
+        },
+        {
+          "alias": "stack_04",
+          "shape": "cuboid",
+          "size_mm": [
+            18,
+            18,
+            18
+          ],
+          "position_mm": [
+            45,
+            -25,
+            20
+          ],
+          "color": [
+            0.95,
+            0.75,
+            0.15
+          ]
+        },
+        {
+          "alias": "stack_05",
+          "shape": "cuboid",
+          "size_mm": [
+            18,
+            18,
+            18
+          ],
+          "position_mm": [
+            70,
+            -25,
+            20
+          ],
+          "color": [
+            0.75,
+            0.3,
+            0.82
+          ]
+        },
+        {
+          "alias": "stack_06",
+          "shape": "cuboid",
+          "size_mm": [
+            18,
+            18,
+            18
+          ],
+          "position_mm": [
+            95,
+            -25,
+            20
+          ],
+          "color": [
+            0.25,
+            0.8,
+            0.78
+          ]
+        }
+      ],
+      "targets": [
+        {
+          "alias": "slot_01",
+          "position_mm": [
+            118,
+            -45,
+            10
+          ]
+        },
+        {
+          "alias": "slot_02",
+          "position_mm": [
+            118,
+            45,
+            10
+          ]
+        },
+        {
+          "alias": "slot_03",
+          "position_mm": [
+            118,
+            -45,
+            28
+          ]
+        },
+        {
+          "alias": "slot_04",
+          "position_mm": [
+            118,
+            45,
+            28
+          ]
+        },
+        {
+          "alias": "slot_05",
+          "position_mm": [
+            118,
+            -45,
+            46
+          ]
+        },
+        {
+          "alias": "slot_06",
+          "position_mm": [
+            118,
+            45,
+            46
+          ]
+        }
+      ]
+    },
+    "Digits": {
+      "objects": [
+        {
+          "alias": "digit_1",
+          "digit": 1,
+          "position_mm": [
+            50,
+            -55,
+            20
+          ]
+        },
+        {
+          "alias": "digit_2",
+          "digit": 2,
+          "position_mm": [
+            75,
+            -55,
+            20
+          ]
+        },
+        {
+          "alias": "digit_3",
+          "digit": 3,
+          "position_mm": [
+            100,
+            -55,
+            20
+          ]
+        }
+      ],
+      "targets": [
+        {
+          "alias": "slot_1",
+          "position_mm": [
+            118,
+            -55,
+            10
+          ]
+        },
+        {
+          "alias": "slot_2",
+          "position_mm": [
+            118,
+            0,
+            10
+          ]
+        },
+        {
+          "alias": "slot_3",
+          "position_mm": [
+            118,
+            55,
+            10
+          ]
+        }
+      ]
+    },
+    "Classes": {
+      "objects": [
+        {
+          "alias": "red_block",
+          "shape": "cuboid",
+          "size_mm": [
+            18,
+            18,
+            18
+          ],
+          "position_mm": [
+            45,
+            -55,
+            20
+          ],
+          "color": [
+            0.9,
+            0.15,
+            0.12
+          ]
+        },
+        {
+          "alias": "blue_block",
+          "shape": "cuboid",
+          "size_mm": [
+            18,
+            18,
+            18
+          ],
+          "position_mm": [
+            70,
+            -55,
+            20
+          ],
+          "color": [
+            0.1,
+            0.35,
+            0.9
+          ]
+        },
+        {
+          "alias": "green_cylinder",
+          "shape": "cylinder",
+          "size_mm": [
+            18,
+            18,
+            18
+          ],
+          "position_mm": [
+            95,
+            -55,
+            20
+          ],
+          "color": [
+            0.1,
+            0.75,
+            0.25
+          ]
+        },
+        {
+          "alias": "yellow_cylinder",
+          "shape": "cylinder",
+          "size_mm": [
+            18,
+            18,
+            18
+          ],
+          "position_mm": [
+            105,
+            -25,
+            20
+          ],
+          "color": [
+            0.95,
+            0.78,
+            0.08
+          ]
+        }
+      ],
+      "targets": [
+        {
+          "alias": "red_block",
+          "position_mm": [
+            118,
+            -60,
+            10
+          ]
+        },
+        {
+          "alias": "blue_block",
+          "position_mm": [
+            118,
+            -20,
+            10
+          ]
+        },
+        {
+          "alias": "green_cylinder",
+          "position_mm": [
+            118,
+            20,
+            10
+          ]
+        },
+        {
+          "alias": "yellow_cylinder",
+          "position_mm": [
+            118,
+            60,
+            10
+          ]
+        }
+      ]
+    }
+  },
+  "protected_assets_unchanged": true
+}

@@ -1,0 +1,90 @@
+{
+  "schema_version": 1,
+  "scene_id": "logistics-lab",
+  "template": "simulation/vision_lab/BL23_vision_lab.ttt",
+  "output": "simulation/logistics_lab/BL23_logistics_lab.ttt",
+  "remove_paths": ["/VisionLab"],
+  "root_path": "/LogisticsLab",
+  "workspace": {
+    "alias": "Workspace",
+    "size_mm": [160, 200, 10],
+    "center_mm": [80, 0, 5]
+  },
+  "camera": {
+    "alias": "Camera",
+    "path": "/LogisticsLab/Camera",
+    "resolution": [640, 480],
+    "position_m": [0.08, 0.0, 0.55],
+    "near_clip_m": 0.01,
+    "far_clip_m": 2.0,
+    "perspective_angle_deg": 52
+  },
+  "tasks": {
+    "Stack": {
+      "objects": [
+        {"alias": "stack_01", "shape": "cuboid", "size_mm": [18, 18, 18], "position_mm": [45, -60, 20], "color": [0.85, 0.20, 0.18]},
+        {"alias": "stack_02", "shape": "cuboid", "size_mm": [18, 18, 18], "position_mm": [70, -60, 20], "color": [0.20, 0.55, 0.90]},
+        {"alias": "stack_03", "shape": "cuboid", "size_mm": [18, 18, 18], "position_mm": [95, -60, 20], "color": [0.20, 0.70, 0.32]},
+        {"alias": "stack_04", "shape": "cuboid", "size_mm": [18, 18, 18], "position_mm": [45, -25, 20], "color": [0.95, 0.75, 0.15]},
+        {"alias": "stack_05", "shape": "cuboid", "size_mm": [18, 18, 18], "position_mm": [70, -25, 20], "color": [0.75, 0.30, 0.82]},
+        {"alias": "stack_06", "shape": "cuboid", "size_mm": [18, 18, 18], "position_mm": [95, -25, 20], "color": [0.25, 0.80, 0.78]}
+      ],
+      "targets": [
+        {"alias": "slot_01", "position_mm": [118, -45, 10]},
+        {"alias": "slot_02", "position_mm": [118, 45, 10]},
+        {"alias": "slot_03", "position_mm": [118, -45, 28]},
+        {"alias": "slot_04", "position_mm": [118, 45, 28]},
+        {"alias": "slot_05", "position_mm": [118, -45, 46]},
+        {"alias": "slot_06", "position_mm": [118, 45, 46]}
+      ]
+    },
+    "Digits": {
+      "objects": [
+        {"alias": "digit_1", "digit": 1, "position_mm": [50, -55, 20]},
+        {"alias": "digit_2", "digit": 2, "position_mm": [75, -55, 20]},
+        {"alias": "digit_3", "digit": 3, "position_mm": [100, -55, 20]}
+      ],
+      "targets": [
+        {"alias": "slot_1", "position_mm": [118, -55, 10]},
+        {"alias": "slot_2", "position_mm": [118, 0, 10]},
+        {"alias": "slot_3", "position_mm": [118, 55, 10]}
+      ]
+    },
+    "Classes": {
+      "objects": [
+        {"alias": "red_block", "shape": "cuboid", "size_mm": [18, 18, 18], "position_mm": [45, -55, 20], "color": [0.90, 0.15, 0.12]},
+        {"alias": "blue_block", "shape": "cuboid", "size_mm": [18, 18, 18], "position_mm": [70, -55, 20], "color": [0.10, 0.35, 0.90]},
+        {"alias": "green_cylinder", "shape": "cylinder", "size_mm": [18, 18, 18], "position_mm": [95, -55, 20], "color": [0.10, 0.75, 0.25]},
+        {"alias": "yellow_cylinder", "shape": "cylinder", "size_mm": [18, 18, 18], "position_mm": [105, -25, 20], "color": [0.95, 0.78, 0.08]}
+      ],
+      "targets": [
+        {"alias": "red_block", "position_mm": [118, -60, 10]},
+        {"alias": "blue_block", "position_mm": [118, -20, 10]},
+        {"alias": "green_cylinder", "position_mm": [118, 20, 10]},
+        {"alias": "yellow_cylinder", "position_mm": [118, 60, 10]}
+      ]
+    }
+  },
+  "required_paths": [
+    "/BLX_base_link",
+    "/BLX_joint1",
+    "/BLX_joint2",
+    "/BLX_joint3",
+    "/BLX_joint4",
+    "/BLX_joint5",
+    "/BLX_joint6",
+    "/BLX_tool_suction",
+    "/LogisticsLab",
+    "/LogisticsLab/Workspace",
+    "/LogisticsLab/Camera",
+    "/LogisticsLab/Tasks/Stack",
+    "/LogisticsLab/Tasks/Stack/Pickables",
+    "/LogisticsLab/Tasks/Stack/Targets",
+    "/LogisticsLab/Tasks/Digits",
+    "/LogisticsLab/Tasks/Digits/Pickables",
+    "/LogisticsLab/Tasks/Digits/Targets",
+    "/LogisticsLab/Tasks/Classes",
+    "/LogisticsLab/Tasks/Classes/Pickables",
+    "/LogisticsLab/Tasks/Classes/Targets"
+  ]
+}

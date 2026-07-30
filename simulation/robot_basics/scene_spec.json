@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "scene_id": "robot-basics",
+  "template": "simulation/vision_lab/BL23_vision_lab.ttt",
+  "output": "simulation/robot_basics/BL23_robot_basics.ttt",
+  "remove_paths": ["/VisionLab"],
+  "root_path": "/RobotBasics",
+  "workspace": {
+    "alias": "Workspace",
+    "size_mm": [160, 200, 10],
+    "center_mm": [80, 0, 5]
+  },
+  "camera": {
+    "alias": "Camera",
+    "path": "/RobotBasics/Camera",
+    "resolution": [640, 480],
+    "position_m": [0.08, 0.0, 0.55],
+    "near_clip_m": 0.01,
+    "far_clip_m": 2.0,
+    "perspective_angle_deg": 52
+  },
+  "markers": [
+    {"alias": "TeachPoint1", "position_mm": [60, -50, 12]},
+    {"alias": "TeachPoint2", "position_mm": [110, -50, 12]},
+    {"alias": "TeachPoint3", "position_mm": [110, 50, 12]},
+    {"alias": "TeachPoint4", "position_mm": [60, 50, 12]}
+  ],
+  "required_paths": [
+    "/BLX_base_link",
+    "/BLX_joint1",
+    "/BLX_joint2",
+    "/BLX_joint3",
+    "/BLX_joint4",
+    "/BLX_joint5",
+    "/BLX_joint6",
+    "/BLX_tool_suction",
+    "/RobotBasics",
+    "/RobotBasics/Workspace",
+    "/RobotBasics/Camera",
+    "/RobotBasics/TeachPoints/TeachPoint1",
+    "/RobotBasics/TeachPoints/TeachPoint2",
+    "/RobotBasics/TeachPoints/TeachPoint3",
+    "/RobotBasics/TeachPoints/TeachPoint4"
+  ]
+}
