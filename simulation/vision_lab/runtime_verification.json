@@ -1,0 +1,259 @@
+{
+  "schema_version": 2,
+  "verified_at": "2026-07-30T10:22:26.415893+00:00",
+  "verifier": "simulation.vision_lab.verify_scene",
+  "scene_sha256": "5154dfc3132cd29aafcbe5de83c1a6b61960595681ac5c90d2d92a5b642bda55",
+  "source_step_sha256": "f3f493626792ef25b99e6b1e79f791da96f2526cee7161c90194443e9c34a9a2",
+  "position_only_contract": true,
+  "base_pose_world": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    1.0
+  ],
+  "base_flipped": false,
+  "required_paths_found": [
+    "/BLX_base_link",
+    "/BLX_joint1",
+    "/BLX_joint2",
+    "/BLX_joint3",
+    "/BLX_joint4",
+    "/BLX_joint5",
+    "/BLX_joint6",
+    "/BLX_tool_suction",
+    "/VisionLab",
+    "/VisionLab/Camera",
+    "/VisionLab/CameraRenderScope",
+    "/VisionLab/Workspace",
+    "/VisionLab/Pickables",
+    "/VisionLab/Zones"
+  ],
+  "joint_motion": [
+    {
+      "joint_path": "/BLX_joint1",
+      "visual_path": "/BLX_link1",
+      "test_rotation_deg": 10.0,
+      "pose_change": 0.08723877473067203,
+      "follows_joint": true
+    },
+    {
+      "joint_path": "/BLX_joint2",
+      "visual_path": "/BLX_link2",
+      "test_rotation_deg": 10.0,
+      "pose_change": 0.08723877473067188,
+      "follows_joint": true
+    },
+    {
+      "joint_path": "/BLX_joint3",
+      "visual_path": "/BLX_link3",
+      "test_rotation_deg": 10.0,
+      "pose_change": 0.08723877473067201,
+      "follows_joint": true
+    },
+    {
+      "joint_path": "/BLX_joint4",
+      "visual_path": "/BLX_link4",
+      "test_rotation_deg": 10.0,
+      "pose_change": 0.0872387747306719,
+      "follows_joint": true
+    },
+    {
+      "joint_path": "/BLX_joint5",
+      "visual_path": "/BLX_link5",
+      "test_rotation_deg": 10.0,
+      "pose_change": 0.08723877473067192,
+      "follows_joint": true
+    },
+    {
+      "joint_path": "/BLX_joint6",
+      "visual_path": "/BLX_link6",
+      "test_rotation_deg": 10.0,
+      "pose_change": 0.08723877473067206,
+      "follows_joint": true
+    }
+  ],
+  "assembly_geometry": {
+    "link6_bbox_size_m": [
+      0.029995885258723355,
+      0.029999315874701817,
+      0.040792639746676844
+    ],
+    "link6_bbox_max_m": 0.040792639746676844,
+    "body_visibility_layers": {
+      "base": 1,
+      "link1": 1,
+      "link2": 1,
+      "link3": 1,
+      "link4": 1,
+      "link5": 1,
+      "link6": 1
+    },
+    "bl23_visual_handles": [],
+    "tcp_handle": 28,
+    "suction_components": [
+      {
+        "path": "/BLX_tool_suction/SuctionAdapter",
+        "handle": 30,
+        "parent_handle": 28,
+        "parent_is_tcp": true
+      },
+      {
+        "path": "/BLX_tool_suction/SuctionStem",
+        "handle": 31,
+        "parent_handle": 28,
+        "parent_is_tcp": true
+      },
+      {
+        "path": "/BLX_tool_suction/SuctionCup",
+        "handle": 32,
+        "parent_handle": 28,
+        "parent_is_tcp": true
+      }
+    ]
+  },
+  "teaching_ready_pose": {
+    "expected_joint_angles_deg": [
+      -59.98,
+      -47.68,
+      15.26,
+      111.09,
+      -204.93,
+      -96.1
+    ],
+    "actual_joint_angles_deg": [
+      -59.98,
+      -47.68,
+      15.259999999999998,
+      111.09000000000002,
+      -204.93,
+      -96.10000000000001
+    ],
+    "joint_errors_deg": [
+      0.0,
+      0.0,
+      1.7763568394002505e-15,
+      1.4210854715202004e-14,
+      0.0,
+      1.4210854715202004e-14
+    ],
+    "max_joint_error_deg": 1.4210854715202004e-14
+  },
+  "simulation_cycle": {
+    "started": true,
+    "started_state": 16,
+    "stopped": true,
+    "stopped_state": 0
+  },
+  "camera_frame": {
+    "width": 640,
+    "height": 480,
+    "sequence_id": 0,
+    "source": "coppeliasim",
+    "path": "simulation/vision_lab/evidence/scene-camera.png",
+    "sha256": "a07664ed77b2858352e91df4e8714ae49a2d331e94905b2b59bd334aa46f0234",
+    "size_bytes": 16910,
+    "mean_bgr": [
+      100.78541666666666,
+      97.99630533854166,
+      95.58714192708334
+    ],
+    "gray_stddev": 49.71310106441801,
+    "non_blank": true,
+    "teaching_color_pixels": {
+      "red": 2836,
+      "green": 1640,
+      "blue": 2677,
+      "yellow": 1367
+    },
+    "visible_teaching_colors": [
+      "red",
+      "green",
+      "blue",
+      "yellow"
+    ]
+  },
+  "robot_views": {
+    "iso": {
+      "path": "simulation/vision_lab/evidence/robot-views/robot-iso.png",
+      "sha256": "ac8f8de3220a3b5c30309b225c36fb9bb8051e871c68803ff2d33f211fff2840",
+      "size_bytes": 281551,
+      "width": 800,
+      "height": 600,
+      "gray_stddev": 61.227637090823514,
+      "non_blank": true,
+      "blue_robot_pixels": 54465,
+      "position_m": [
+        0.48,
+        -0.48,
+        0.38
+      ],
+      "target_m": [
+        0.02,
+        0.05,
+        0.1
+      ]
+    },
+    "front": {
+      "path": "simulation/vision_lab/evidence/robot-views/robot-front.png",
+      "sha256": "e3f9e95e8a09a29b7d23e7fbb5d6d3b8805ce05bab7c05f85a74de4cab81e449",
+      "size_bytes": 229790,
+      "width": 800,
+      "height": 600,
+      "gray_stddev": 58.410552762000826,
+      "non_blank": true,
+      "blue_robot_pixels": 41188,
+      "position_m": [
+        0.02,
+        -0.7,
+        0.3
+      ],
+      "target_m": [
+        0.02,
+        0.05,
+        0.1
+      ]
+    },
+    "side": {
+      "path": "simulation/vision_lab/evidence/robot-views/robot-side.png",
+      "sha256": "19b29fbebe399e92611da297f736c52ad95dfc92d9659b84905ff136c9f54265",
+      "size_bytes": 245224,
+      "width": 800,
+      "height": 600,
+      "gray_stddev": 52.76520519686221,
+      "non_blank": true,
+      "blue_robot_pixels": 31908,
+      "position_m": [
+        0.85,
+        0.05,
+        0.36
+      ],
+      "target_m": [
+        0.02,
+        0.05,
+        0.12
+      ]
+    }
+  },
+  "gates": {
+    "scene_hash_matches": true,
+    "all_required_paths_found": true,
+    "base_not_flipped": true,
+    "all_six_visuals_follow_joints": true,
+    "simulation_started": true,
+    "simulation_stopped": true,
+    "camera_frame_non_blank": true,
+    "camera_resolution_matches": true,
+    "all_teaching_colors_visible": true,
+    "link6_scale_corrected": true,
+    "all_reference_body_visuals_visible": true,
+    "no_bl23_runtime_visuals": true,
+    "custom_suction_parented_to_tcp": true,
+    "teaching_ready_pose_persisted": true,
+    "three_robot_views_non_blank": true,
+    "reference_body_visible_in_three_views": true
+  },
+  "verdict": "PASS"
+}

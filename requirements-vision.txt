@@ -1,0 +1,7 @@
+numpy>=1.26,<3
+opencv-python>=4.10,<5
+PyQt5>=5.15,<6
+pyzmq>=26,<28
+cbor2>=5.6,<6
+pytest>=8,<10
+pytest-qt>=4.4,<5

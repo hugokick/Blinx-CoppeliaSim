@@ -1,0 +1,195 @@
+{
+  "schema_version": 1,
+  "scene_name": "BL23 Vision Lab",
+  "scene_path": "simulation/vision_lab/BL23_vision_lab.ttt",
+  "formal_scene_template": "robot_backends/models/BLX_openr6.ttt",
+  "required_paths": [
+    "/BLX_base_link",
+    "/BLX_joint1",
+    "/BLX_joint2",
+    "/BLX_joint3",
+    "/BLX_joint4",
+    "/BLX_joint5",
+    "/BLX_joint6",
+    "/BLX_tool_suction",
+    "/VisionLab",
+    "/VisionLab/Camera",
+    "/VisionLab/CameraRenderScope",
+    "/VisionLab/Workspace",
+    "/VisionLab/Pickables",
+    "/VisionLab/Zones"
+  ],
+  "robot_contract": {
+    "model": "OpenR6 reference body with a custom suction end effector",
+    "visual_body": "openr6_reference",
+    "end_effector": "custom_suction",
+    "coordinate_mode": "position_only",
+    "orientation_ignored": true,
+    "base_flipped": false,
+    "workspace_radius_warn_mm": 150,
+    "formal_assets_mutated": false
+  },
+  "robot_visuals": {
+    "body_source": "openr6_reference_archive_and_embedded_formal_shapes",
+    "body_paths": {
+      "base": "/BLX_base_link",
+      "link1": "/BLX_link1",
+      "link2": "/BLX_link2",
+      "link3": "/BLX_link3",
+      "link4": "/BLX_link4",
+      "link5": "/BLX_link5",
+      "link6": "/BLX_link6"
+    },
+    "visibility_layer": 1,
+    "collision_strategy": "keep formal BLX collision chain plus simplified object collisions",
+    "scale_corrections": {
+      "/BLX_link6": 0.1
+    },
+    "teaching_ready_pose": {
+      "joint_angles_deg": [-59.98, -47.68, 15.26, 111.09, -204.93, -96.1],
+      "tcp_expected_mm": [100, 60, 100],
+      "selection": "reachable position-only IK configuration selected for a connected, open-arm teaching view with the suction cup facing mostly downward"
+    },
+    "bl23_step_runtime_usage": "excluded",
+    "bl23_step_exclusion_reason": "The vendor STEP has no trustworthy articulated assembly mapping and its audited segment set contains a hard link3-link4 discontinuity. Independent bounding-box alignment caused the reported floating and overlapping parts.",
+    "end_effector": {
+      "type": "suction",
+      "tcp_path": "/BLX_tool_suction",
+      "original_end_effector_reused": false,
+      "components": [
+        {
+          "alias": "SuctionAdapter",
+          "primitive": "cylinder",
+          "size_m": [0.03, 0.03, 0.012],
+          "pose_relative_tcp": [0.0, 0.044, 0.0, 0.7071067811865476, 0.0, 0.0, 0.7071067811865476],
+          "color": [0.12, 0.33, 0.48]
+        },
+        {
+          "alias": "SuctionStem",
+          "primitive": "cylinder",
+          "size_m": [0.012, 0.012, 0.03],
+          "pose_relative_tcp": [0.0, 0.023, 0.0, 0.7071067811865476, 0.0, 0.0, 0.7071067811865476],
+          "color": [0.1, 0.55, 0.58]
+        },
+        {
+          "alias": "SuctionCup",
+          "primitive": "cylinder",
+          "size_m": [0.026, 0.026, 0.008],
+          "pose_relative_tcp": [0.0, 0.004, 0.0, 0.7071067811865476, 0.0, 0.0, 0.7071067811865476],
+          "color": [0.05, 0.2, 0.24]
+        }
+      ]
+    }
+  },
+  "workspace": {
+    "path": "/VisionLab/Workspace",
+    "center_m": [0.08, 0.0, 0.0],
+    "size_m": [0.26, 0.22, 0.01],
+    "plane_z_mm": 20
+  },
+  "camera": {
+    "path": "/VisionLab/Camera",
+    "resolution": [640, 480],
+    "position_m": [0.08, 0.0, 0.42],
+    "target_m": [0.08, 0.0, 0.02],
+    "perspective_angle_deg": 40,
+    "near_clip_m": 0.05,
+    "far_clip_m": 1.0
+  },
+  "calibration_markers": [
+    {
+      "path": "/VisionLab/Calibration/fit_1",
+      "role": "fit",
+      "world_mm": [35, -70, 20],
+      "color": "white"
+    },
+    {
+      "path": "/VisionLab/Calibration/fit_2",
+      "role": "fit",
+      "world_mm": [35, 70, 20],
+      "color": "white"
+    },
+    {
+      "path": "/VisionLab/Calibration/fit_3",
+      "role": "fit",
+      "world_mm": [100, -70, 20],
+      "color": "white"
+    },
+    {
+      "path": "/VisionLab/Calibration/validation_1",
+      "role": "validation",
+      "world_mm": [100, 70, 20],
+      "color": "magenta"
+    }
+  ],
+  "objects": [
+    {
+      "path": "/VisionLab/Pickables/object_01_red_square",
+      "color": "red",
+      "shape": "square",
+      "position_mm": [55, -55, 20],
+      "size_mm": [18, 18, 12]
+    },
+    {
+      "path": "/VisionLab/Pickables/object_02_green_square",
+      "color": "green",
+      "shape": "square",
+      "position_mm": [75, -20, 20],
+      "size_mm": [18, 18, 12]
+    },
+    {
+      "path": "/VisionLab/Pickables/object_03_blue_circle",
+      "color": "blue",
+      "shape": "circle",
+      "position_mm": [55, 20, 20],
+      "size_mm": [18, 18, 12]
+    },
+    {
+      "path": "/VisionLab/Pickables/object_04_yellow_circle",
+      "color": "yellow",
+      "shape": "circle",
+      "position_mm": [78, 55, 20],
+      "size_mm": [18, 18, 12]
+    },
+    {
+      "path": "/VisionLab/Pickables/object_05_red_circle",
+      "color": "red",
+      "shape": "circle",
+      "position_mm": [92, -45, 20],
+      "size_mm": [16, 16, 12]
+    },
+    {
+      "path": "/VisionLab/Pickables/object_06_blue_square",
+      "color": "blue",
+      "shape": "square",
+      "position_mm": [92, 38, 20],
+      "size_mm": [16, 16, 12]
+    }
+  ],
+  "zones": {
+    "red": {
+      "path": "/VisionLab/Zones/red",
+      "center_mm": [122, -66, 20],
+      "size_mm": [32, 36, 30],
+      "color": "red"
+    },
+    "green": {
+      "path": "/VisionLab/Zones/green",
+      "center_mm": [122, -22, 20],
+      "size_mm": [32, 36, 30],
+      "color": "green"
+    },
+    "blue": {
+      "path": "/VisionLab/Zones/blue",
+      "center_mm": [122, 22, 20],
+      "size_mm": [32, 36, 30],
+      "color": "blue"
+    },
+    "yellow": {
+      "path": "/VisionLab/Zones/yellow",
+      "center_mm": [122, 66, 20],
+      "size_mm": [32, 36, 30],
+      "color": "yellow"
+    }
+  }
+}

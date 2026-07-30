@@ -1,0 +1,373 @@
+{
+  "timestamp": "2026-06-08T10:01:44Z",
+  "source": "H:\\智能机械与机器人基础\\实训课\\6.基于视觉的机器人应用\\robot_backends\\models_candidate\\reports\\step_volumes_2026-06-08.json",
+  "manifest": "H:\\智能机械与机器人基础\\实训课\\6.基于视觉的机器人应用\\robot_backends\\models_candidate\\reports\\rt_a002_p001_manifest_v1_2026-06-07.json",
+  "total_volumes": 141,
+  "segments": {
+    "base": {
+      "required_tags": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "recommended_tags": [],
+      "uncertain_tags": [
+        22,
+        23,
+        24
+      ],
+      "exclude_tags": [],
+      "must_include_tag_count": 5,
+      "include_tag_count_recommended": 0,
+      "uncertain_tag_count": 3,
+      "exclude_tag_count": 0,
+      "semantic_note": "BLX_base_link — 安装底板 + 4 根支撑轴, 固定到地面, 视觉上 = BLX 简化版. 不动 j1 转动原点.",
+      "volume_names_required": [
+        "RT-A001-P001(安装底板)Yx-V1.1.2-SJ",
+        "RT-A001-P002(支撑轴)Yx-V1.1.2-SJ",
+        "RT-A001-P002(支撑轴)Yx-V1.1.2-SJ",
+        "RT-A001-P002(支撑轴)Yx-V1.1.2-SJ",
+        "RT-A001-P002(支撑轴)Yx-V1.1.2-SJ"
+      ],
+      "volume_names_recommended": []
+    },
+    "link1": {
+      "required_tags": [
+        14,
+        6,
+        21,
+        129,
+        140
+      ],
+      "recommended_tags": [
+        130,
+        27,
+        28,
+        29,
+        30,
+        31,
+        32,
+        33,
+        34,
+        35,
+        36,
+        37,
+        38,
+        39,
+        40,
+        41,
+        42,
+        43,
+        44,
+        45,
+        47,
+        48,
+        49,
+        50,
+        51,
+        52,
+        53,
+        54
+      ],
+      "uncertain_tags": [
+        25,
+        26,
+        56,
+        57,
+        58,
+        59,
+        60,
+        22,
+        23,
+        24
+      ],
+      "exclude_tags": [
+        10,
+        11,
+        12,
+        13,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        7,
+        8
+      ],
+      "must_include_tag_count": 5,
+      "include_tag_count_recommended": 28,
+      "uncertain_tag_count": 10,
+      "exclude_tag_count": 12,
+      "semantic_note": "BLX_link1 — 一轴主壳 + 二轴大臂连杆 + 一轴电机底座, 整体绕 j1 转动. 包含一轴外壳(主) + 一轴外壳B(侧板) + 配套电机/电缆. 推荐含 MINIF11 步进电机(42x70x42) + 线夹板 + 屏幕(基座端装饰), 因它们螺栓在 j1 主壳上共转. 不确定项中空支撑板/支撑底座 是 j1 跟 j2 中间过渡件, 视觉上挂 link1 跟 link2 之间的接缝.",
+      "volume_names_required": [
+        "LC-RT-ZQ003(第一轴外壳)SZXYx-V1.1.2-SJ",
+        "RT-A001-P003(二轴大臂)Yx-V1.1.2-SJ",
+        "RT-A001-P018(一轴电机底座)Yx-V1.1.2-SJ",
+        "RT-A003-P001（一轴外壳）-SJ",
+        "RT-A003-P005（一轴外壳B）-SJ"
+      ],
+      "volume_names_recommended": [
+        "RT-A003-P002（二轴外壳）-SJ",
+        "MINIF11步进电机42安装案例.sldasm-Part-1-1-ZQSZXYx-V1.1.2-SJ",
+        "MINIF11步进电机42安装案例.sldasm-Part-3-1-ZQSZXYx-V1.1.2-SJ",
+        "MINIF11步进电机42安装案例.sldasm-Part-4-1-ZQSZXYx-V1.1.2-SJ",
+        "MINIF11步进电机42安装案例.sldasm-Part-5-ZQSZXYx-V1.1.2-SJ",
+        "MINIF11步进电机42安装案例.sldasm-Part-6-1-ZQSZXYx-V1.1.2-SJ",
+        "MINIF11步进电机42安装案例.sldasm-Part-7-1-ZQSZXYx-V1.1.2-SJ",
+        "MINIF11步进电机42安装案例.sldasm-Part-8-1-ZQSZXYx-V1.1.2-SJ",
+        "MINIF11步进电机42安装案例.sldasm-Part-9-1-ZQSZXYx-V1.1.2-SJ",
+        "MINIF11步进电机42安装案例.sldasm-Part-10-1-ZQSZXYx-V1.1.2-SJ",
+        "MINIF11步进电机42安装案例.sldasm-Part-11-1-ZQSZXYx-V1.1.2-SJ",
+        "MINIF11步进电机42安装案例.sldasm-Part-12-1-ZQSZXYx-V1.1.2-SJ",
+        "MINIF11步进电机42安装案例.sldasm-Part-13-1-ZQSZXYx-V1.1.2-SJ",
+        "MINIF11步进电机42安装案例.sldasm-Part-14-1-ZQSZXYx-V1.1.2-SJ",
+        "MINIF11步进电机42安装案例.sldasm-Part-15-1-ZQSZXYx-V1.1.2-SJ",
+        "MINIF11步进电机42安装案例.sldasm-Part-16-1-ZQSZXYx-V1.1.2-SJ",
+        "MINIF11步进电机42安装案例.sldasm-Part-17-1-ZQSZXYx-V1.1.2-SJ",
+        "hexagon socket head cap screws gb_GB_FASTENER_SCREWS_HSHCS M4X6-N",
+        "hexagon socket head cap screws gb_GB_FASTENER_SCREWS_HSHCS M4X6-N",
+        "MINIF11步进电机42安装案例.sldasm-Part-1-1-ZQSZXYx-V1.1A.2-SJ",
+        "(M12电源开关）Yx-V1.1.2-SJ",
+        "屏幕Yx-V1.1.2-SJ",
+        "RT-A001-P024（线夹板）Yx-V1.1.2-SJ",
+        "28HS2806A4.stepx-V1.1.2-SJ",
+        "28XGJ____.STEPx-V1.1.2-SJ",
+        "28XGJ________.STEPx-V1.1.2-SJ",
+        "28XGJ____-0.STEPx-V1.1.2-SJ",
+        "RT-A001-ZP003(四轴排线锁紧)x-V1.1.2-SJ"
+      ]
+    },
+    "link2": {
+      "required_tags": [
+        46
+      ],
+      "recommended_tags": [],
+      "uncertain_tags": [
+        130
+      ],
+      "exclude_tags": [],
+      "must_include_tag_count": 1,
+      "include_tag_count_recommended": 0,
+      "uncertain_tag_count": 1,
+      "exclude_tag_count": 0,
+      "semantic_note": "BLX_link2 — 二轴支撑板 + 二轴外壳(整段前臂), 整体绕 j2 转动. 二轴外壳尺寸 98x74x225 mm 是最大的单件之一, 包含前臂内部结构. 必含只有 1 个二轴支撑板是 low confidence, 实际可能需要从 link1 推荐含里挪过来.",
+      "volume_names_required": [
+        "RT-A001-P021（二轴支撑板)Yx-V1.1.2-A-SJ"
+      ],
+      "volume_names_recommended": []
+    },
+    "link3": {
+      "required_tags": [
+        131
+      ],
+      "recommended_tags": [
+        141
+      ],
+      "uncertain_tags": [],
+      "exclude_tags": [
+        132
+      ],
+      "must_include_tag_count": 1,
+      "include_tag_count_recommended": 1,
+      "uncertain_tag_count": 0,
+      "exclude_tag_count": 1,
+      "semantic_note": "BLX_link3 — 三轴(实际叫四轴外壳)主壳, 整体绕 j3 转动. 1 个主件 + 1 个装饰板. 注: STEP 命名 '四轴'/'五轴' 跟实际 jN frame 错位, 因为厂家按 STEP 装配顺序编号, 跟 BLX joint j1~j6 不直接对应.",
+      "volume_names_required": [
+        "RT-A003-P003（四轴外壳）-SJ"
+      ],
+      "volume_names_recommended": [
+        "亚克力背光板-SJ"
+      ]
+    },
+    "link4": {
+      "required_tags": [
+        122,
+        55,
+        50,
+        132
+      ],
+      "recommended_tags": [
+        51,
+        52,
+        53
+      ],
+      "uncertain_tags": [
+        9,
+        54
+      ],
+      "exclude_tags": [],
+      "must_include_tag_count": 4,
+      "include_tag_count_recommended": 3,
+      "uncertain_tag_count": 2,
+      "exclude_tag_count": 0,
+      "semantic_note": "BLX_link4 — 5轴连杆(主连杆 155x41x41) + 电机固定板 + 步进电机(28HS2806A4) + 四轴外壳(实为 j4 主壳), 整体绕 j4 转动. 包含 28XGJ 减速器段(齿轮系). 跟 manifest 描述的'link4_group 3 组件+ CSF-05' 基本对齐, 加上 j4 自己的外壳/支架.",
+      "volume_names_required": [
+        "5轴连杆.2-SJ",
+        "RT-A002-P001-01(电机固定板）-V1.1.2-SJ",
+        "28HS2806A4.stepx-V1.1.2-SJ",
+        "RT-A003-P004（五轴外壳）-SJ"
+      ],
+      "volume_names_recommended": [
+        "28XGJ____.STEPx-V1.1.2-SJ",
+        "28XGJ________.STEPx-V1.1.2-SJ",
+        "28XGJ____-0.STEPx-V1.1.2-SJ"
+      ]
+    },
+    "link5": {
+      "required_tags": [
+        111,
+        110,
+        108,
+        109
+      ],
+      "recommended_tags": [
+        61,
+        62,
+        63,
+        64,
+        65,
+        66,
+        67,
+        68,
+        79,
+        86,
+        99,
+        100
+      ],
+      "uncertain_tags": [
+        101,
+        102,
+        103,
+        104,
+        105,
+        106,
+        107
+      ],
+      "exclude_tags": [
+        69,
+        70,
+        71,
+        72,
+        73,
+        74,
+        75,
+        76,
+        77,
+        78,
+        80,
+        81,
+        82,
+        83,
+        84,
+        85,
+        87,
+        88,
+        89,
+        90,
+        91,
+        92,
+        93,
+        94,
+        95,
+        96,
+        97,
+        98
+      ],
+      "must_include_tag_count": 4,
+      "include_tag_count_recommended": 12,
+      "uncertain_tag_count": 7,
+      "exclude_tag_count": 28,
+      "semantic_note": "BLX_link5 — 六轴支撑(主结构) + 20BY 步进电机 + 2 个同步带轮 + CSF-05 谐波减速器内件 (12 件), 整体绕 j5 转动. 跟 manifest 'link5_group 6 组件 + CSF-05 depth2 7 件' 对齐. 不确定项 7 件螺丝 = CSF-05 紧固, 实际装在 j5 上.",
+      "volume_names_required": [
+        "RT-A002-P001-02(六轴支撑)-V1.1.2-SJ",
+        "20BY步进电机ZXYx-V1.1.2-SJ",
+        "2GT-20齿-V1.1.2-SJ",
+        "2GT-20齿（内孔4mm）-V1.1.2-SJ"
+      ],
+      "volume_names_recommended": [
+        "CSF05-1U-01_預設_1-V1.1.2-SJ",
+        "CSF-05-交叉轴承内圈_1-V1.1.2-SJ",
+        "CSF-05-交叉轴承外圈_1-V1.1.2-SJ",
+        "外径14x0.8  O型圈_預設_1-V1.1.2-SJ",
+        "CSF-05-1U-03_預設_1-V1.1.2-SJ",
+        "十字槽沉头螺钉 M1.6×3_預設_1-V1.1.2-SJ",
+        "CSF05-1U-04_預設_1-V1.1.2-SJ",
+        "13.08x9.8x2.08柔性轴承_預設_1-V1.1.2-SJ",
+        "深沟球轴承  618╱1.5_預設_1-V1.1.2-SJ",
+        "深沟球轴承  617╱3_預設_1-V1.1.2-SJ",
+        "CSF05-1U-05_預設_1-V1.1.2-SJ",
+        "CSF05-1U-02_預設-V1.1.2-SJ"
+      ]
+    },
+    "link6": {
+      "required_tags": [
+        121,
+        113,
+        114,
+        112,
+        115,
+        116
+      ],
+      "recommended_tags": [],
+      "uncertain_tags": [
+        123,
+        124,
+        125,
+        126,
+        127,
+        128,
+        133,
+        134,
+        135,
+        136,
+        137,
+        138,
+        139
+      ],
+      "exclude_tags": [],
+      "must_include_tag_count": 6,
+      "include_tag_count_recommended": 0,
+      "uncertain_tag_count": 13,
+      "exclude_tag_count": 0,
+      "semantic_note": "BLX_link6 — 六轴外壳(主) + 外壳A/B(侧板) + 电路侧板 + 2 滚花铜柱, 整体绕 j6 转动. 跟 manifest 'link6_group 10 组件(吸盘+P013 4 件+六轴外壳+3 件外壳+2 件铜柱+JXB placeholder)' 对齐, 去掉 4 件 tool 件.",
+      "volume_names_required": [
+        "六轴外壳-V1.1.2-SJ",
+        "RT-A002-P001-05(外壳A）-V1.1.2-SJ",
+        "RT-A002-P001-06(外壳B)-V1.1.2-SJ",
+        "RT-A002-P001-03(电路侧板)-V1.1.2-SJ",
+        "滚花铜柱M2-V1.1.2-SJ",
+        "滚花铜柱M2-V1.1.2-SJ"
+      ],
+      "volume_names_recommended": []
+    },
+    "tool": {
+      "required_tags": [
+        120,
+        117,
+        118,
+        119
+      ],
+      "recommended_tags": [],
+      "uncertain_tags": [],
+      "exclude_tags": [],
+      "must_include_tag_count": 4,
+      "include_tag_count_recommended": 0,
+      "uncertain_tag_count": 0,
+      "exclude_tag_count": 0,
+      "semantic_note": "tool — 吸盘 + 3 件气嘴 (夹具座/连接件/气嘴), 跟 j6 共转(匹配 BLX 行为, 跟 manifest 'tool co-rotates with j6' 一致). 跟 BLX 的 /BLX_tool_suction dummy 替换, 仍 parent /BLX_joint6.",
+      "volume_names_required": [
+        "吸盘-ZQSZXYx-V1.1.2-SJ",
+        "RT-A001-P013-004（气嘴夹具座）Yx-V1.1.2-SJ",
+        "RT-A001-P013-005（气嘴连接件）Yx-V1.1.2-SJ",
+        "RT-A001-P013-006（气嘴)Yx-V1.1.2-SJ"
+      ],
+      "volume_names_recommended": []
+    }
+  },
+  "uncovered_volumes": [],
+  "covered_count": 141,
+  "remaining_count": 0
+}

@@ -1,0 +1,173 @@
+{
+  "schema_version": 1,
+  "selected_by_user": "2026-07-30",
+  "reference_assembly": {
+    "selected_by_user": "2026-07-30",
+    "source_archive": {
+      "filename": "openr6_arm.7z",
+      "sha256": "524f968f1ce19dc3fc731d2fd3fbabc83631d1506fae94a938a3725c70c5d174",
+      "size_bytes": 2717681,
+      "default_path": "H:/智能机械与机器人基础/实训课/六轴机器臂模型/openr6_arm.7z"
+    },
+    "runtime_body": "embedded OpenR6 shapes from robot_backends/models/BLX_openr6.ttt",
+    "mesh_equivalence": "The seven meshes extracted from openr6_arm.7z are byte-identical to robot_backends/models/meshes_blx/*.STL.",
+    "link6_scale_correction": 0.1,
+    "end_effector_policy": "Do not reuse the archive end effector. Keep /BLX_tool_suction as the TCP and add a dedicated visible suction assembly."
+  },
+  "source_archive": {
+    "filename": "LC-YT1119-BL23-A000(机械臂总组装）-ZQSZXYx-V1.1.2-SJ.zip",
+    "sha256": "9ea431ee1b87417c19f1a0f579209dfe20d0c8d1e381b660010900718cb2b4dc",
+    "size_bytes": 12732730,
+    "default_path": "H:/智能机械与机器人基础/实训课/六轴机器臂模型/LC-YT1119-BL23-A000(机械臂总组装）-ZQSZXYx-V1.1.2-SJ.zip"
+  },
+  "source_step": {
+    "archive_entry": "LC-YT1119-BL23-A000(机械臂总组装）-ZQSZXYx-V1.1.2-SJ.STEP",
+    "sha256": "f3f493626792ef25b99e6b1e79f791da96f2526cee7161c90194443e9c34a9a2",
+    "size_bytes": 48316675,
+    "solid_count": 141,
+    "unit": "millimeter"
+  },
+  "source_of_truth": [
+    "vendor_step",
+    "step_volumes_2026-06-08.json",
+    "segment_volume_mapping_2026-06-08.json",
+    "ocp_entity_export"
+  ],
+  "segments": [
+    "base",
+    "link1",
+    "link2",
+    "link3",
+    "link4",
+    "link5",
+    "link6",
+    "tool"
+  ],
+  "semantic_partition_141": {
+    "base": [1, 2, 3, 4, 5],
+    "link1": [
+      6, 7, 8, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
+      21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33,
+      34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 47,
+      48, 49, 56, 57, 58, 59, 60, 129, 140
+    ],
+    "link2": [46, 130],
+    "link3": [131, 141],
+    "link4": [9, 50, 51, 52, 53, 54, 55, 122, 132],
+    "link5": [
+      61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73,
+      74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86,
+      87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99,
+      100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110,
+      111
+    ],
+    "link6": [
+      112, 113, 114, 115, 116, 121, 123, 124, 125, 126, 127,
+      128, 133, 134, 135, 136, 137, 138, 139
+    ],
+    "tool": [117, 118, 119, 120]
+  },
+  "visual_segment_sources": {
+    "base": {
+      "kind": "ocp_entity_tags",
+      "source_step_sha256": "f3f493626792ef25b99e6b1e79f791da96f2526cee7161c90194443e9c34a9a2",
+      "tags": [1, 2, 3, 4, 5]
+    },
+    "link1": {
+      "kind": "ocp_entity_tags",
+      "source_step_sha256": "f3f493626792ef25b99e6b1e79f791da96f2526cee7161c90194443e9c34a9a2",
+      "tags": [6, 14, 21, 129, 140],
+      "alignment_anchor_tag": 129
+    },
+    "link2": {
+      "kind": "ocp_entity_tags",
+      "source_step_sha256": "f3f493626792ef25b99e6b1e79f791da96f2526cee7161c90194443e9c34a9a2",
+      "tags": [46, 130],
+      "alignment_anchor_tag": 130
+    },
+    "link3": {
+      "kind": "ocp_entity_tags",
+      "source_step_sha256": "f3f493626792ef25b99e6b1e79f791da96f2526cee7161c90194443e9c34a9a2",
+      "tags": [131],
+      "alignment_anchor_tag": 131
+    },
+    "link4": {
+      "kind": "ocp_entity_tags",
+      "source_step_sha256": "f3f493626792ef25b99e6b1e79f791da96f2526cee7161c90194443e9c34a9a2",
+      "tags": [9, 50, 51, 52, 53, 54, 55, 122, 132],
+      "alignment_anchor_tag": 122
+    },
+    "link5": {
+      "kind": "ocp_entity_tags",
+      "source_step_sha256": "f3f493626792ef25b99e6b1e79f791da96f2526cee7161c90194443e9c34a9a2",
+      "tags": [
+        61, 62, 63, 64, 65, 66, 67, 68, 79, 86, 99, 100,
+        101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111
+      ],
+      "alignment_anchor_tag": 111
+    },
+    "link6": {
+      "kind": "ocp_entity_tags",
+      "source_step_sha256": "f3f493626792ef25b99e6b1e79f791da96f2526cee7161c90194443e9c34a9a2",
+      "tags": [112, 113, 114, 115, 116, 121],
+      "alignment_anchor_tag": 121,
+      "alignment_group": "tcp_wrist"
+    },
+    "tool": {
+      "kind": "ocp_entity_tags",
+      "source_step_sha256": "f3f493626792ef25b99e6b1e79f791da96f2526cee7161c90194443e9c34a9a2",
+      "tags": [117, 118, 119, 120],
+      "alignment_group": "tcp_wrist"
+    }
+  },
+  "visual_omission_note": "The 141-tag semantic partition remains a complete audit record. The visual meshes intentionally use only required/recommended exterior entities; omitted fasteners, bearings, electronics and uncertain decoration are not falsely presented as articulated exterior geometry. Final geometry appearance remains a human teaching-acceptance gate.",
+  "provenance_snapshots": {
+    "step_volumes": {
+      "path": "provenance/step_volumes_2026-06-08.json",
+      "sha256": "f942d166dc7dc6d5c1fc4339d8d41e157202b8788e0a93ad9d56ce2841ef240f"
+    },
+    "segment_mapping": {
+      "path": "provenance/segment_volume_mapping_2026-06-08.json",
+      "sha256": "d937f27c4fe66ef802b61711e85432768a9bc5c4e5caa8e5f8eed2611315673a"
+    }
+  },
+  "protected_formal_assets": [
+    {
+      "path": "robot_backends/models/BLX_openr6.ttt",
+      "sha256": "a850f5ab06d964db286d73871cd375788eab96bd300890e0b340832842b5b6d4"
+    },
+    {
+      "path": "robot_backends/models/openr6_arm_coppeliasim.urdf",
+      "sha256": "82878b4f71ff003d33d56e6f761e6a0b8b9ac26e7ed95c0c4fa218f68c04bdf7",
+      "hash_mode": "text_lf"
+    },
+    {
+      "path": "robot_backends/models/meshes_blx/base_link.STL",
+      "sha256": "76fc7231c3c08cc03b439c671969d6bce146493b30916bf67bb81fa0baa5f94f"
+    },
+    {
+      "path": "robot_backends/models/meshes_blx/link1.STL",
+      "sha256": "8cce9b677ebfa1e4c24d6f9e7622cc07bff6f8032ba5bbb4cde56cc9c0504117"
+    },
+    {
+      "path": "robot_backends/models/meshes_blx/link2.STL",
+      "sha256": "4d7108f92f3a69240453c4d6b9735e768117bf30da2bae08684ad8a3729637de"
+    },
+    {
+      "path": "robot_backends/models/meshes_blx/link3.STL",
+      "sha256": "ab4a1dade99000bc47ea725462650095cf96f2a1ef1a9229ea6fcd94c8e4bfc1"
+    },
+    {
+      "path": "robot_backends/models/meshes_blx/link4.STL",
+      "sha256": "db839d7797aea66cffa85504c39f1f2b93f73d5b050fa75dc99e077bee5dd8b2"
+    },
+    {
+      "path": "robot_backends/models/meshes_blx/link5.STL",
+      "sha256": "ff04ff2010763571e63aa67b4c8147300f2370ce4cdf4d10c224120500e8963d"
+    },
+    {
+      "path": "robot_backends/models/meshes_blx/link6.STL",
+      "sha256": "a2eb2880409e14ac445735874ee9886bc6eb4d3b3d2f07e11ee472a79804a915"
+    }
+  ]
+}

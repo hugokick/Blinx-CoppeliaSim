@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "loop": true,
+  "frames": [
+    {
+      "path": "../data/replay/experiment-3-source.jpg",
+      "experiment": 3,
+      "kind": "authentic_source"
+    },
+    {
+      "path": "../data/replay/experiment-3-result.jpg",
+      "experiment": 3,
+      "kind": "authentic_result"
+    },
+    {
+      "path": "../data/replay/experiment-4-result.jpg",
+      "experiment": 4,
+      "kind": "authentic_result"
+    }
+  ]
+}

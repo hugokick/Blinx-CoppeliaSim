@@ -1,0 +1,620 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-07-30T08:38:54.535862+00:00",
+  "generator": "simulation.vision_lab.import_robot_assets",
+  "source_step_sha256": "f3f493626792ef25b99e6b1e79f791da96f2526cee7161c90194443e9c34a9a2",
+  "source_archive_sha256": "9ea431ee1b87417c19f1a0f579209dfe20d0c8d1e381b660010900718cb2b4dc",
+  "source_solid_count": 141,
+  "solid_bbox_verification_max_error_mm": 0.0,
+  "mesh_deflection_mm": 0.5,
+  "elapsed_s": 17.219,
+  "protected_assets_unchanged": true,
+  "assets": {
+    "base": {
+      "path": "assets/robot/base.STL",
+      "sha256": "ca8a27810e749b867159355468f32534aee9175e932cfbafca18993102f6d3a0",
+      "size_bytes": 684884,
+      "source_step_sha256": "f3f493626792ef25b99e6b1e79f791da96f2526cee7161c90194443e9c34a9a2",
+      "source_unit": "millimeter",
+      "mesh_deflection_mm": 0.5,
+      "coppeliasim_import_scale": 0.001,
+      "usage": "visual_only",
+      "collision_strategy": "simplified_bbox",
+      "alignment_anchor": null,
+      "alignment_group": null,
+      "source_kind": "vendor_step_ocp_entity_export",
+      "source_tags": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "source_solid_count": 5,
+      "source_names": [
+        "RT-A001-P001(安装底板)Yx-V1.1.2-SJ",
+        "RT-A001-P002(支撑轴)Yx-V1.1.2-SJ",
+        "RT-A001-P002(支撑轴)Yx-V1.1.2-SJ",
+        "RT-A001-P002(支撑轴)Yx-V1.1.2-SJ",
+        "RT-A001-P002(支撑轴)Yx-V1.1.2-SJ"
+      ],
+      "triangle_count": 13696,
+      "vertex_count": 6800,
+      "bounds_mm": [
+        [
+          -67.5,
+          -85.0,
+          -3.058654268446939e-14
+        ],
+        [
+          67.5,
+          85.0,
+          79.5
+        ]
+      ],
+      "extents_mm": [
+        135.0,
+        170.0,
+        79.50000000000003
+      ],
+      "watertight": false,
+      "winding_consistent": true,
+      "graph_component_audit": "omitted_no_optional_graph_dependency"
+    },
+    "link1": {
+      "path": "assets/robot/link1.STL",
+      "sha256": "f589db989168b680172172a81c387a1402beb8a62cf2b232d606012ab7f15f13",
+      "size_bytes": 2136484,
+      "source_step_sha256": "f3f493626792ef25b99e6b1e79f791da96f2526cee7161c90194443e9c34a9a2",
+      "source_unit": "millimeter",
+      "mesh_deflection_mm": 0.5,
+      "coppeliasim_import_scale": 0.001,
+      "usage": "visual_only",
+      "collision_strategy": "simplified_bbox",
+      "alignment_anchor": {
+        "path": "assets/robot/anchors/link1_anchor.STL",
+        "sha256": "27425d74c993f33763b0245e2714a1b53e6a3b7ea23e60452cfcdd7ded27dcf7",
+        "size_bytes": 628784,
+        "source_tag": 129,
+        "source_name": "RT-A003-P001（一轴外壳）-SJ",
+        "triangle_count": 12574,
+        "vertex_count": 6272,
+        "bounds_mm": [
+          [
+            -64.0,
+            -54.0,
+            91.0
+          ],
+          [
+            61.01641845703125,
+            43.71213150024414,
+            191.22793579101562
+          ]
+        ],
+        "extents_mm": [
+          125.01641845703125,
+          97.71213150024414,
+          100.22793579101562
+        ],
+        "watertight": false,
+        "winding_consistent": true,
+        "graph_component_audit": "omitted_no_optional_graph_dependency"
+      },
+      "alignment_group": null,
+      "source_kind": "vendor_step_ocp_entity_export",
+      "source_tags": [
+        6,
+        14,
+        21,
+        129,
+        140
+      ],
+      "source_solid_count": 5,
+      "source_names": [
+        "RT-A001-P003(二轴大臂)Yx-V1.1.2-SJ",
+        "LC-RT-ZQ003(第一轴外壳)SZXYx-V1.1.2-SJ",
+        "RT-A001-P018(一轴电机底座)Yx-V1.1.2-SJ",
+        "RT-A003-P001（一轴外壳）-SJ",
+        "RT-A003-P005（一轴外壳B）-SJ"
+      ],
+      "triangle_count": 42728,
+      "vertex_count": 21180,
+      "bounds_mm": [
+        [
+          -65.0,
+          -65.0,
+          8.0
+        ],
+        [
+          65.0,
+          65.0,
+          336.4835510253906
+        ]
+      ],
+      "extents_mm": [
+        130.0,
+        130.0,
+        328.4835510253906
+      ],
+      "watertight": false,
+      "winding_consistent": true,
+      "graph_component_audit": "omitted_no_optional_graph_dependency"
+    },
+    "link2": {
+      "path": "assets/robot/link2.STL",
+      "sha256": "9c42d0b887b71c96149e7f6a4b55f253729173c28d26bcacdc9106e622105011",
+      "size_bytes": 858384,
+      "source_step_sha256": "f3f493626792ef25b99e6b1e79f791da96f2526cee7161c90194443e9c34a9a2",
+      "source_unit": "millimeter",
+      "mesh_deflection_mm": 0.5,
+      "coppeliasim_import_scale": 0.001,
+      "usage": "visual_only",
+      "collision_strategy": "simplified_bbox",
+      "alignment_anchor": {
+        "path": "assets/robot/anchors/link2_anchor.STL",
+        "sha256": "40e6d21588a695255a9c9c5929c2f999a2b58e619bf67cac95c18548cff267d5",
+        "size_bytes": 559284,
+        "source_tag": 130,
+        "source_name": "RT-A003-P002（二轴外壳）-SJ",
+        "triangle_count": 11184,
+        "vertex_count": 5579,
+        "bounds_mm": [
+          [
+            -55.96768569946289,
+            52.5,
+            121.83231353759766
+          ],
+          [
+            39.33686447143555,
+            126.5,
+            344.2967224121094
+          ]
+        ],
+        "extents_mm": [
+          95.30455017089844,
+          74.0,
+          222.46440887451172
+        ],
+        "watertight": false,
+        "winding_consistent": true,
+        "graph_component_audit": "omitted_no_optional_graph_dependency"
+      },
+      "alignment_group": null,
+      "source_kind": "vendor_step_ocp_entity_export",
+      "source_tags": [
+        46,
+        130
+      ],
+      "source_solid_count": 2,
+      "source_names": [
+        "RT-A001-P021（二轴支撑板)Yx-V1.1.2-A-SJ",
+        "RT-A003-P002（二轴外壳）-SJ"
+      ],
+      "triangle_count": 17166,
+      "vertex_count": 8552,
+      "bounds_mm": [
+        [
+          -55.96768569946289,
+          -29.981386184692383,
+          106.80000305175781
+        ],
+        [
+          39.33686447143555,
+          126.5,
+          344.2967224121094
+        ]
+      ],
+      "extents_mm": [
+        95.30455017089844,
+        156.48138618469238,
+        237.49671936035156
+      ],
+      "watertight": false,
+      "winding_consistent": true,
+      "graph_component_audit": "omitted_no_optional_graph_dependency"
+    },
+    "link3": {
+      "path": "assets/robot/link3.STL",
+      "sha256": "92cceec26079c3405fd5f24afa4e8b8dd53fe267d01c084c557794eca0c4fdbf",
+      "size_bytes": 399384,
+      "source_step_sha256": "f3f493626792ef25b99e6b1e79f791da96f2526cee7161c90194443e9c34a9a2",
+      "source_unit": "millimeter",
+      "mesh_deflection_mm": 0.5,
+      "coppeliasim_import_scale": 0.001,
+      "usage": "collision_and_visual",
+      "collision_strategy": "mesh",
+      "alignment_anchor": {
+        "path": "assets/robot/anchors/link3_anchor.STL",
+        "sha256": "92cceec26079c3405fd5f24afa4e8b8dd53fe267d01c084c557794eca0c4fdbf",
+        "size_bytes": 399384,
+        "source_tag": 131,
+        "source_name": "RT-A003-P003（四轴外壳）-SJ",
+        "triangle_count": 7986,
+        "vertex_count": 3987,
+        "bounds_mm": [
+          [
+            -14.8800630569458,
+            -24.299999237060547,
+            278.83026123046875
+          ],
+          [
+            73.11993408203125,
+            51.70000076293945,
+            344.3298034667969
+          ]
+        ],
+        "extents_mm": [
+          87.99999713897705,
+          76.0,
+          65.49954223632812
+        ],
+        "watertight": true,
+        "winding_consistent": true,
+        "graph_component_audit": "omitted_no_optional_graph_dependency"
+      },
+      "alignment_group": null,
+      "source_kind": "vendor_step_ocp_entity_export",
+      "source_tags": [
+        131
+      ],
+      "source_solid_count": 1,
+      "source_names": [
+        "RT-A003-P003（四轴外壳）-SJ"
+      ],
+      "triangle_count": 7986,
+      "vertex_count": 3987,
+      "bounds_mm": [
+        [
+          -14.8800630569458,
+          -24.299999237060547,
+          278.83026123046875
+        ],
+        [
+          73.11993408203125,
+          51.70000076293945,
+          344.3298034667969
+        ]
+      ],
+      "extents_mm": [
+        87.99999713897705,
+        76.0,
+        65.49954223632812
+      ],
+      "watertight": true,
+      "winding_consistent": true,
+      "graph_component_audit": "omitted_no_optional_graph_dependency"
+    },
+    "link4": {
+      "path": "assets/robot/link4.STL",
+      "sha256": "a4fcf0dcd98c24368d656f1a10caa906d6cb9587da2137307104064a3a5ba673",
+      "size_bytes": 3098584,
+      "source_step_sha256": "f3f493626792ef25b99e6b1e79f791da96f2526cee7161c90194443e9c34a9a2",
+      "source_unit": "millimeter",
+      "mesh_deflection_mm": 0.5,
+      "coppeliasim_import_scale": 0.001,
+      "usage": "visual_only",
+      "collision_strategy": "simplified_bbox",
+      "alignment_anchor": {
+        "path": "assets/robot/anchors/link4_anchor.STL",
+        "sha256": "39b2a8bec43689c95734f939dc598c899bdb5a4a1fee2a497fbf19925b2829a6",
+        "size_bytes": 211284,
+        "source_tag": 122,
+        "source_name": "5轴连杆.2-SJ",
+        "triangle_count": 4224,
+        "vertex_count": 2094,
+        "bounds_mm": [
+          [
+            -164.58006286621094,
+            -20.799999237060547,
+            291.0798034667969
+          ],
+          [
+            -9.8800630569458,
+            20.200000762939453,
+            332.0736999511719
+          ]
+        ],
+        "extents_mm": [
+          154.69999980926514,
+          41.0,
+          40.993896484375
+        ],
+        "watertight": true,
+        "winding_consistent": true,
+        "graph_component_audit": "omitted_no_optional_graph_dependency"
+      },
+      "alignment_group": null,
+      "source_kind": "vendor_step_ocp_entity_export",
+      "source_tags": [
+        9,
+        50,
+        51,
+        52,
+        53,
+        54,
+        55,
+        122,
+        132
+      ],
+      "source_solid_count": 9,
+      "source_names": [
+        "RT-A001-P004(四轴支架)Yx-V1.1.2-SJ",
+        "28HS2806A4.stepx-V1.1.2-SJ",
+        "28XGJ____.STEPx-V1.1.2-SJ",
+        "28XGJ________.STEPx-V1.1.2-SJ",
+        "28XGJ____-0.STEPx-V1.1.2-SJ",
+        "RT-A001-ZP003(四轴排线锁紧)x-V1.1.2-SJ",
+        "RT-A002-P001-01(电机固定板）-V1.1.2-SJ",
+        "5轴连杆.2-SJ",
+        "RT-A003-P004（五轴外壳）-SJ"
+      ],
+      "triangle_count": 61970,
+      "vertex_count": 30825,
+      "bounds_mm": [
+        [
+          -234.08006286621094,
+          -24.299999237060547,
+          287.5798034667969
+        ],
+        [
+          53.119937896728516,
+          56.0,
+          335.5798034667969
+        ]
+      ],
+      "extents_mm": [
+        287.20000076293945,
+        80.29999923706055,
+        48.0
+      ],
+      "watertight": false,
+      "winding_consistent": true,
+      "graph_component_audit": "omitted_no_optional_graph_dependency"
+    },
+    "link5": {
+      "path": "assets/robot/link5.STL",
+      "sha256": "3758c127ee4c2023da49b045b661b4504e23b155ade5261f181b49a857432e6e",
+      "size_bytes": 3195084,
+      "source_step_sha256": "f3f493626792ef25b99e6b1e79f791da96f2526cee7161c90194443e9c34a9a2",
+      "source_unit": "millimeter",
+      "mesh_deflection_mm": 0.5,
+      "coppeliasim_import_scale": 0.001,
+      "usage": "visual_only",
+      "collision_strategy": "simplified_bbox",
+      "alignment_anchor": {
+        "path": "assets/robot/anchors/link5_anchor.STL",
+        "sha256": "9d76822e1805d9cbb18c42e10e82c12deb3f87f1926b2aea2b3ee57f25686cde",
+        "size_bytes": 236484,
+        "source_tag": 111,
+        "source_name": "RT-A002-P001-02(六轴支撑)-V1.1.2-SJ",
+        "triangle_count": 4728,
+        "vertex_count": 2340,
+        "bounds_mm": [
+          [
+            -240.84921264648438,
+            -17.799999237060547,
+            242.23683166503906
+          ],
+          [
+            -199.08303833007812,
+            15.199999809265137,
+            329.0790710449219
+          ]
+        ],
+        "extents_mm": [
+          41.76617431640625,
+          32.999999046325684,
+          86.84223937988281
+        ],
+        "watertight": true,
+        "winding_consistent": true,
+        "graph_component_audit": "omitted_no_optional_graph_dependency"
+      },
+      "alignment_group": null,
+      "source_kind": "vendor_step_ocp_entity_export",
+      "source_tags": [
+        61,
+        62,
+        63,
+        64,
+        65,
+        66,
+        67,
+        68,
+        79,
+        86,
+        99,
+        100,
+        101,
+        102,
+        103,
+        104,
+        105,
+        106,
+        107,
+        108,
+        109,
+        110,
+        111
+      ],
+      "source_solid_count": 23,
+      "source_names": [
+        "CSF05-1U-01_預設_1-V1.1.2-SJ",
+        "CSF-05-交叉轴承内圈_1-V1.1.2-SJ",
+        "CSF-05-交叉轴承外圈_1-V1.1.2-SJ",
+        "外径14x0.8  O型圈_預設_1-V1.1.2-SJ",
+        "CSF-05-1U-03_預設_1-V1.1.2-SJ",
+        "十字槽沉头螺钉 M1.6×3_預設_1-V1.1.2-SJ",
+        "CSF05-1U-04_預設_1-V1.1.2-SJ",
+        "13.08x9.8x2.08柔性轴承_預設_1-V1.1.2-SJ",
+        "深沟球轴承  618╱1.5_預設_1-V1.1.2-SJ",
+        "深沟球轴承  617╱3_預設_1-V1.1.2-SJ",
+        "CSF05-1U-05_預設_1-V1.1.2-SJ",
+        "CSF05-1U-02_預設-V1.1.2-SJ",
+        "十字槽沉头螺钉 M2×5_預設_1-V1.1.2-SJ",
+        "十字槽沉头螺钉 M2×5_預設_1-V1.1.2-SJ",
+        "十字槽沉头螺钉 M2×5_預設_1-V1.1.2-SJ",
+        "十字槽沉头螺钉 M2×5_預設_1-V1.1.2-SJ",
+        "十字槽沉头螺钉 M2×5_預設_1-V1.1.2-SJ",
+        "十字槽沉头螺钉 M2×5_預設_1-V1.1.2-SJ",
+        "十字槽沉头螺钉 M2×5_預設_1-V1.1.2-SJ",
+        "2GT-20齿-V1.1.2-SJ",
+        "2GT-20齿（内孔4mm）-V1.1.2-SJ",
+        "20BY步进电机ZXYx-V1.1.2-SJ",
+        "RT-A002-P001-02(六轴支撑)-V1.1.2-SJ"
+      ],
+      "triangle_count": 63900,
+      "vertex_count": 31750,
+      "bounds_mm": [
+        [
+          -240.84921264648438,
+          -17.799999237060547,
+          236.66714477539062
+        ],
+        [
+          -175.59042358398438,
+          29.200000762939453,
+          329.0790710449219
+        ]
+      ],
+      "extents_mm": [
+        65.2587890625,
+        47.0,
+        92.41192626953125
+      ],
+      "watertight": false,
+      "winding_consistent": true,
+      "graph_component_audit": "omitted_no_optional_graph_dependency"
+    },
+    "link6": {
+      "path": "assets/robot/link6.STL",
+      "sha256": "d815c9152b73a2d252f59d3ce1e27b113866505a36209e38ce06d5d198d66603",
+      "size_bytes": 893384,
+      "source_step_sha256": "f3f493626792ef25b99e6b1e79f791da96f2526cee7161c90194443e9c34a9a2",
+      "source_unit": "millimeter",
+      "mesh_deflection_mm": 0.5,
+      "coppeliasim_import_scale": 0.001,
+      "usage": "visual_only",
+      "collision_strategy": "simplified_bbox",
+      "alignment_anchor": {
+        "path": "assets/robot/anchors/link6_anchor.STL",
+        "sha256": "91f12b75aa2730d3cce8b34530eaab5e549e1186143ad4cb4df501750f5c7337",
+        "size_bytes": 98284,
+        "source_tag": 121,
+        "source_name": "六轴外壳-V1.1.2-SJ",
+        "triangle_count": 1964,
+        "vertex_count": 978,
+        "bounds_mm": [
+          [
+            -243.73695373535156,
+            -24.5,
+            241.01849365234375
+          ],
+          [
+            -204.0781707763672,
+            18.200000762939453,
+            287.3548889160156
+          ]
+        ],
+        "extents_mm": [
+          39.658782958984375,
+          42.70000076293945,
+          46.336395263671875
+        ],
+        "watertight": true,
+        "winding_consistent": true,
+        "graph_component_audit": "omitted_no_optional_graph_dependency"
+      },
+      "alignment_group": "tcp_wrist",
+      "source_kind": "vendor_step_ocp_entity_export",
+      "source_tags": [
+        112,
+        113,
+        114,
+        115,
+        116,
+        121
+      ],
+      "source_solid_count": 6,
+      "source_names": [
+        "RT-A002-P001-03(电路侧板)-V1.1.2-SJ",
+        "RT-A002-P001-05(外壳A）-V1.1.2-SJ",
+        "RT-A002-P001-06(外壳B)-V1.1.2-SJ",
+        "滚花铜柱M2-V1.1.2-SJ",
+        "滚花铜柱M2-V1.1.2-SJ",
+        "六轴外壳-V1.1.2-SJ"
+      ],
+      "triangle_count": 17866,
+      "vertex_count": 8840,
+      "bounds_mm": [
+        [
+          -243.73695373535156,
+          -30.299999237060547,
+          241.01849365234375
+        ],
+        [
+          -137.08006286621094,
+          32.20000076293945,
+          331.0798034667969
+        ]
+      ],
+      "extents_mm": [
+        106.65689086914062,
+        62.5,
+        90.06130981445312
+      ],
+      "watertight": false,
+      "winding_consistent": true,
+      "graph_component_audit": "omitted_no_optional_graph_dependency"
+    },
+    "tool": {
+      "path": "assets/robot/tool.STL",
+      "sha256": "4f5447b615486707a185b11d0418486361612a9d0d290f534a31d6b8c1f60076",
+      "size_bytes": 391484,
+      "source_step_sha256": "f3f493626792ef25b99e6b1e79f791da96f2526cee7161c90194443e9c34a9a2",
+      "source_unit": "millimeter",
+      "mesh_deflection_mm": 0.5,
+      "coppeliasim_import_scale": 0.001,
+      "usage": "visual_only",
+      "collision_strategy": "simplified_bbox",
+      "alignment_anchor": null,
+      "alignment_group": "tcp_wrist",
+      "source_kind": "vendor_step_ocp_entity_export",
+      "source_tags": [
+        117,
+        118,
+        119,
+        120
+      ],
+      "source_solid_count": 4,
+      "source_names": [
+        "RT-A001-P013-004（气嘴夹具座）Yx-V1.1.2-SJ",
+        "RT-A001-P013-005（气嘴连接件）Yx-V1.1.2-SJ",
+        "RT-A001-P013-006（气嘴)Yx-V1.1.2-SJ",
+        "吸盘-ZQSZXYx-V1.1.2-SJ"
+      ],
+      "triangle_count": 7828,
+      "vertex_count": 3895,
+      "bounds_mm": [
+        [
+          -243.4241943359375,
+          -13.795843124389648,
+          202.7716522216797
+        ],
+        [
+          -212.427001953125,
+          16.195842742919922,
+          245.2041778564453
+        ]
+      ],
+      "extents_mm": [
+        30.9971923828125,
+        29.99168586730957,
+        42.432525634765625
+      ],
+      "watertight": false,
+      "winding_consistent": true,
+      "graph_component_audit": "omitted_no_optional_graph_dependency"
+    }
+  }
+}

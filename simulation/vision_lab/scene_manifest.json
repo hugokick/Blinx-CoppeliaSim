@@ -1,0 +1,536 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-07-30T10:15:16.693893+00:00",
+  "generator": "simulation.vision_lab.build_scene",
+  "source_step_sha256": "f3f493626792ef25b99e6b1e79f791da96f2526cee7161c90194443e9c34a9a2",
+  "source_step_runtime_usage": "excluded",
+  "source_archive_sha256": "9ea431ee1b87417c19f1a0f579209dfe20d0c8d1e381b660010900718cb2b4dc",
+  "reference_assembly": {
+    "archive_filename": "openr6_arm.7z",
+    "archive_sha256": "524f968f1ce19dc3fc731d2fd3fbabc83631d1506fae94a938a3725c70c5d174",
+    "runtime_body": "embedded OpenR6 shapes from robot_backends/models/BLX_openr6.ttt",
+    "mesh_equivalence": "The seven meshes extracted from openr6_arm.7z are byte-identical to robot_backends/models/meshes_blx/*.STL.",
+    "link6_scale_correction": 0.1
+  },
+  "robot_visual_strategy": {
+    "body": "openr6_reference",
+    "end_effector": "custom_suction",
+    "bl23_step_runtime_usage": "excluded"
+  },
+  "teaching_ready_pose": {
+    "joint_angles_deg": [
+      -59.98,
+      -47.68,
+      15.26,
+      111.09,
+      -204.93,
+      -96.1
+    ],
+    "actual_joint_angles_deg": [
+      -59.98,
+      -47.68,
+      15.259999999999998,
+      111.09000000000002,
+      -204.93,
+      -96.10000000000001
+    ],
+    "tcp_expected_mm": [
+      100,
+      60,
+      100
+    ],
+    "tcp_actual_mm": [
+      99.99863138669923,
+      59.96929097858164,
+      99.98337344097024
+    ],
+    "tcp_error_mm": 0.03494795507623362,
+    "applied": true,
+    "selection": "reachable position-only IK configuration selected for a connected, open-arm teaching view with the suction cup facing mostly downward"
+  },
+  "scene_spec_sha256": "2488ec2c1812ea57578ae6c652c8f45ab80eaffd0fdda85fc12f1955d3a5277a",
+  "robot_assets_manifest_sha256": "25151b6a6cd9362705b06fdf15728dd268bb4780cf1cf1c54c1cbb07dedb6156",
+  "formal_scene_template_sha256": "a850f5ab06d964db286d73871cd375788eab96bd300890e0b340832842b5b6d4",
+  "protected_assets_unchanged": true,
+  "scene": {
+    "path": "BL23_vision_lab.ttt",
+    "sha256": "5154dfc3132cd29aafcbe5de83c1a6b61960595681ac5c90d2d92a5b642bda55",
+    "size_bytes": 11587008
+  },
+  "contract": {
+    "model": "OpenR6 reference body with a custom suction end effector",
+    "visual_body": "openr6_reference",
+    "end_effector": "custom_suction",
+    "coordinate_mode": "position_only",
+    "orientation_ignored": true,
+    "base_flipped": false,
+    "workspace_radius_warn_mm": 150,
+    "formal_assets_mutated": false
+  },
+  "camera": {
+    "path": "/VisionLab/Camera",
+    "resolution": [
+      640,
+      480
+    ],
+    "position_m": [
+      0.08,
+      0.0,
+      0.42
+    ],
+    "render_scope": "runtime_teaching_workspace_collection",
+    "robot_visuals_renderable": false,
+    "runtime_scope_script": "/VisionLab/CameraRenderScope",
+    "render_members": [
+      "/VisionLab/Workspace",
+      "/VisionLab/Pickables/*",
+      "/VisionLab/Zones/*",
+      "/VisionLab/Calibration/*"
+    ]
+  },
+  "robot_visuals": [
+    {
+      "segment": "base",
+      "path": "/BLX_base_link",
+      "parent_path": "/",
+      "bbox_size_m": [
+        0.0909999981522561,
+        0.13500000536441803,
+        0.17000000178813934
+      ],
+      "shape_pose_world": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "pose_relative_parent": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "visibility_layer": 1,
+      "alignment_basis": {
+        "mode": "openr6_embedded_reference"
+      },
+      "source_mesh_path": "robot_backends/models/meshes_blx/base_link.STL",
+      "source_mesh_sha256": "76fc7231c3c08cc03b439c671969d6bce146493b30916bf67bb81fa0baa5f94f",
+      "usage": "runtime_openr6_reference_body",
+      "collision_strategy": "embedded_formal_shape_and_collision_chain"
+    },
+    {
+      "segment": "link1",
+      "path": "/BLX_link1",
+      "parent_path": "/BLX_base_link/BLX_joint1",
+      "bbox_size_m": [
+        0.10022792592644693,
+        0.10800000280141842,
+        0.12253066524863244
+      ],
+      "shape_pose_world": [
+        0.0,
+        0.0,
+        0.1538,
+        0.0,
+        0.0,
+        -0.49984884243831235,
+        0.8661126570562742
+      ],
+      "pose_relative_parent": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "visibility_layer": 1,
+      "alignment_basis": {
+        "mode": "openr6_embedded_reference"
+      },
+      "source_mesh_path": "robot_backends/models/meshes_blx/link1.STL",
+      "source_mesh_sha256": "8cce9b677ebfa1e4c24d6f9e7622cc07bff6f8032ba5bbb4cde56cc9c0504117",
+      "usage": "runtime_openr6_reference_body",
+      "collision_strategy": "embedded_formal_shape_and_collision_chain"
+    },
+    {
+      "segment": "link2",
+      "path": "/BLX_link2",
+      "parent_path": "/BLX_base_link/BLX_joint1/BLX_link1/BLX_joint2",
+      "bbox_size_m": [
+        0.06691177644335985,
+        0.07714329525873004,
+        0.22669581609821574
+      ],
+      "shape_pose_world": [
+        0.012007254466227801,
+        -0.020780419634435984,
+        0.1538,
+        -0.5510395089163197,
+        -0.4431180689372721,
+        -0.10798822231101891,
+        0.6988135519841258
+      ],
+      "pose_relative_parent": [
+        0.0,
+        0.0,
+        0.0,
+        -5.5511151231257815e-17,
+        -6.938893903907227e-18,
+        0.0,
+        1.0
+      ],
+      "visibility_layer": 1,
+      "alignment_basis": {
+        "mode": "openr6_embedded_reference"
+      },
+      "source_mesh_path": "robot_backends/models/meshes_blx/link2.STL",
+      "source_mesh_sha256": "4d7108f92f3a69240453c4d6b9735e768117bf30da2bae08684ad8a3729637de",
+      "usage": "runtime_openr6_reference_body",
+      "collision_strategy": "embedded_formal_shape_and_collision_chain"
+    },
+    {
+      "segment": "link3",
+      "path": "/BLX_link3",
+      "parent_path": "/BLX_base_link/BLX_joint1/BLX_link1/BLX_joint2/BLX_link2/BLX_joint3",
+      "bbox_size_m": [
+        0.06551154387519474,
+        0.08046685851935553,
+        0.0884576865256078
+      ],
+      "shape_pose_world": [
+        0.10570111733804453,
+        0.03370334987877242,
+        0.27244888924801935,
+        -0.6049958567227693,
+        -0.366030294857841,
+        -0.014246882472168067,
+        0.70696454149723
+      ],
+      "pose_relative_parent": [
+        2.7755575615628914e-17,
+        -1.1102230246251565e-16,
+        -5.551115123125783e-17,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "visibility_layer": 1,
+      "alignment_basis": {
+        "mode": "openr6_embedded_reference"
+      },
+      "source_mesh_path": "robot_backends/models/meshes_blx/link3.STL",
+      "source_mesh_sha256": "ab4a1dade99000bc47ea725462650095cf96f2a1ef1a9229ea6fcd94c8e4bfc1",
+      "usage": "runtime_openr6_reference_body",
+      "collision_strategy": "embedded_formal_shape_and_collision_chain"
+    },
+    {
+      "segment": "link4",
+      "path": "/BLX_link4",
+      "parent_path": "/BLX_base_link/BLX_joint1/BLX_link1/BLX_joint2/BLX_link2/BLX_joint3/BLX_link3/BLX_joint4",
+      "bbox_size_m": [
+        0.04800000041723264,
+        0.0625000051546048,
+        0.22050000914439016
+      ],
+      "shape_pose_world": [
+        0.20905113312025217,
+        0.09342142039554319,
+        0.08384675168968883,
+        0.7299625866162209,
+        -0.6242198731281277,
+        0.09267844310991544,
+        -0.2625164343716075
+      ],
+      "pose_relative_parent": [
+        2.7755575615628914e-17,
+        -1.6653345369377348e-16,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "visibility_layer": 1,
+      "alignment_basis": {
+        "mode": "openr6_embedded_reference"
+      },
+      "source_mesh_path": "robot_backends/models/meshes_blx/link4.STL",
+      "source_mesh_sha256": "db839d7797aea66cffa85504c39f1f2b93f73d5b050fa75dc99e077bee5dd8b2",
+      "usage": "runtime_openr6_reference_body",
+      "collision_strategy": "embedded_formal_shape_and_collision_chain"
+    },
+    {
+      "segment": "link5",
+      "path": "/BLX_link5",
+      "parent_path": "/BLX_base_link/BLX_joint1/BLX_link1/BLX_joint2/BLX_link2/BLX_joint3/BLX_link3/BLX_joint4/BLX_link4/BLX_joint5",
+      "bbox_size_m": [
+        0.034999218359238124,
+        0.042627492742045955,
+        0.09300000344558476
+      ],
+      "shape_pose_world": [
+        0.20905113312025217,
+        0.09342142039554319,
+        0.08384675168968883,
+        0.35285492395773316,
+        -0.5284677281829906,
+        -0.717126171738711,
+        -0.2862609241850382
+      ],
+      "pose_relative_parent": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "visibility_layer": 1,
+      "alignment_basis": {
+        "mode": "openr6_embedded_reference"
+      },
+      "source_mesh_path": "robot_backends/models/meshes_blx/link5.STL",
+      "source_mesh_sha256": "ff04ff2010763571e63aa67b4c8147300f2370ce4cdf4d10c224120500e8963d",
+      "usage": "runtime_openr6_reference_body",
+      "collision_strategy": "embedded_formal_shape_and_collision_chain"
+    },
+    {
+      "segment": "link6",
+      "path": "/BLX_link6",
+      "parent_path": "/BLX_base_link/BLX_joint1/BLX_link1/BLX_joint2/BLX_link2/BLX_joint3/BLX_link3/BLX_joint4/BLX_link4/BLX_joint5/BLX_link5/BLX_joint6",
+      "bbox_size_m": [
+        0.029995885258723355,
+        0.029999315874701817,
+        0.040792639746676844
+      ],
+      "shape_pose_world": [
+        0.12810588395622494,
+        0.06319920541617327,
+        0.14120897235376623,
+        -0.6865299713558112,
+        0.5537566378930804,
+        -0.24693266856798288,
+        0.40131588756668435
+      ],
+      "pose_relative_parent": [
+        8.326672684688674e-17,
+        -2.7755575615628914e-17,
+        -5.551115123125783e-17,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "visibility_layer": 1,
+      "alignment_basis": {
+        "mode": "openr6_embedded_reference_with_scale_correction",
+        "scale_correction": 0.1
+      },
+      "source_mesh_path": "robot_backends/models/meshes_blx/link6.STL",
+      "source_mesh_sha256": "a2eb2880409e14ac445735874ee9886bc6eb4d3b3d2f07e11ee472a79804a915",
+      "usage": "runtime_openr6_reference_body",
+      "collision_strategy": "embedded_formal_shape_and_collision_chain"
+    },
+    {
+      "segment": "tool",
+      "path": "/BLX_tool_suction",
+      "parent_path": "/BLX_link6",
+      "tcp_path": "/BLX_tool_suction",
+      "component_paths": [
+        "/BLX_tool_suction/SuctionAdapter",
+        "/BLX_tool_suction/SuctionStem",
+        "/BLX_tool_suction/SuctionCup"
+      ],
+      "components": [
+        {
+          "path": "/BLX_tool_suction/SuctionAdapter",
+          "runtime_full_path": "/BLX_base_link/BLX_joint1/BLX_link1/BLX_joint2/BLX_link2/BLX_joint3/BLX_link3/BLX_joint4/BLX_link4/BLX_joint5/BLX_link5/BLX_joint6/BLX_link6/BLX_tool_suction/SuctionAdapter",
+          "primitive": "cylinder",
+          "size_m": [
+            0.03,
+            0.03,
+            0.012
+          ],
+          "pose_relative_tcp": [
+            5.551115123125783e-17,
+            0.04400000000000001,
+            5.551115123125783e-17,
+            0.7071067811865475,
+            -6.938893903907227e-17,
+            2.2204460492503126e-16,
+            0.7071067811865476
+          ]
+        },
+        {
+          "path": "/BLX_tool_suction/SuctionStem",
+          "runtime_full_path": "/BLX_base_link/BLX_joint1/BLX_link1/BLX_joint2/BLX_link2/BLX_joint3/BLX_link3/BLX_joint4/BLX_link4/BLX_joint5/BLX_link5/BLX_joint6/BLX_link6/BLX_tool_suction/SuctionStem",
+          "primitive": "cylinder",
+          "size_m": [
+            0.012,
+            0.012,
+            0.03
+          ],
+          "pose_relative_tcp": [
+            5.551115123125783e-17,
+            0.022999999999999965,
+            5.551115123125783e-17,
+            0.7071067811865475,
+            -6.938893903907227e-17,
+            2.2204460492503126e-16,
+            0.7071067811865476
+          ]
+        },
+        {
+          "path": "/BLX_tool_suction/SuctionCup",
+          "runtime_full_path": "/BLX_base_link/BLX_joint1/BLX_link1/BLX_joint2/BLX_link2/BLX_joint3/BLX_link3/BLX_joint4/BLX_link4/BLX_joint5/BLX_link5/BLX_joint6/BLX_link6/BLX_tool_suction/SuctionCup",
+          "primitive": "cylinder",
+          "size_m": [
+            0.026,
+            0.026,
+            0.008
+          ],
+          "pose_relative_tcp": [
+            -5.551115123125783e-17,
+            0.004000000000000115,
+            -1.1102230246251565e-16,
+            0.7071067811865475,
+            -6.938893903907227e-17,
+            2.2204460492503126e-16,
+            0.7071067811865476
+          ]
+        }
+      ],
+      "original_end_effector_reused": false,
+      "alignment_basis": {
+        "mode": "custom_suction_primitives_at_tcp"
+      },
+      "usage": "runtime_custom_suction",
+      "collision_strategy": "non_respondable_visuals"
+    }
+  ],
+  "pickables": [
+    {
+      "path": "/VisionLab/Pickables/object_01_red_square",
+      "handle_at_build": 36,
+      "color": "red",
+      "shape": "square"
+    },
+    {
+      "path": "/VisionLab/Pickables/object_02_green_square",
+      "handle_at_build": 37,
+      "color": "green",
+      "shape": "square"
+    },
+    {
+      "path": "/VisionLab/Pickables/object_03_blue_circle",
+      "handle_at_build": 38,
+      "color": "blue",
+      "shape": "circle"
+    },
+    {
+      "path": "/VisionLab/Pickables/object_04_yellow_circle",
+      "handle_at_build": 39,
+      "color": "yellow",
+      "shape": "circle"
+    },
+    {
+      "path": "/VisionLab/Pickables/object_05_red_circle",
+      "handle_at_build": 40,
+      "color": "red",
+      "shape": "circle"
+    },
+    {
+      "path": "/VisionLab/Pickables/object_06_blue_square",
+      "handle_at_build": 41,
+      "color": "blue",
+      "shape": "square"
+    }
+  ],
+  "zones": [
+    {
+      "name": "red",
+      "path": "/VisionLab/Zones/red",
+      "handle_at_build": 43
+    },
+    {
+      "name": "green",
+      "path": "/VisionLab/Zones/green",
+      "handle_at_build": 44
+    },
+    {
+      "name": "blue",
+      "path": "/VisionLab/Zones/blue",
+      "handle_at_build": 45
+    },
+    {
+      "name": "yellow",
+      "path": "/VisionLab/Zones/yellow",
+      "handle_at_build": 46
+    }
+  ],
+  "calibration_markers": [
+    {
+      "path": "/VisionLab/Calibration/fit_1",
+      "role": "fit",
+      "world_mm": [
+        35,
+        -70,
+        20
+      ]
+    },
+    {
+      "path": "/VisionLab/Calibration/fit_2",
+      "role": "fit",
+      "world_mm": [
+        35,
+        70,
+        20
+      ]
+    },
+    {
+      "path": "/VisionLab/Calibration/fit_3",
+      "role": "fit",
+      "world_mm": [
+        100,
+        -70,
+        20
+      ]
+    },
+    {
+      "path": "/VisionLab/Calibration/validation_1",
+      "role": "validation",
+      "world_mm": [
+        100,
+        70,
+        20
+      ]
+    }
+  ],
+  "required_paths": [
+    "/BLX_base_link",
+    "/BLX_joint1",
+    "/BLX_joint2",
+    "/BLX_joint3",
+    "/BLX_joint4",
+    "/BLX_joint5",
+    "/BLX_joint6",
+    "/BLX_tool_suction",
+    "/VisionLab",
+    "/VisionLab/Camera",
+    "/VisionLab/CameraRenderScope",
+    "/VisionLab/Workspace",
+    "/VisionLab/Pickables",
+    "/VisionLab/Zones"
+  ]
+}

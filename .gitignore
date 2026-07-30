@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+.venv-vision/
+artifacts/vision_lab/
+
+# Project-level backups (not part of source)
+基于视觉的机器人应用.zip
