@@ -66,7 +66,7 @@ def _alias(sim: Any, handle: int, name: str) -> int:
 def _dummy(sim: Any, name: str, parent: int | None = None) -> int:
     handle = _alias(sim, int(sim.createDummy(0.005)), name)
     if parent is not None:
-        sim.setObjectParent(handle, parent, True)
+        sim.setObjectParent(handle, parent, False)
     return handle
 
 
@@ -295,6 +295,44 @@ def _build_logistics(sim: Any, spec: dict[str, Any], root: int) -> None:
                 sim.setShapeColor(handle, "", transparency, [0.70])
 
 
+def _attach_logistics_camera_scope(sim: Any, root: int) -> int:
+    script_text = """
+function sysCall_init()
+    trainingCollection = sim.createCollection(1)
+    sim.addItemToCollection(
+        trainingCollection,
+        sim.handle_tree,
+        sim.getObject('/LogisticsLab'),
+        0
+    )
+    local camera = sim.getObject('/LogisticsLab/Camera')
+    sim.setObjectInt32Param(
+        camera,
+        sim.visionintparam_entity_to_render,
+        trainingCollection
+    )
+end
+
+function sysCall_cleanup()
+    if trainingCollection then
+        sim.destroyCollection(trainingCollection)
+        trainingCollection = nil
+    end
+end
+""".strip()
+    handle = int(
+        sim.createScript(
+            sim.scripttype_simulation,
+            script_text,
+            0,
+            "lua",
+        )
+    )
+    _alias(sim, handle, "CameraRenderScope")
+    sim.setObjectParent(handle, root, True)
+    return handle
+
+
 def _stop_simulation(sim: Any) -> None:
     if int(sim.getSimulationState()) == int(sim.simulation_stopped):
         return
@@ -342,6 +380,7 @@ def build_scene(
         _build_basics(sim, spec, root)
     elif spec["scene_id"] == "logistics-lab":
         _build_logistics(sim, spec, root)
+        _attach_logistics_camera_scope(sim, root)
     else:
         raise ValueError(f"unsupported scene_id: {spec['scene_id']}")
     for path in spec["required_paths"]:
