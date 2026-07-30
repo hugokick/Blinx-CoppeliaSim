@@ -1,0 +1,135 @@
+from __future__ import annotations
+
+from threading import RLock, local
+from typing import Any, Callable
+
+
+ApplicationHandler = Callable[[Any], None]
+
+
+class VisionLabSession:
+    """Own the replaceable application used by the teaching UI."""
+
+    def __init__(
+        self,
+        *,
+        application: Any,
+        factory: Callable[[], Any],
+    ) -> None:
+        self._application = application
+        self._factory = factory
+        self._handlers: list[ApplicationHandler] = []
+        self._closed_applications: list[Any] = []
+        self._closed = False
+        self._state_lock = RLock()
+        self._operation_lock = RLock()
+        self._callback_state = local()
+
+    @property
+    def application(self) -> Any:
+        with self._state_lock:
+            return self._application
+
+    def subscribe(self, handler: ApplicationHandler) -> Callable[[], None]:
+        with self._state_lock:
+            self._require_open()
+            self._handlers.append(handler)
+        unsubscribed = False
+
+        def unsubscribe() -> None:
+            nonlocal unsubscribed
+            with self._state_lock:
+                if unsubscribed:
+                    return
+                unsubscribed = True
+                if handler in self._handlers:
+                    self._handlers.remove(handler)
+
+        return unsubscribe
+
+    def reset_simulation(self) -> Any:
+        self._reject_lifecycle_reentry()
+        with self._operation_lock:
+            with self._state_lock:
+                self._require_open()
+                old = self._application
+
+            try:
+                self._close_application_once(old)
+            except Exception:
+                with self._state_lock:
+                    self._closed = True
+                    self._handlers.clear()
+                raise
+            replacement = None
+            try:
+                replacement = self._factory()
+                replacement.load_and_start_scene()
+                replacement.open()
+            except Exception as primary_error:
+                cleanup_error: Exception | None = None
+                if replacement is not None:
+                    try:
+                        self._close_application_once(replacement)
+                    except Exception as error:
+                        cleanup_error = error
+                if cleanup_error is not None:
+                    with self._state_lock:
+                        self._closed = True
+                        self._handlers.clear()
+                    raise primary_error from cleanup_error
+                raise
+
+            with self._state_lock:
+                self._application = replacement
+                handlers = tuple(self._handlers)
+
+            self._notify_handlers(replacement, handlers)
+            return replacement
+
+    def close(self) -> None:
+        self._reject_lifecycle_reentry()
+        with self._operation_lock:
+            with self._state_lock:
+                if self._closed:
+                    return
+                self._closed = True
+                application = self._application
+                self._handlers.clear()
+            self._close_application_once(application)
+
+    def _require_open(self) -> None:
+        if self._closed:
+            raise RuntimeError("VisionLabSession is closed")
+
+    def _reject_lifecycle_reentry(self) -> None:
+        if getattr(self._callback_state, "active", False):
+            raise RuntimeError(
+                "VisionLabSession lifecycle operations are not allowed "
+                "from a notification callback"
+            )
+
+    def _notify_handlers(
+        self,
+        application: Any,
+        handlers: tuple[ApplicationHandler, ...],
+    ) -> None:
+        first_error: Exception | None = None
+        self._callback_state.active = True
+        try:
+            for handler in handlers:
+                try:
+                    handler(application)
+                except Exception as error:
+                    if first_error is None:
+                        first_error = error
+        finally:
+            self._callback_state.active = False
+        if first_error is not None:
+            raise first_error
+
+    def _close_application_once(self, application: Any) -> None:
+        if any(item is application for item in self._closed_applications):
+            return
+        self._closed_applications.append(application)
+        application.close()

@@ -163,17 +163,29 @@ class VisionLabWindow(QMainWindow):
         self,
         *,
         application: Any,
+        session: Any | None = None,
         view_model: VisionLabViewModel | None = None,
         output_dir: str | Path = DEFAULT_UI_OUTPUT,
     ) -> None:
         super().__init__()
-        self.application = application
+        self.session = session
+        self.application = (
+            session.application if session is not None else application
+        )
         self.view_model = view_model or VisionLabViewModel()
         self.output_dir = Path(output_dir).expanduser().resolve()
         self._thread: QThread | None = None
         self._worker: _ActionWorker | None = None
-        self._application_closed = False
+        self._lifecycle_lock = threading.RLock()
+        self._closing = False
+        self._close_complete = False
+        self._owner_close_started = False
+        self._owner_close_finished = False
+        self._owner_close_error: Exception | None = None
+        self._cleanup_in_progress: set[str] = set()
+        self._session_unsubscribe = None
         self._event_unsubscribe = None
+        self._pending_event_unsubscribes = []
         self._view_unsubscribe = None
 
         self.setWindowTitle("BL23 机器人视觉虚拟仿真实验台")
@@ -187,12 +199,47 @@ class VisionLabWindow(QMainWindow):
         self._view_unsubscribe = self.view_model.subscribe(
             self._bridge.updated.emit
         )
-        event_bus = getattr(self.application, "event_bus", None)
-        if event_bus is not None:
-            self._event_unsubscribe = event_bus.subscribe(
-                self.view_model.apply
+        if self.session is not None:
+            self._session_unsubscribe = self.session.subscribe(
+                self._replace_application
             )
+            self._replace_application(self.session.application)
+        else:
+            self._replace_application(self.application)
         self._render_snapshot(self.view_model.snapshot())
+
+    def _replace_application(self, application: Any) -> None:
+        first_error: Exception | None = None
+        with self._lifecycle_lock:
+            if self._closing or self._close_complete:
+                return
+            previous_unsubscribe = self._event_unsubscribe
+            self._event_unsubscribe = None
+            if previous_unsubscribe is not None:
+                try:
+                    previous_unsubscribe()
+                except Exception as error:
+                    self._pending_event_unsubscribes.append(
+                        previous_unsubscribe
+                    )
+                    first_error = error
+            self.application = application
+            event_bus = getattr(application, "event_bus", None)
+            if event_bus is not None:
+                try:
+                    self._event_unsubscribe = event_bus.subscribe(
+                        self.view_model.apply
+                    )
+                except Exception as error:
+                    if first_error is None:
+                        first_error = error
+        if first_error is not None:
+            raise first_error
+
+    def _current_application(self) -> Any:
+        if self.session is not None:
+            return self.session.application
+        return self.application
 
     def _build_ui(self) -> None:
         root = QWidget(self)
@@ -510,29 +557,34 @@ class VisionLabWindow(QMainWindow):
         return pixmap
 
     def _start_action(self, action: str) -> None:
-        if self._thread is not None:
-            return
-        step_mode = self.mode_combo.currentText() == "单步教学"
-        thread = QThread(self)
-        worker = _ActionWorker(
-            application=self.application,
-            action=action,
-            step_mode=step_mode,
-            output_dir=self.output_dir,
-        )
-        worker.moveToThread(thread)
-        thread.started.connect(worker.run)
-        worker.finished.connect(self._action_finished)
-        worker.failed.connect(self._action_failed)
-        worker.finished.connect(thread.quit)
-        worker.failed.connect(thread.quit)
-        thread.finished.connect(worker.deleteLater)
-        thread.finished.connect(self._thread_finished)
-        self._thread = thread
-        self._worker = worker
-        self.view_model.set_running(True)
-        self._set_controls_running(True)
-        thread.start()
+        with self._lifecycle_lock:
+            if (
+                self._closing
+                or self._close_complete
+                or self._thread is not None
+            ):
+                return
+            step_mode = self.mode_combo.currentText() == "单步教学"
+            thread = QThread(self)
+            worker = _ActionWorker(
+                application=self._current_application(),
+                action=action,
+                step_mode=step_mode,
+                output_dir=self.output_dir,
+            )
+            worker.moveToThread(thread)
+            thread.started.connect(worker.run)
+            worker.finished.connect(self._action_finished)
+            worker.failed.connect(self._action_failed)
+            worker.finished.connect(thread.quit)
+            worker.failed.connect(thread.quit)
+            thread.finished.connect(worker.deleteLater)
+            thread.finished.connect(self._thread_finished)
+            self._thread = thread
+            self._worker = worker
+            self.view_model.set_running(True)
+            self._set_controls_running(True)
+            thread.start()
 
     @pyqtSlot(object)
     def _action_finished(self, outcome: _ActionOutcome) -> None:
@@ -612,22 +664,28 @@ class VisionLabWindow(QMainWindow):
         self._set_controls_running(False)
 
     def _pause(self) -> None:
+        if self._lifecycle_is_closing():
+            return
         if self._worker is None:
             return
         self._worker.pause()
         self.view_model.set_running(True, paused=True)
 
     def _resume(self) -> None:
+        if self._lifecycle_is_closing():
+            return
         if self._worker is None:
             return
         self._worker.resume()
         self.view_model.set_running(True, paused=False)
 
     def _emergency_stop(self) -> None:
+        if self._lifecycle_is_closing():
+            return
         if self._worker is not None:
             self._worker.cancel()
         try:
-            tool = getattr(self.application, "tool", None)
+            tool = getattr(self._current_application(), "tool", None)
             if tool is not None:
                 tool.off()
         except Exception:
@@ -635,12 +693,34 @@ class VisionLabWindow(QMainWindow):
         self.view_model.set_error("EMERGENCY_STOP", "已请求急停并关闭吸盘")
 
     def _set_controls_running(self, running: bool) -> None:
+        if self._lifecycle_is_closing():
+            self._disable_operation_controls()
+            return
         self.connect_button.setEnabled(not running)
         self.calibrate_button.setEnabled(not running)
         self.start_button.setEnabled(not running)
         self.reset_button.setEnabled(not running)
         self.pause_button.setEnabled(running)
         self.resume_button.setEnabled(running)
+
+    def _lifecycle_is_closing(self) -> bool:
+        with self._lifecycle_lock:
+            return self._closing or self._close_complete
+
+    def _disable_operation_controls(self) -> None:
+        for control in (
+            self.camera_backend_combo,
+            self.robot_backend_combo,
+            self.mode_combo,
+            self.connect_button,
+            self.calibrate_button,
+            self.start_button,
+            self.pause_button,
+            self.resume_button,
+            self.reset_button,
+            self.emergency_button,
+        ):
+            control.setEnabled(False)
 
     def _selected_camera_backend(self) -> str:
         return ("sim", "replay", "hik")[self.camera_backend_combo.currentIndex()]
@@ -726,22 +806,177 @@ class VisionLabWindow(QMainWindow):
                     QTableWidgetItem(str(value)),
                 )
 
-    def closeEvent(self, event) -> None:
-        if self._worker is not None:
-            self._worker.cancel()
-        if self._thread is not None:
-            self._thread.quit()
-            self._thread.wait(5000)
-        if self._event_unsubscribe is not None:
-            self._event_unsubscribe()
+    def _attempt_unsubscribe(
+        self,
+        attribute: str,
+        errors: list[Exception],
+    ) -> None:
+        with self._lifecycle_lock:
+            callback = getattr(self, attribute)
+            if callback is None or attribute in self._cleanup_in_progress:
+                return
+            setattr(self, attribute, None)
+            self._cleanup_in_progress.add(attribute)
+
+        failure: Exception | None = None
+        try:
+            callback()
+        except Exception as error:
+            failure = error
+            errors.append(error)
+        finally:
+            with self._lifecycle_lock:
+                self._cleanup_in_progress.discard(attribute)
+                if failure is not None and getattr(self, attribute) is None:
+                    setattr(self, attribute, callback)
+
+    def _attempt_event_unsubscribes(
+        self,
+        errors: list[Exception],
+    ) -> None:
+        cleanup_key = "event_subscriptions"
+        with self._lifecycle_lock:
+            if cleanup_key in self._cleanup_in_progress:
+                return
+            callbacks = list(self._pending_event_unsubscribes)
+            if self._event_unsubscribe is not None:
+                callbacks.append(self._event_unsubscribe)
+            if not callbacks:
+                return
+            self._pending_event_unsubscribes.clear()
             self._event_unsubscribe = None
-        if self._view_unsubscribe is not None:
-            self._view_unsubscribe()
-            self._view_unsubscribe = None
-        if not self._application_closed:
-            self.application.close()
-            self._application_closed = True
-        event.accept()
+            self._cleanup_in_progress.add(cleanup_key)
+
+        failed_callbacks = []
+        try:
+            for callback in callbacks:
+                try:
+                    callback()
+                except Exception as error:
+                    failed_callbacks.append(callback)
+                    errors.append(error)
+        finally:
+            with self._lifecycle_lock:
+                self._cleanup_in_progress.discard(cleanup_key)
+                self._pending_event_unsubscribes.extend(failed_callbacks)
+
+    def _attempt_owner_close(self, errors: list[Exception]) -> None:
+        with self._lifecycle_lock:
+            if self._owner_close_started:
+                return
+            self._owner_close_started = True
+            owner = (
+                self.session
+                if self.session is not None
+                else self.application
+            )
+
+        failure: Exception | None = None
+        try:
+            owner.close()
+        except Exception as error:
+            failure = error
+            errors.append(error)
+        finally:
+            with self._lifecycle_lock:
+                self._owner_close_finished = True
+                if failure is not None:
+                    self._owner_close_error = failure
+
+    def _finish_close_if_ready(self) -> tuple[bool, Exception | None]:
+        with self._lifecycle_lock:
+            cleanup_pending = (
+                self._session_unsubscribe is not None
+                or self._event_unsubscribe is not None
+                or bool(self._pending_event_unsubscribes)
+                or self._view_unsubscribe is not None
+                or bool(self._cleanup_in_progress)
+            )
+            ready = (
+                self._owner_close_finished
+                and not cleanup_pending
+            )
+            if ready:
+                self._close_complete = True
+            return ready, self._owner_close_error
+
+    def _report_close_failure(self, code: str, error: Exception) -> None:
+        try:
+            self.view_model.set_error(code, str(error))
+            self._render_snapshot(self.view_model.snapshot())
+        except Exception:
+            pass
+
+    def closeEvent(self, event) -> None:
+        with self._lifecycle_lock:
+            if self._close_complete:
+                event.accept()
+                return
+
+        try:
+            if self._worker is not None:
+                self._worker.cancel()
+            thread = self._thread
+            if thread is not None:
+                thread.quit()
+                if not bool(thread.wait(5000)):
+                    self._report_close_failure(
+                        "UI_THREAD_STOP_TIMEOUT",
+                        RuntimeError(
+                            "UI worker did not stop within 5 seconds"
+                        ),
+                    )
+                    event.ignore()
+                    return
+        except Exception as error:
+            self._report_close_failure("UI_CLOSE_FAILED", error)
+            event.ignore()
+            return
+
+        with self._lifecycle_lock:
+            if self._close_complete:
+                event.accept()
+                return
+            self._closing = True
+        self._disable_operation_controls()
+
+        errors: list[Exception] = []
+        error_reported = False
+        self._attempt_unsubscribe("_session_unsubscribe", errors)
+        self._attempt_owner_close(errors)
+        with self._lifecycle_lock:
+            owner_finished = self._owner_close_finished
+            owner_error = self._owner_close_error
+        if owner_error is not None:
+            self._report_close_failure("UI_CLOSE_FAILED", owner_error)
+            error_reported = True
+        elif errors:
+            self._report_close_failure("UI_CLOSE_FAILED", errors[0])
+            error_reported = True
+        if owner_finished:
+            self._attempt_event_unsubscribes(errors)
+            if errors and not error_reported:
+                self._report_close_failure("UI_CLOSE_FAILED", errors[0])
+                error_reported = True
+            self._attempt_unsubscribe("_view_unsubscribe", errors)
+            if errors and not error_reported:
+                self._report_close_failure("UI_CLOSE_FAILED", errors[0])
+                error_reported = True
+
+        ready, persistent_error = self._finish_close_if_ready()
+        if ready:
+            event.accept()
+            return
+
+        error = (
+            errors[0]
+            if errors
+            else persistent_error
+            or RuntimeError("UI close cleanup is still in progress")
+        )
+        if not error_reported:
+            self._report_close_failure("UI_CLOSE_FAILED", error)
+        event.ignore()
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -764,6 +999,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv=None) -> int:
     from vision_platform.application import VisionLabApplication
     from vision_platform.config import load_config
+    from vision_platform.session import VisionLabSession
 
     args = build_parser().parse_args(argv)
     environ = dict(os.environ)
@@ -774,10 +1010,15 @@ def main(argv=None) -> int:
         project_root=PROJECT_ROOT,
         environ=environ,
     )
-    application = VisionLabApplication.from_config(config)
+    def factory():
+        return VisionLabApplication.from_config(config)
+
+    application = factory()
+    session = VisionLabSession(application=application, factory=factory)
     qt_application = QApplication.instance() or QApplication(sys.argv)
     window = VisionLabWindow(
         application=application,
+        session=session,
         output_dir=args.output,
     )
     window.show()
