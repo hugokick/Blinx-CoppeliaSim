@@ -3,15 +3,150 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
+import threading
 import time
+from collections.abc import Mapping
+from dataclasses import asdict
 from pathlib import Path
-from typing import Sequence
+from typing import Any, Sequence
 
 from vision_platform.image_io import read_bgr, write_image
 from vision_platform.recognition.color_shape import ColorShapeRecognizer
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+_STDOUT_ROUTING_LOCK = threading.Lock()
+
+
+class _RuntimeStdoutRouter:
+    """Keep runtime diagnostics off the dedicated CLI JSON stream."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._started = False
+        self._restored = False
+        self._json_stream: Any = None
+        self._previous_stdout: Any = None
+        self._diagnostic_stream: Any = None
+        self._owned_diagnostic_stream: Any = None
+
+    def start(self) -> None:
+        _STDOUT_ROUTING_LOCK.acquire()
+        try:
+            with self._lock:
+                if self._started:
+                    raise RuntimeError("stdout router already started")
+                self._started = True
+                self._previous_stdout = sys.stdout
+                self._json_stream = sys.stdout
+                diagnostic_stream = sys.stderr
+                if diagnostic_stream is None:
+                    diagnostic_stream = open(
+                        os.devnull,
+                        "w",
+                        encoding="utf-8",
+                    )
+                    self._owned_diagnostic_stream = diagnostic_stream
+                self._diagnostic_stream = diagnostic_stream
+                sys.stdout = diagnostic_stream
+        except BaseException:
+            _STDOUT_ROUTING_LOCK.release()
+            raise
+
+    def write_json(self, payload: Mapping[str, Any]) -> None:
+        with self._lock:
+            if not self._started or self._restored:
+                raise RuntimeError("stdout router is not active")
+            stream = self._json_stream
+        _print_json(payload, stream=stream)
+
+    def restore(self) -> None:
+        owned_stream = None
+        release_lock = False
+        with self._lock:
+            if not self._started or self._restored:
+                return
+            if sys.stdout is self._diagnostic_stream:
+                sys.stdout = self._previous_stdout
+            owned_stream = self._owned_diagnostic_stream
+            self._owned_diagnostic_stream = None
+            self._restored = True
+            release_lock = True
+        try:
+            if owned_stream is not None and sys.stdout is not owned_stream:
+                owned_stream.close()
+        finally:
+            if release_lock:
+                _STDOUT_ROUTING_LOCK.release()
+
+    def restore_when_quiescent(self, controller: Any) -> None:
+        thread = threading.Thread(
+            target=self._wait_and_restore,
+            args=(controller,),
+            name="StudentCliStdoutRestorer",
+            daemon=True,
+        )
+        thread.start()
+
+    def _wait_and_restore(self, controller: Any) -> None:
+        while True:
+            try:
+                if controller.wait_for_quiescence(0.25):
+                    self.restore()
+                    return
+            except BaseException:
+                # Unknown liveness must remain fail-closed until process exit.
+                return
+
+
+def _print_json(
+    payload: Mapping[str, Any],
+    *,
+    stream: Any = None,
+) -> None:
+    encoded = json.dumps(
+        payload,
+        ensure_ascii=False,
+        allow_nan=False,
+        separators=(",", ":"),
+    )
+    if stream is None:
+        print(encoded)
+        return
+    print(
+        encoded,
+        file=stream,
+        flush=True,
+    )
+
+
+def _exception_payload(
+    error: BaseException,
+    *,
+    code: str,
+) -> dict[str, str]:
+    return {
+        "code": code,
+        "message": str(error)[:2000],
+        "type": (
+            f"{type(error).__module__}.{type(error).__qualname__}"
+        )[:200],
+    }
+
+
+def _path_or_none(path: Any) -> str | None:
+    return None if path is None else str(path)
+
+
+def _connection_unusable(error: Any) -> bool:
+    if not isinstance(error, Mapping):
+        return False
+    details = error.get("details")
+    return bool(
+        isinstance(details, Mapping)
+        and details.get("connection_unusable") is True
+    )
 
 
 def _detection_dict(detection) -> dict:
@@ -194,6 +329,241 @@ def _simui_smoke(args: argparse.Namespace) -> int:
     return 0 if report["status"] == "PASS" else 1
 
 
+def _student_validate(args: argparse.Namespace) -> int:
+    from vision_platform.student.validator import validate_program
+
+    try:
+        result = validate_program(args.program)
+    except Exception as error:
+        payload = {
+            "status": "FAIL",
+            "program": str(Path(args.program).expanduser().resolve()),
+            "issues": [],
+            "error": _exception_payload(
+                error,
+                code="STUDENT_VALIDATION_FAILED",
+            ),
+        }
+        _print_json(payload)
+        return 1
+    payload = {
+        "status": "PASS" if result.ok else "FAIL",
+        "program": str(result.path),
+        "issues": [asdict(issue) for issue in result.issues],
+    }
+    _print_json(payload)
+    return 0 if result.ok else 2
+
+
+def _execute_student_run(
+    args: argparse.Namespace,
+) -> tuple[int, dict[str, Any], Any | None]:
+    from vision_platform.application import VisionLabApplication
+    from vision_platform.config import load_config
+    from vision_platform.session import VisionLabSession
+    from vision_platform.student.runner import StudentProgramController
+    from vision_platform.student.safety import StudentExecutionPolicy
+
+    application = None
+    session = None
+    controller = None
+    policy = None
+    close_quarantined = False
+    deferred_controller = None
+    exit_code = 1
+    payload: dict[str, Any] = {
+        "status": "FAIL",
+        "summary": None,
+        "evidence": None,
+        "error": None,
+    }
+    try:
+        environ = dict(os.environ)
+        environ["ROBOT_BACKEND"] = "sim"
+        environ["VISION_BACKEND"] = "sim"
+        environ["COPPELIA_HOST"] = args.host
+        environ["COPPELIA_PORT"] = str(args.port)
+        if args.scene:
+            scene = Path(args.scene).expanduser()
+            if not scene.is_absolute():
+                scene = PROJECT_ROOT / scene
+            environ["COPPELIA_SCENE"] = str(scene.resolve())
+        config = load_config(
+            args.config,
+            project_root=PROJECT_ROOT,
+            environ=environ,
+        )
+
+        def factory():
+            return VisionLabApplication.from_config(config)
+
+        application = factory()
+        session = VisionLabSession(
+            application=application,
+            factory=factory,
+        )
+        student = config.student
+        speed_range = student["speed_range"]
+        policy = StudentExecutionPolicy(
+            min_speed=float(speed_range[0]),
+            max_speed=float(speed_range[1]),
+            max_runtime_s=float(student["max_runtime_s"]),
+            max_commands=int(student["max_commands"]),
+            command_timeout_s=float(student["command_timeout_s"]),
+            max_sleep_s=float(student["max_sleep_s"]),
+            tool_on_max_z_mm=float(student["tool_on_max_z_mm"]),
+        )
+        controller = StudentProgramController(
+            session=session,
+            execution_policy=policy,
+            output_root=args.output,
+        )
+        application.load_and_start_scene(config.coppelia_scene)
+        application.open()
+        controller.load(args.program)
+        validation = controller.validate()
+        if not validation.ok:
+            payload = {
+                "status": "FAIL",
+                "issues": [
+                    asdict(issue) for issue in validation.issues
+                ],
+                "summary": None,
+                "evidence": None,
+                "error": None,
+            }
+            exit_code = 2
+        else:
+            controller.start()
+            result = controller.wait(
+                timeout_s=(
+                    policy.max_runtime_s
+                    + policy.command_timeout_s
+                    + 5
+                )
+            )
+            close_quarantined = _connection_unusable(result.error)
+            payload = {
+                "status": result.status,
+                "summary": _path_or_none(result.summary_path),
+                "evidence": _path_or_none(result.evidence_dir),
+                "error": result.error,
+            }
+            exit_code = 0 if result.status == "PASS" else 1
+    except Exception as error:
+        close_quarantined = session is not None or application is not None
+        payload = {
+            "status": "FAIL",
+            "summary": None,
+            "evidence": None,
+            "error": _exception_payload(
+                error,
+                code="STUDENT_RUN_FAILED",
+            ),
+        }
+        exit_code = 1
+    finally:
+        if controller is not None and controller.process_is_alive:
+            close_quarantined = True
+            try:
+                controller.cancel()
+            except Exception as cancel_error:
+                payload["error"] = {
+                    **_exception_payload(
+                        cancel_error,
+                        code="STUDENT_CANCEL_FAILED",
+                    ),
+                    "details": {
+                        "original_error": payload.get("error"),
+                    },
+                }
+                payload["status"] = "FAIL"
+                exit_code = 1
+        quiescent = True
+        quiescence_error = None
+        if controller is not None:
+            timeout_s = (
+                float(policy.command_timeout_s) + 0.25
+                if policy is not None
+                else 0.25
+            )
+            try:
+                quiescent = controller.wait_for_quiescence(timeout_s)
+            except Exception as barrier_error:
+                quiescent = False
+                quiescence_error = _exception_payload(
+                    barrier_error,
+                    code="STUDENT_QUIESCENCE_WAIT_FAILED",
+                )
+        if not quiescent:
+            deferred_controller = controller
+            details = {"original_error": payload.get("error")}
+            if quiescence_error is not None:
+                details["quiescence_error"] = quiescence_error
+            payload = {
+                "status": "FAIL",
+                "summary": payload.get("summary"),
+                "evidence": payload.get("evidence"),
+                "error": {
+                    "code": "STUDENT_SESSION_CLOSE_DEFERRED",
+                    "message": (
+                        "Student run resources are still active; backend "
+                        "transport close was deferred to process exit"
+                    ),
+                    "details": details,
+                },
+            }
+            exit_code = 1
+        else:
+            try:
+                if session is not None:
+                    if close_quarantined:
+                        session.close_quarantined()
+                    else:
+                        session.close()
+                elif application is not None:
+                    if close_quarantined:
+                        application.close_quarantined()
+                    else:
+                        application.close()
+            except Exception as close_error:
+                payload = {
+                    "status": "FAIL",
+                    "summary": payload.get("summary"),
+                    "evidence": payload.get("evidence"),
+                    "error": {
+                        **_exception_payload(
+                            close_error,
+                            code="STUDENT_SESSION_CLOSE_FAILED",
+                        ),
+                        "details": {
+                            "original_error": payload.get("error"),
+                        },
+                    },
+                }
+                exit_code = 1
+    return exit_code, payload, deferred_controller
+
+
+def _student_run(args: argparse.Namespace) -> int:
+    router = _RuntimeStdoutRouter()
+    router.start()
+    deferred_controller = None
+    try:
+        (
+            exit_code,
+            payload,
+            deferred_controller,
+        ) = _execute_student_run(args)
+        router.write_json(payload)
+    finally:
+        if deferred_controller is None:
+            router.restore()
+        else:
+            router.restore_when_quiescent(deferred_controller)
+    return exit_code
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="vision-platform")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -244,6 +614,29 @@ def build_parser() -> argparse.ArgumentParser:
     simui_smoke.add_argument("--duration", type=float, default=5.0)
     simui_smoke.add_argument("--output", required=True)
     simui_smoke.set_defaults(handler=_simui_smoke)
+
+    student_validate = subparsers.add_parser(
+        "student-validate",
+        help="Validate one student Python program",
+    )
+    student_validate.add_argument("--program", required=True)
+    student_validate.set_defaults(handler=_student_validate)
+
+    student_run = subparsers.add_parser(
+        "student-run",
+        help="Run one student program through the guarded simulator",
+    )
+    student_run.add_argument("--program", required=True)
+    student_run.add_argument("--config")
+    student_run.add_argument("--robot", choices=("sim",), default="sim")
+    student_run.add_argument("--scene")
+    student_run.add_argument("--host", default="127.0.0.1")
+    student_run.add_argument("--port", type=int, default=23000)
+    student_run.add_argument(
+        "--output",
+        default="artifacts/vision_lab/student-runs",
+    )
+    student_run.set_defaults(handler=_student_run)
     return parser
 
 

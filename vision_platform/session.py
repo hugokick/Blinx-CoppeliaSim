@@ -98,6 +98,13 @@ class VisionLabSession:
             return replacement
 
     def close(self) -> None:
+        self._close(quarantined=False)
+
+    def close_quarantined(self) -> None:
+        """Close local resources without issuing RPCs on an unusable app."""
+        self._close(quarantined=True)
+
+    def _close(self, *, quarantined: bool) -> None:
         self._reject_lifecycle_reentry()
         with self._operation_lock:
             with self._state_lock:
@@ -106,7 +113,10 @@ class VisionLabSession:
                 self._closed = True
                 application = self._application
                 self._handlers.clear()
-            self._close_application_once(application)
+            if quarantined:
+                self._close_application_quarantined_once(application)
+            else:
+                self._close_application_once(application)
 
     def _require_open(self) -> None:
         if self._closed:

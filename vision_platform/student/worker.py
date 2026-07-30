@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import os
 import sys
 import traceback
+from contextlib import contextmanager, redirect_stdout
 from pathlib import Path
 from types import ModuleType
 from typing import Any
@@ -11,6 +13,26 @@ from vision_platform.student.sdk import (
     StudentContext,
     _StudentProgramCancelled,
 )
+
+
+@contextmanager
+def _student_stdout_to_diagnostics():
+    target = sys.stderr
+    if target is not None:
+        with redirect_stdout(target):
+            yield
+        return
+    with open(os.devnull, "w", encoding="utf-8") as sink:
+        with redirect_stdout(sink):
+            yield
+
+
+def _route_student_stdout_for_process_lifetime() -> None:
+    """Route child stdout without restoring it before interpreter exit."""
+    target = sys.stderr
+    if target is None:
+        target = open(os.devnull, "w", encoding="utf-8")
+    sys.stdout = target
 
 
 def _load_module(
@@ -60,33 +82,34 @@ def run_student_worker(
 ) -> dict[str, Any]:
     selected = Path(path).expanduser().resolve()
     module_name: str | None = None
-    try:
-        module = _load_module(
-            selected,
-            source_bytes=source_bytes,
-        )
-        module_name = module.__name__
-        entry = getattr(module, "main")
-        entry(StudentContext(connection))
-        return {"status": "PASS", "error": None}
-    except _StudentProgramCancelled:
-        return _cancelled_result()
-    except (EOFError, BrokenPipeError):
-        return _cancelled_result()
-    except BaseException as error:
-        return {
-            "status": "FAIL",
-            "error": {
-                "code": "STUDENT_PROGRAM_FAILED",
-                "message": str(error),
-                "type": type(error).__name__,
-                "traceback": traceback.format_exc(),
-            },
-        }
-    finally:
-        if module_name is not None:
-            sys.modules.pop(module_name, None)
+    with _student_stdout_to_diagnostics():
         try:
-            connection.close()
-        except Exception:
-            pass
+            module = _load_module(
+                selected,
+                source_bytes=source_bytes,
+            )
+            module_name = module.__name__
+            entry = getattr(module, "main")
+            entry(StudentContext(connection))
+            return {"status": "PASS", "error": None}
+        except _StudentProgramCancelled:
+            return _cancelled_result()
+        except (EOFError, BrokenPipeError):
+            return _cancelled_result()
+        except BaseException as error:
+            return {
+                "status": "FAIL",
+                "error": {
+                    "code": "STUDENT_PROGRAM_FAILED",
+                    "message": str(error),
+                    "type": type(error).__name__,
+                    "traceback": traceback.format_exc(),
+                },
+            }
+        finally:
+            if module_name is not None:
+                sys.modules.pop(module_name, None)
+            try:
+                connection.close()
+            except Exception:
+                pass

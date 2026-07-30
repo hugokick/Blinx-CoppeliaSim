@@ -29,7 +29,10 @@ from vision_platform.student.validator import (
     validate_program,
     validate_program_bytes,
 )
-from vision_platform.student.worker import run_student_worker
+from vision_platform.student.worker import (
+    _route_student_stdout_for_process_lifetime,
+    run_student_worker,
+)
 
 
 _ACTIVE_STATES = frozenset({RunState.RUNNING, RunState.PAUSED})
@@ -129,6 +132,7 @@ def _child_entry(
     result_queue: Any,
 ) -> None:
     """Pickle-safe spawn target; the parent never enters student code."""
+    _route_student_stdout_for_process_lifetime()
     try:
         result = run_student_worker(
             source_path,
@@ -885,6 +889,63 @@ class StudentProgramController:
         if result is None:
             raise RuntimeError("student run completed without a result")
         return result
+
+    def wait_for_quiescence(self, timeout_s: float) -> bool:
+        """Wait until no run-owned process or thread can touch the backend."""
+        if type(timeout_s) not in {int, float}:
+            raise TypeError("timeout_s must be a number")
+        timeout = float(timeout_s)
+        if not isfinite(timeout) or timeout < 0:
+            raise ValueError("timeout_s must be finite and non-negative")
+
+        deadline = time.monotonic() + timeout
+        current = threading.current_thread()
+        while True:
+            with self._condition:
+                state = self._state
+                starting = self._starting
+                terminalizing = self._terminalizing
+                threads = (
+                    self._command_thread,
+                    self._watchdog_thread,
+                    self._backend_action_thread,
+                )
+            process_alive = self.process_is_alive
+            threads_alive = tuple(
+                thread
+                for thread in threads
+                if thread is not None and thread.is_alive()
+            )
+            lifecycle_active = (
+                state in _ACTIVE_STATES
+                or state is RunState.RESETTING
+                or terminalizing
+            )
+            if (
+                not starting
+                and not lifecycle_active
+                and not process_alive
+                and not threads_alive
+            ):
+                return True
+
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return False
+            for thread in threads_alive:
+                if thread is current:
+                    continue
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return False
+                thread.join(timeout=min(_POLL_SECONDS, remaining))
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return False
+            with self._condition:
+                self._condition.wait(
+                    timeout=min(_POLL_SECONDS, remaining)
+                )
 
     def reset(self) -> Any:
         with self._condition:

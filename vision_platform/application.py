@@ -463,19 +463,36 @@ class VisionLabApplication:
         if self._closed:
             return
         try:
-            self.tool.off()
-        except Exception:
-            pass
-        try:
-            self.camera.close()
+            try:
+                self.tool.off()
+            except Exception:
+                pass
+            try:
+                self.camera.close()
+            finally:
+                self.robot.close()
         finally:
-            self.robot.close()
-        if self.owns_client and self.client is not None:
-            close = getattr(self.client, "close", None)
-            if callable(close):
-                close()
-        self._opened = False
-        self._closed = True
+            try:
+                if self.owns_client and self.client is not None:
+                    close = getattr(self.client, "close", None)
+                    if callable(close):
+                        try:
+                            close()
+                        except BaseException as public_close_error:
+                            try:
+                                self._close_client_transport_locally(
+                                    self.client
+                                )
+                            except BaseException as local_close_error:
+                                raise public_close_error from local_close_error
+                            raise
+                    else:
+                        self._close_client_transport_locally(self.client)
+            finally:
+                self.sim = None
+                self.client = None
+                self._opened = False
+                self._closed = True
 
     def close_quarantined(self) -> None:
         """Close local resources without sending on an unusable REQ socket."""

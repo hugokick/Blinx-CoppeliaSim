@@ -101,3 +101,56 @@ def test_coppeliasim_launcher_quotes_scene_paths_with_spaces():
     assert """$QuotedScene = '"' + $Scene + '"'""" in text
     argument_block = text.split("$StartArguments = @(", 1)[1].split(")", 1)[0]
     assert "$QuotedScene" in argument_block
+
+
+def test_student_launcher_has_required_contract():
+    launcher = ROOT / "tools" / "vision_lab" / "run_student_program.ps1"
+    source = launcher.read_text(encoding="utf-8")
+
+    assert "[Parameter(Mandatory = $true)]" in source
+    assert "[string]$Program" in source
+    assert "[string]$OutputDir" in source
+    assert "launch_coppeliasim.ps1" in source
+    assert "vision_platform.cli student-run" in source
+    assert "--robot sim" in source
+    assert "--scene $Scene" in source
+    assert "Resolve-Path -LiteralPath $Program" in source
+    assert "GetExtension($Program)" in source
+    assert "exit $StudentExitCode" in source
+
+
+def test_student_launcher_does_not_kill_unowned_simulator():
+    launcher = ROOT / "tools" / "vision_lab" / "run_student_program.ps1"
+    source = launcher.read_text(encoding="utf-8")
+
+    assert "Stop-Process -Name" not in source
+    assert "taskkill" not in source.lower()
+
+
+def test_student_program_guide_has_complete_simulation_contract():
+    guide = ROOT / "student_programs" / "README.md"
+    source = guide.read_text(encoding="utf-8")
+
+    required = (
+        "ctx.robot.home()",
+        "ctx.robot.move_world",
+        "ctx.robot.pose()",
+        "ctx.tool.on()",
+        "ctx.tool.off()",
+        "ctx.log",
+        "ctx.sleep",
+        'ctx.checkpoint("阶段名")',
+        "checkpoint(label)",
+        "mm",
+        "世界坐标",
+        "安全高度",
+        "safe_z",
+        "student-validate",
+        "run_student_program.ps1",
+        "artifacts/vision_lab/student-runs",
+        "RX/RY/RZ",
+        "sim",
+        "PENDING_HARDWARE",
+    )
+    for item in required:
+        assert item in source

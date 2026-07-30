@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import multiprocessing
 import os
 import sys
 from multiprocessing import Pipe
@@ -7,7 +8,10 @@ from pathlib import Path
 from threading import Thread
 from time import monotonic
 
+import pytest
+
 from vision_platform.student.protocol import ResponseMessage
+from vision_platform.student.runner import _child_entry
 from vision_platform.student.validator import validate_program
 from vision_platform.student.worker import run_student_worker
 
@@ -37,6 +41,11 @@ class RecordingConnection:
 
     def close(self) -> None:
         self.closed = True
+
+
+def _child_entry_without_stderr(*args) -> None:
+    sys.stderr = None
+    _child_entry(*args)
 
 
 def _registered_modules_for(path: Path) -> list[str]:
@@ -111,6 +120,173 @@ def test_worker_reports_uncaught_exception(tmp_path: Path) -> None:
     assert result["error"]["type"] == "ValueError"
     assert "student-error" in result["error"]["message"]
     assert "ValueError: student-error" in result["error"]["traceback"]
+
+
+def test_worker_routes_module_and_student_stdout_to_stderr(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    program = tmp_path / "prints.py"
+    program.write_text(
+        "print('module-diagnostic')\n"
+        "def main(ctx):\n"
+        "    print('student-diagnostic')\n",
+        encoding="utf-8",
+    )
+    connection = RecordingConnection()
+
+    result = run_student_worker(program, connection)
+
+    captured = capsys.readouterr()
+    assert result == {"status": "PASS", "error": None}
+    assert captured.out == ""
+    assert captured.err.splitlines() == [
+        "module-diagnostic",
+        "student-diagnostic",
+    ]
+
+
+def test_worker_discards_student_stdout_when_gui_has_no_stderr(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    program = tmp_path / "gui_prints.py"
+    program.write_text(
+        "def main(ctx):\n"
+        "    print('student-diagnostic')\n",
+        encoding="utf-8",
+    )
+    connection = RecordingConnection()
+    original_stderr = sys.stderr
+    try:
+        sys.stderr = None
+        result = run_student_worker(program, connection)
+    finally:
+        sys.stderr = original_stderr
+
+    captured = capsys.readouterr()
+    assert result == {"status": "PASS", "error": None}
+    assert captured.out == ""
+    assert captured.err == ""
+
+
+@pytest.mark.parametrize("stderr_available", [True, False])
+def test_child_routes_late_non_daemon_thread_for_process_lifetime(
+    tmp_path: Path,
+    capfd,
+    stderr_available: bool,
+) -> None:
+    release = tmp_path / "release-late-thread"
+    program = tmp_path / "late_thread.py"
+    program.write_text(
+        "import threading\n"
+        "import time\n"
+        "from pathlib import Path\n"
+        f"RELEASE = Path({str(release)!r})\n"
+        "\n"
+        "def late_print():\n"
+        "    while not RELEASE.exists():\n"
+        "        time.sleep(0.005)\n"
+        "    print('late-student-thread', flush=True)\n"
+        "\n"
+        "def main(ctx):\n"
+        "    thread = threading.Thread(target=late_print, daemon=False)\n"
+        "    thread.start()\n",
+        encoding="utf-8",
+    )
+    context = multiprocessing.get_context("spawn")
+    parent, child = context.Pipe(duplex=True)
+    result_queue = context.Queue(maxsize=1)
+    target = (
+        _child_entry
+        if stderr_available
+        else _child_entry_without_stderr
+    )
+    process = context.Process(
+        target=target,
+        args=(
+            str(program),
+            program.read_bytes(),
+            child,
+            result_queue,
+        ),
+    )
+    process.start()
+    child.close()
+    try:
+        result = result_queue.get(timeout=5)
+        release.write_text("release", encoding="utf-8")
+        process.join(timeout=5)
+        assert process.is_alive() is False
+    finally:
+        if process.is_alive():
+            process.terminate()
+            process.join(timeout=2)
+        parent.close()
+        result_queue.close()
+        result_queue.join_thread()
+
+    captured = capfd.readouterr()
+    assert result == {"status": "PASS", "error": None}
+    assert captured.out == ""
+    if stderr_available:
+        assert "late-student-thread" in captured.err
+    else:
+        assert captured.err == ""
+
+
+def test_worker_routes_loud_exception_stringification_to_stderr(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    program = tmp_path / "loud_exception.py"
+    program.write_text(
+        "class LoudError(Exception):\n"
+        "    def __str__(self):\n"
+        "        print('loud-exception-string')\n"
+        "        return 'student-error'\n"
+        "\n"
+        "def main(ctx):\n"
+        "    raise LoudError()\n",
+        encoding="utf-8",
+    )
+
+    result = run_student_worker(program, RecordingConnection())
+
+    captured = capsys.readouterr()
+    assert result["status"] == "FAIL"
+    assert result["error"]["message"] == "student-error"
+    assert captured.out == ""
+    assert "loud-exception-string" in captured.err
+
+
+def test_worker_discards_loud_exception_stringification_without_stderr(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    program = tmp_path / "loud_exception_gui.py"
+    program.write_text(
+        "class LoudError(Exception):\n"
+        "    def __str__(self):\n"
+        "        print('loud-exception-string')\n"
+        "        return 'student-error'\n"
+        "\n"
+        "def main(ctx):\n"
+        "    raise LoudError()\n",
+        encoding="utf-8",
+    )
+    original_stderr = sys.stderr
+    try:
+        sys.stderr = None
+        result = run_student_worker(program, RecordingConnection())
+    finally:
+        sys.stderr = original_stderr
+
+    captured = capsys.readouterr()
+    assert result["status"] == "FAIL"
+    assert result["error"]["message"] == "student-error"
+    assert captured.out == ""
+    assert captured.err == ""
 
 
 def test_worker_executes_fresh_source_with_same_mtime_and_size(

@@ -152,6 +152,40 @@ def test_session_close_is_idempotent_and_rejects_new_work() -> None:
         session.subscribe(lambda _application: None)
 
 
+def test_session_normal_close_propagates_error_and_remains_idempotent() -> None:
+    close_error = RuntimeError("application-close-failed")
+    application = FakeApplication(1, fail_close=close_error)
+    session = VisionLabSession(
+        application=application,
+        factory=lambda: FakeApplication(2),
+    )
+
+    with pytest.raises(RuntimeError, match="application-close-failed"):
+        session.close()
+    session.close()
+
+    assert application.close_calls == 1
+    with pytest.raises(RuntimeError, match="closed"):
+        session.reset_simulation()
+
+
+def test_quarantined_close_never_calls_normal_application_close() -> None:
+    application = FakeApplication(1)
+    session = VisionLabSession(
+        application=application,
+        factory=lambda: FakeApplication(2),
+    )
+
+    session.close_quarantined()
+    session.close_quarantined()
+    session.close()
+
+    assert application.close_calls == 0
+    assert application.close_quarantined_calls == 1
+    with pytest.raises(RuntimeError, match="closed"):
+        session.reset_simulation()
+
+
 @pytest.mark.parametrize("stage", ["factory", "load", "open"])
 def test_session_reset_failure_keeps_old_application_and_cleans_replacement(
     stage: str,

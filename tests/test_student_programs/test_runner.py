@@ -367,6 +367,26 @@ def test_result_and_snapshot_are_frozen_value_objects(tmp_path):
         snapshot.command_count = 1
 
 
+def test_wait_for_quiescence_validates_timeout_and_accepts_idle_states(
+    tmp_path,
+):
+    controller, _, _ = make_controller(
+        tmp_path,
+        "def main(ctx):\n    pass\n",
+    )
+
+    assert controller.wait_for_quiescence(0) is True
+    assert controller.validate().ok is True
+    assert controller.wait_for_quiescence(0) is True
+
+    for invalid in (None, True, "1"):
+        with pytest.raises(TypeError):
+            controller.wait_for_quiescence(invalid)
+    for invalid in (-0.1, float("inf"), float("nan")):
+        with pytest.raises(ValueError):
+            controller.wait_for_quiescence(invalid)
+
+
 def test_valid_program_runs_commands_and_finishes_pass(tmp_path):
     controller, session, program = make_controller(
         tmp_path,
@@ -491,11 +511,13 @@ def test_cancel_terminates_worker_before_ordered_cleanup(tmp_path):
     assert controller.validate().ok is True
     controller.start()
     wait_until(lambda: controller.process_is_alive)
+    assert controller.wait_for_quiescence(0) is False
 
     controller.cancel()
     result = controller.wait(timeout_s=5)
 
     assert result.status == "CANCELLED"
+    assert controller.wait_for_quiescence(2) is True
     assert controller.process_is_alive is False
     assert tool.cleanup_liveness == [False]
     assert actions == [
@@ -932,10 +954,26 @@ def test_spawn_failure_is_recorded_and_does_not_escape_or_leak(
     )
     assert controller.validate().ok is True
     before = student_processes()
+
+    class StartFailingProcess:
+        def start(self):
+            raise TypeError("injected process start failure")
+
+        def is_alive(self):
+            return False
+
+        def join(self, timeout=None):
+            del timeout
+
+    context = controller._context
     monkeypatch.setattr(
-        runner_module,
-        "_child_entry",
-        lambda *args: None,
+        controller,
+        "_context",
+        SimpleNamespace(
+            Pipe=context.Pipe,
+            Queue=context.Queue,
+            Process=lambda **_kwargs: StartFailingProcess(),
+        ),
     )
 
     controller.start()
@@ -1612,6 +1650,7 @@ def test_permanently_blocked_cleanup_is_bounded_and_quarantined(tmp_path):
         assert result.error["details"]["quarantined"] is True
         assert result.error["details"]["connection_unusable"] is True
         assert controller.process_is_alive is False
+        assert controller.wait_for_quiescence(0) is False
         assert controller._backend_action_is_alive() is True
         assert controller._backend_action_thread.daemon is True
         assert controller._backend_action_thread.name.startswith(
@@ -1649,6 +1688,7 @@ def test_permanently_blocked_cleanup_is_bounded_and_quarantined(tmp_path):
         lambda: not controller._backend_action_is_alive(),
         timeout_s=2,
     )
+    assert controller.wait_for_quiescence(2) is True
     assert result.summary_path.read_bytes() == sealed_summary
     assert json.dumps(result.error, sort_keys=True) == sealed_error
     assert robot.pose_calls == 0
