@@ -94,6 +94,7 @@ class StudentRunSnapshot:
     elapsed_seconds: float
     error: Mapping[str, Any] | None
     evidence_dir: Path | None
+    tcp_mm: tuple[float, float, float] | None = None
 
     def __post_init__(self) -> None:
         if self.error is not None:
@@ -101,6 +102,17 @@ class StudentRunSnapshot:
                 self,
                 "error",
                 _freeze_json(_json_safe(self.error)),
+            )
+        if self.tcp_mm is not None:
+            values = tuple(float(value) for value in self.tcp_mm)
+            if len(values) != 3:
+                raise ValueError("tcp_mm must contain X, Y and Z")
+            if not all(isfinite(value) for value in values):
+                raise ValueError("tcp_mm values must be finite")
+            object.__setattr__(
+                self,
+                "tcp_mm",
+                (values[0], values[1], values[2]),
             )
 
 
@@ -1345,6 +1357,7 @@ class StudentProgramController:
                 if self._evidence is not None
                 else None
             ),
+            tcp_mm=self._last_pose,
         )
 
     def _emit_snapshot(self) -> None:

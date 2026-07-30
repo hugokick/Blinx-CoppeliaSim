@@ -365,6 +365,68 @@ def test_result_and_snapshot_are_frozen_value_objects(tmp_path):
         result.status = "FAILED"
     with pytest.raises(FrozenInstanceError):
         snapshot.command_count = 1
+    assert snapshot.tcp_mm is None
+
+
+def test_snapshot_tcp_is_copied_to_an_immutable_tuple(tmp_path):
+    source_tcp = [100, -20.5, 35.25]
+    snapshot = StudentRunSnapshot(
+        RunState.RUNNING,
+        "robot.pose",
+        1,
+        0.1,
+        None,
+        tmp_path,
+        source_tcp,
+    )
+
+    source_tcp[0] = 999
+
+    assert snapshot.tcp_mm == (100.0, -20.5, 35.25)
+    assert isinstance(snapshot.tcp_mm, tuple)
+    with pytest.raises(FrozenInstanceError):
+        snapshot.tcp_mm = None
+
+
+@pytest.mark.parametrize(
+    "non_finite",
+    [float("nan"), float("inf"), float("-inf")],
+    ids=["nan", "positive-infinity", "negative-infinity"],
+)
+def test_snapshot_tcp_rejects_non_finite_values(
+    tmp_path,
+    non_finite,
+):
+    with pytest.raises(ValueError, match="finite"):
+        StudentRunSnapshot(
+            RunState.RUNNING,
+            "robot.pose",
+            1,
+            0.1,
+            None,
+            tmp_path,
+            (100.0, non_finite, 35.25),
+        )
+
+
+def test_controller_snapshots_publish_last_pose_without_ui_queries(
+    tmp_path,
+):
+    controller, _, _ = make_controller(
+        tmp_path,
+        "def main(ctx):\n    ctx.robot.pose()\n",
+    )
+    snapshots: list[StudentRunSnapshot] = []
+    controller.subscribe(snapshots.append)
+    assert controller.validate().ok is True
+
+    controller.start()
+    assert controller.wait(timeout_s=5).status == "PASS"
+
+    assert any(
+        snapshot.tcp_mm == (100.0, 20.0, 120.0)
+        for snapshot in snapshots
+    )
 
 
 def test_wait_for_quiescence_validates_timeout_and_accepts_idle_states(

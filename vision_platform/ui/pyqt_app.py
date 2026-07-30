@@ -33,6 +33,10 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from vision_platform.student.protocol import RunState
+from vision_platform.student.runner import StudentProgramController
+from vision_platform.student.safety import StudentExecutionPolicy
+from vision_platform.ui.student_program_panel import StudentProgramPanel
 from vision_platform.ui.view_model import (
     VisionLabSnapshot,
     VisionLabViewModel,
@@ -187,6 +191,10 @@ class VisionLabWindow(QMainWindow):
         self._event_unsubscribe = None
         self._pending_event_unsubscribes = []
         self._view_unsubscribe = None
+        self._student_panel_unsubscribe = None
+        self._student_stop_pending_reported = False
+        self.student_controller: StudentProgramController | None = None
+        self.student_program_panel: QWidget | None = None
 
         self.setWindowTitle("BL23 机器人视觉虚拟仿真实验台")
         self.setMinimumSize(1180, 760)
@@ -252,10 +260,12 @@ class VisionLabWindow(QMainWindow):
         title_column = QVBoxLayout()
         title = QLabel("BL23 机器人视觉虚拟仿真实验台")
         title.setObjectName("title")
-        subtitle = QLabel("仿真标定 · 视觉识别 · 六轴机械臂分类闭环")
-        subtitle.setObjectName("subtitle")
+        self.subtitle_label = QLabel(
+            "仿真标定 · 视觉识别 · 学生编程 · 六轴机械臂分类闭环"
+        )
+        self.subtitle_label.setObjectName("subtitle")
         title_column.addWidget(title)
-        title_column.addWidget(subtitle)
+        title_column.addWidget(self.subtitle_label)
         header.addLayout(title_column)
         header.addStretch(1)
         self.connection_badge = QLabel("未连接")
@@ -364,6 +374,7 @@ class VisionLabWindow(QMainWindow):
         self.report_text.setPlaceholderText("自动验收结果将在此显示")
         report_layout.addWidget(self.report_text)
         self.tabs.addTab(report_tab, "验收")
+        self._build_student_program_tab()
         right_layout.addWidget(self.tabs, 1)
         splitter.addWidget(right_panel)
         splitter.setStretchFactor(0, 3)
@@ -412,6 +423,53 @@ class VisionLabWindow(QMainWindow):
         self.log_text.setMaximumHeight(120)
         self.log_text.setPlaceholderText("状态机日志")
         root_layout.addWidget(self.log_text)
+
+    def _build_student_program_tab(self) -> None:
+        setup_error: Exception | None = None
+        if self.session is not None:
+            try:
+                config = self.application.config
+                student = config.student
+                speed_range = student["speed_range"]
+                policy = StudentExecutionPolicy(
+                    min_speed=float(speed_range[0]),
+                    max_speed=float(speed_range[1]),
+                    max_runtime_s=float(student["max_runtime_s"]),
+                    max_commands=int(student["max_commands"]),
+                    command_timeout_s=float(
+                        student["command_timeout_s"]
+                    ),
+                    max_sleep_s=float(student["max_sleep_s"]),
+                    tool_on_max_z_mm=float(
+                        student["tool_on_max_z_mm"]
+                    ),
+                )
+                resolver = self.application._resolve_project_path
+                student_output = resolver(config, student["output"])
+                controller = StudentProgramController(
+                    session=self.session,
+                    execution_policy=policy,
+                    output_root=student_output,
+                )
+                panel = StudentProgramPanel(controller=controller)
+            except Exception as error:
+                setup_error = error
+            else:
+                self.student_controller = controller
+                self.student_program_panel = panel
+                self._student_panel_unsubscribe = (
+                    panel.release_subscription
+                )
+                self.tabs.addTab(panel, "学生编程")
+                return
+
+        unavailable = QLabel("当前窗口未配置学生程序会话")
+        unavailable.setAlignment(Qt.AlignCenter)
+        if setup_error is not None:
+            unavailable.setToolTip(str(setup_error))
+        self.student_program_panel = unavailable
+        index = self.tabs.addTab(unavailable, "学生编程")
+        self.tabs.setTabEnabled(index, False)
 
     def _apply_design_system(self) -> None:
         self.setStyleSheet(
@@ -721,6 +779,8 @@ class VisionLabWindow(QMainWindow):
             self.emergency_button,
         ):
             control.setEnabled(False)
+        if self.student_program_panel is not None:
+            self.student_program_panel.setEnabled(False)
 
     def _selected_camera_backend(self) -> str:
         return ("sim", "replay", "hik")[self.camera_backend_combo.currentIndex()]
@@ -886,7 +946,8 @@ class VisionLabWindow(QMainWindow):
     def _finish_close_if_ready(self) -> tuple[bool, Exception | None]:
         with self._lifecycle_lock:
             cleanup_pending = (
-                self._session_unsubscribe is not None
+                self._student_panel_unsubscribe is not None
+                or self._session_unsubscribe is not None
                 or self._event_unsubscribe is not None
                 or bool(self._pending_event_unsubscribes)
                 or self._view_unsubscribe is not None
@@ -906,6 +967,41 @@ class VisionLabWindow(QMainWindow):
             self._render_snapshot(self.view_model.snapshot())
         except Exception:
             pass
+
+    def _student_backend_ready_for_close(
+        self,
+    ) -> tuple[bool, Exception | None]:
+        controller = self.student_controller
+        if controller is None:
+            return True, None
+        try:
+            panel = self.student_program_panel
+            if isinstance(panel, StudentProgramPanel):
+                if controller.state in {
+                    RunState.RUNNING,
+                    RunState.PAUSED,
+                }:
+                    if panel.request_stop():
+                        self._student_stop_pending_reported = False
+                if panel.operation_in_progress:
+                    return (
+                        False,
+                        RuntimeError(
+                            "student program control operation "
+                            "is still running"
+                        ),
+                    )
+            if controller.wait_for_quiescence(0):
+                return True, None
+        except Exception as error:
+            return False, error
+        return (
+            False,
+            RuntimeError(
+                "student program backend is still stopping; "
+                "close the window again after it becomes quiescent"
+            ),
+        )
 
     def closeEvent(self, event) -> None:
         with self._lifecycle_lock:
@@ -933,6 +1029,22 @@ class VisionLabWindow(QMainWindow):
             event.ignore()
             return
 
+        student_ready, student_error = (
+            self._student_backend_ready_for_close()
+        )
+        if not student_ready:
+            if not self._student_stop_pending_reported:
+                self._student_stop_pending_reported = True
+                self._report_close_failure(
+                    "UI_STUDENT_STOP_PENDING",
+                    student_error
+                    or RuntimeError(
+                        "student program backend is still stopping"
+                    ),
+                )
+            event.ignore()
+            return
+
         with self._lifecycle_lock:
             if self._close_complete:
                 event.accept()
@@ -942,6 +1054,7 @@ class VisionLabWindow(QMainWindow):
 
         errors: list[Exception] = []
         error_reported = False
+        self._attempt_unsubscribe("_student_panel_unsubscribe", errors)
         self._attempt_unsubscribe("_session_unsubscribe", errors)
         self._attempt_owner_close(errors)
         with self._lifecycle_lock:

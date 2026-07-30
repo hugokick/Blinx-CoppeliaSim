@@ -2079,7 +2079,11 @@ Implementation requirements:
 14. Preserve cleanup errors separately。
 15. Never run robot cleanup while the child can still submit commands。
 16. Finalize evidence exactly once。
-17. Emit immutable snapshots containing state, current command, command count, elapsed time, error and evidence directory。
+17. Emit immutable snapshots containing state, current command, command count,
+    elapsed time, error, evidence directory and backward-compatible
+    `tcp_mm=None` populated from `_last_pose` under the controller lock；
+    when present, the public snapshot constructor normalizes exactly three
+    values to floats and rejects NaN and positive or negative infinity。
 18. Run a watchdog thread so a child that never sends an SDK command still
     reaches `STUDENT_RUNTIME_TIMEOUT`。
 
@@ -2501,6 +2505,9 @@ git commit -m "feat(student): add cli launcher and program templates"
 - Create: `vision_platform/ui/student_program_panel.py`
 - Test: `tests/test_vision_platform/test_student_program_panel.py`
 - Modify: `tests/test_vision_platform/test_pyqt_smoke.py`
+- Modify: `vision_platform/student/runner.py`
+- Modify: `tests/test_student_programs/test_runner.py`
+- Modify: `docs/superpowers/plans/2026-07-30-student-program-runner-v2-plan.md`
 
 - [ ] **Step 1: 写面板失败测试**
 
@@ -2549,6 +2556,7 @@ class FakeController:
             elapsed_seconds=0.0,
             error=None,
             evidence_dir=None,
+            tcp_mm=None,
         )
         for handler in tuple(self.handlers):
             handler(snapshot)
@@ -2597,6 +2605,7 @@ def test_panel_exposes_file_and_run_controls(qtbot):
     assert panel.validate_button.text() == "检查代码"
     assert panel.run_button.text() == "运行"
     assert panel.pause_button.text() == "暂停"
+    assert panel.resume_button.text() == "继续"
     assert panel.step_button.text() == "下一步"
     assert panel.stop_button.text() == "停止"
     assert panel.reset_button.text() == "复位场景"
@@ -2610,6 +2619,7 @@ def test_panel_button_states_follow_runner_state(qtbot):
     controller.emit_state(RunState.PAUSED)
 
     assert panel.step_button.isEnabled() is True
+    assert panel.resume_button.isEnabled() is True
     assert panel.run_button.isEnabled() is False
     assert panel.stop_button.isEnabled() is True
 
@@ -2667,16 +2677,42 @@ def test_validation_issues_render_line_and_code(qtbot, tmp_path):
     assert "第 3 行" in panel.console.toPlainText()
 
 
-def test_close_cancels_running_controller(qtbot):
+def test_close_requests_async_cancel_for_running_controller(qtbot):
     controller = FakeController()
     panel = StudentProgramPanel(controller=controller)
     qtbot.addWidget(panel)
     controller.emit_state(RunState.RUNNING)
 
     panel.close()
+    qtbot.waitUntil(lambda: controller.cancel_calls == 1)
 
     assert controller.cancel_calls == 1
 ```
+
+Review amendment: the minimal tests above are only the initial RED scaffold.
+The completed Task 10 test contract must additionally cover:
+
+1. all nine runner states, including `继续` and the corrected Reset column；
+2. terminal-state open/save/static validation without calling
+   `StudentProgramController.load()`；
+3. valid and invalid staged sources synchronized with
+   `load()` + `validate()` only after terminal Reset；
+4. Event-gated proof that Stop and Reset clicks return while their controller
+   operations remain blocked in a `QThread`；
+5. idempotent cancel requests, cancel-error retry, standalone and main-window
+   fail-closed cleanup, and a repeated race-stress loop；
+6. immutable `tcp_mm` controller snapshots, TCP rendering from snapshots only,
+   and dynamic state-badge styling；
+7. a shown, event-processed `VisionLabWindow` at the supported `1180 × 760`
+   minimum, with the student tab selected, proving every action button keeps
+   its text width plus horizontal padding and remains inside the panel；
+8. deterministic first-`QThread.start()` failure cleanup, full active-state
+   matrix restoration, visible original error, successful second Stop, and no
+   leaked/running QThread or QObject/QThread warning；
+9. Save As write-failure atomicity for both an existing identity and the
+   initial no-file state, followed by a successful retry；
+10. public `StudentRunSnapshot` rejection of NaN and positive/negative
+    infinity while preserving `None` and finite tuple compatibility。
 
 - [ ] **Step 2: 验证面板测试先失败**
 
@@ -2693,13 +2729,16 @@ Expected: FAIL，提示面板模块不存在。
 
 Create `vision_platform/ui/student_program_panel.py`:
 
+The following is the normative architecture. Stop and Reset must go through
+the operation worker; no Qt slot may call `cancel()` or `reset()` directly。
+
 ```python
 from __future__ import annotations
 
 from pathlib import Path
 from types import SimpleNamespace
 
-from PyQt5.QtCore import QObject, Qt, pyqtSignal
+from PyQt5.QtCore import QObject, QThread, Qt, pyqtSignal, pyqtSlot
 from PyQt5.QtWidgets import (
     QFileDialog,
     QGridLayout,
@@ -2713,10 +2752,51 @@ from PyQt5.QtWidgets import (
 )
 
 from vision_platform.student.protocol import RunState
+from vision_platform.student.validator import validate_program
+
+
+_ACTIVE_STATES = frozenset({RunState.RUNNING, RunState.PAUSED})
+_TERMINAL_STATES = frozenset(
+    {RunState.PASSED, RunState.FAILED, RunState.CANCELLED}
+)
 
 
 class _SnapshotBridge(QObject):
     updated = pyqtSignal(object)
+
+
+class _ControllerOperationWorker(QObject):
+    succeeded = pyqtSignal(str, object)
+    failed = pyqtSignal(str, str)
+
+    def __init__(self, *, controller, operation, staged_path=None):
+        super().__init__()
+        self.controller = controller
+        self.operation = operation
+        self.staged_path = staged_path
+
+    @pyqtSlot()
+    def run(self):
+        try:
+            if self.operation == "cancel":
+                self.controller.cancel()
+                result = None
+            else:
+                application = self.controller.reset()
+                validation = None
+                loaded_path = None
+                if self.staged_path is not None:
+                    loaded_path = self.controller.load(self.staged_path)
+                    validation = self.controller.validate(loaded_path)
+                result = {
+                    "application": application,
+                    "program_path": loaded_path,
+                    "validation": validation,
+                }
+        except BaseException as error:
+            self.failed.emit(self.operation, str(error)[:2000])
+            return
+        self.succeeded.emit(self.operation, result)
 
 
 class StudentProgramPanel(QWidget):
@@ -2724,7 +2804,12 @@ class StudentProgramPanel(QWidget):
         super().__init__(parent)
         self.controller = controller
         self.program_path: Path | None = None
+        self._pending_program_path: Path | None = None
         self._unsubscribe = None
+        self._operation_thread: QThread | None = None
+        self._operation_worker = None
+        self._cancel_requested_for_run = False
+        self._last_state = None
         self._build_ui()
 
         self._bridge = _SnapshotBridge(self)
@@ -2740,35 +2825,46 @@ class StudentProgramPanel(QWidget):
                 elapsed_seconds=0.0,
                 error=None,
                 evidence_dir=None,
+                tcp_mm=None,
             )
         )
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
-        toolbar = QHBoxLayout()
+        file_toolbar = QHBoxLayout()
+        run_toolbar = QHBoxLayout()
         self.open_button = QPushButton("打开程序")
         self.save_button = QPushButton("保存")
         self.save_as_button = QPushButton("另存为")
         self.validate_button = QPushButton("检查代码")
         self.run_button = QPushButton("运行")
         self.pause_button = QPushButton("暂停")
+        self.resume_button = QPushButton("继续")
         self.step_button = QPushButton("下一步")
         self.stop_button = QPushButton("停止")
         self.reset_button = QPushButton("复位场景")
-        for button in (
+        file_buttons = (
             self.open_button,
             self.save_button,
             self.save_as_button,
             self.validate_button,
+        )
+        run_buttons = (
             self.run_button,
             self.pause_button,
+            self.resume_button,
             self.step_button,
             self.stop_button,
             self.reset_button,
-        ):
+        )
+        for button in (*file_buttons, *run_buttons):
             button.setMinimumHeight(38)
-            toolbar.addWidget(button)
-        layout.addLayout(toolbar)
+        for button in file_buttons:
+            file_toolbar.addWidget(button)
+        for button in run_buttons:
+            run_toolbar.addWidget(button)
+        layout.addLayout(file_toolbar)
+        layout.addLayout(run_toolbar)
 
         self.path_label = QLabel("尚未打开学生程序")
         self.path_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
@@ -2783,14 +2879,17 @@ class StudentProgramPanel(QWidget):
 
         status = QGridLayout()
         self.state_label = QLabel("EMPTY")
+        self.state_label.setObjectName("studentStateBadge")
         self.command_label = QLabel("当前命令：—")
         self.metrics_label = QLabel("命令数：0　运行时间：0.0 s")
+        self.tcp_label = QLabel("TCP：—")
         self.evidence_label = QLabel("证据目录：—")
         status.addWidget(QLabel("运行状态："), 0, 0)
         status.addWidget(self.state_label, 0, 1)
         status.addWidget(self.command_label, 1, 0, 1, 2)
         status.addWidget(self.metrics_label, 2, 0, 1, 2)
-        status.addWidget(self.evidence_label, 3, 0, 1, 2)
+        status.addWidget(self.tcp_label, 3, 0, 1, 2)
+        status.addWidget(self.evidence_label, 4, 0, 1, 2)
         layout.addLayout(status)
 
         self.console = QTextEdit()
@@ -2804,9 +2903,10 @@ class StudentProgramPanel(QWidget):
         self.validate_button.clicked.connect(self._validate)
         self.run_button.clicked.connect(self._run)
         self.pause_button.clicked.connect(self.controller.pause)
+        self.resume_button.clicked.connect(self.controller.resume)
         self.step_button.clicked.connect(self.controller.step)
-        self.stop_button.clicked.connect(self.controller.cancel)
-        self.reset_button.clicked.connect(self.controller.reset)
+        self.stop_button.clicked.connect(self.request_stop)
+        self.reset_button.clicked.connect(self.request_reset)
 
     def _open_program(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
@@ -2818,23 +2918,57 @@ class StudentProgramPanel(QWidget):
         if not path:
             return
         selected = Path(path).expanduser().resolve()
-        source = selected.read_text(encoding="utf-8")
+        try:
+            source = selected.read_text(encoding="utf-8")
+        except Exception as error:
+            self._show_error("STUDENT_FILE_OPEN_FAILED", error)
+            return
         self.editor.setPlainText(source)
         self.program_path = selected
         self.path_label.setText(str(selected))
-        self.controller.load(selected)
+        if self.controller.state in _TERMINAL_STATES:
+            self._pending_program_path = selected
+            self.console.append(f"已暂存：{selected}")
+            return
+        try:
+            loaded = self.controller.load(selected)
+        except Exception as error:
+            self._pending_program_path = selected
+            self._show_error("STUDENT_PROGRAM_SYNC_FAILED", error)
+        else:
+            self.program_path = Path(loaded).resolve()
+            self._pending_program_path = None
         self.console.append(f"已载入：{selected}")
 
     def _save(self) -> bool:
         if self.program_path is None:
             return self._save_as()
-        self.program_path.write_text(
-            self.editor.toPlainText(),
-            encoding="utf-8",
-            newline="\n",
-        )
-        self.controller.load(self.program_path)
+        return self._save_to_path(self.program_path)
+
+    def _save_to_path(self, path: Path) -> bool:
+        selected = Path(path).expanduser().resolve()
+        try:
+            selected.write_text(
+                self.editor.toPlainText(),
+                encoding="utf-8",
+                newline="\n",
+            )
+        except Exception as error:
+            self._show_error("STUDENT_FILE_SAVE_FAILED", error)
+            return False
+        self.program_path = selected
+        self.path_label.setText(str(self.program_path))
         self.console.append(f"已保存：{self.program_path}")
+        if self.controller.state in _TERMINAL_STATES:
+            self._pending_program_path = self.program_path
+            return True
+        try:
+            self.controller.load(self.program_path)
+        except Exception as error:
+            self._pending_program_path = self.program_path
+            self._show_error("STUDENT_PROGRAM_SYNC_FAILED", error)
+        else:
+            self._pending_program_path = None
         return True
 
     def _save_as(self) -> bool:
@@ -2849,14 +2983,18 @@ class StudentProgramPanel(QWidget):
         selected = Path(path).expanduser()
         if selected.suffix.lower() != ".py":
             selected = selected.with_suffix(".py")
-        self.program_path = selected.resolve()
-        self.path_label.setText(str(self.program_path))
-        return self._save()
+        return self._save_to_path(selected)
 
     def _validate(self) -> None:
         if not self._save():
             return
-        result = self.controller.validate(self.program_path)
+        if (
+            self.controller.state in _TERMINAL_STATES
+            or self._pending_program_path is not None
+        ):
+            result = validate_program(self.program_path)
+        else:
+            result = self.controller.validate(self.program_path)
         if result.ok:
             self.console.append("代码检查：PASS")
             return
@@ -2874,11 +3012,52 @@ class StudentProgramPanel(QWidget):
     def _run(self) -> None:
         if not self._save():
             return
+        if self._pending_program_path is not None:
+            self._show_error(
+                "STUDENT_PROGRAM_SYNC_PENDING",
+                RuntimeError("程序尚未同步到控制器，不能运行"),
+            )
+            return
         result = self.controller.validate(self.program_path)
         if not result.ok:
             self._validate()
             return
         self.controller.start()
+
+    @property
+    def operation_in_progress(self):
+        return self._operation_thread is not None
+
+    def request_stop(self):
+        if (
+            self.controller.state not in _ACTIVE_STATES
+            or self._cancel_requested_for_run
+            or self.operation_in_progress
+        ):
+            return False
+        self._cancel_requested_for_run = True
+        return self._start_operation("cancel")
+
+    def request_reset(self):
+        if (
+            self.controller.state not in _TERMINAL_STATES
+            or self.operation_in_progress
+        ):
+            return False
+        return self._start_operation(
+            "reset",
+            staged_path=self._pending_program_path,
+        )
+
+    def _start_operation(self, operation, *, staged_path=None):
+        # Create one QObject/QThread pair, connect both terminal signals to
+        # GUI result/error slots and thread.quit(), and keep both references
+        # until thread.finished. The finished slot is the only place that
+        # clears operation_in_progress after a successful start. If start()
+        # itself raises, clear all retained references, schedule deleteLater,
+        # restore the current state's complete control matrix, then re-raise
+        # the original exception so request_stop/request_reset can report it.
+        ...
 
     def _render_snapshot(self, snapshot) -> None:
         state = snapshot.state
@@ -2890,6 +3069,15 @@ class StudentProgramPanel(QWidget):
         self.metrics_label.setText(
             f"命令数：{int(snapshot.command_count)}　"
             f"运行时间：{float(snapshot.elapsed_seconds):.1f} s"
+        )
+        tcp = snapshot.tcp_mm
+        self.tcp_label.setText(
+            "TCP：—"
+            if tcp is None
+            else (
+                f"TCP：X={tcp[0]:.1f} mm　Y={tcp[1]:.1f} mm　"
+                f"Z={tcp[2]:.1f} mm"
+            )
         )
         evidence = snapshot.evidence_dir or "—"
         self.evidence_label.setText(f"证据目录：{evidence}")
@@ -2923,49 +3111,94 @@ class StudentProgramPanel(QWidget):
                 RunState.CANCELLED,
             }
         )
-        self.run_button.setEnabled(state is RunState.VALIDATED)
+        self.run_button.setEnabled(
+            state is RunState.VALIDATED
+            and self._pending_program_path is None
+        )
         self.pause_button.setEnabled(state is RunState.RUNNING)
+        self.resume_button.setEnabled(state is RunState.PAUSED)
         self.step_button.setEnabled(state is RunState.PAUSED)
         self.stop_button.setEnabled(
             state in {RunState.RUNNING, RunState.PAUSED}
         )
         self.reset_button.setEnabled(
-            state
-            in {
-                RunState.VALIDATED,
-                RunState.PASSED,
-                RunState.FAILED,
-                RunState.CANCELLED,
-            }
+            state in _TERMINAL_STATES
         )
 
     def closeEvent(self, event) -> None:
-        if self.controller.state in {
-            RunState.RUNNING,
-            RunState.PAUSED,
-        }:
-            self.controller.cancel()
+        if self.controller.state in _ACTIVE_STATES:
+            self.request_stop()
+        if (
+            self.operation_in_progress
+            or not self.controller.wait_for_quiescence(0)
+        ):
+            event.ignore()
+            return
         if self._unsubscribe is not None:
             self._unsubscribe()
             self._unsubscribe = None
         event.accept()
 ```
 
-Long-running robot work remains in `StudentProgramController`; the Qt slots
-above only start, signal or render that controller and must not wait for the
-child process。
+Long-running robot work remains in `StudentProgramController`。Pause, Continue
+and Step may call the controller directly because they only update controller
+coordination state。Stop and Reset must use `_ControllerOperationWorker` in a
+dedicated `QThread`; GUI slots never wait for the child, backend, cleanup or
+scene replacement。
+
+Terminal file rules:
+
+- `PASSED` / `FAILED` / `CANCELLED` remain editable, but Open and Save only
+  stage `_pending_program_path` and must not call controller `load()`；
+- terminal Check uses public `validate_program()` and does not change runner
+  state；
+- terminal Reset first calls controller `reset()` and only then synchronizes
+  the staged source with `load()` + `validate()` in the same worker；
+- invalid staged source therefore finishes in `LOADED`, while valid staged
+  source finishes in `VALIDATED`；a pending or invalid source can never reuse
+  the previous validation；
+- Save As writes the candidate path before committing `program_path`, the path
+  label, or pending identity；a write failure leaves the existing or initial
+  no-file identity and editor contents unchanged, and a retry remains usable；
+- `VALIDATED` Reset is disabled because runner `reset()` remains
+  terminal-only。
+
+The state label uses object name `studentStateBadge`, dynamic property
+`runState`, and distinct state colors。TCP is rendered only from immutable
+snapshot `tcp_mm`; Qt must never query the robot。Snapshot construction accepts
+`None` or exactly three finite float-compatible values and rejects NaN and
+positive or negative infinity。
+
+The action area is two semantic rows, not one compressed toolbar: the first
+row contains Open / Save / Save As / Validate, and the second contains Run /
+Pause / Continue / Step / Stop / Reset。At the supported `1180 × 760` main
+window minimum, each button must retain its font-metric text width plus
+sensible horizontal padding without crossing the student panel boundary。
+
+Panel and main-window close are fail-closed: use the panel's idempotent
+`request_stop()` once per run, then require both
+`operation_in_progress is False` and
+`controller.wait_for_quiescence(0) is True` before releasing subscriptions or
+closing the session/application。A cancel exception clears the request flag so
+the next close can retry；a `QThread.start()` exception additionally clears the
+operation references, restores the current state matrix, preserves the original
+error, and permits a second Stop；a new active run after Reset clears the
+old-run flag。
 
 Button matrix:
 
-| State | Open/Save | Validate | Run | Pause | Step | Stop | Reset |
-|---|---:|---:|---:|---:|---:|---:|---:|
-| EMPTY | Yes | No | No | No | No | No | No |
-| LOADED | Yes | Yes | No | No | No | No | No |
-| VALIDATED | Yes | Yes | Yes | No | No | No | Yes |
-| RUNNING | No | No | No | Yes | No | Yes | No |
-| PAUSED | No | No | No | No | Yes | Yes | No |
-| PASSED/FAILED/CANCELLED | Yes | Yes | No | No | No | No | Yes |
-| RESETTING | No | No | No | No | No | No | No |
+| State | Open/Save | Validate | Run | Pause | Continue | Step | Stop | Reset |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| EMPTY | Yes | No | No | No | No | No | No | No |
+| LOADED | Yes | Yes | No | No | No | No | No | No |
+| VALIDATED | Yes | Yes | Yes | No | No | No | No | No |
+| RUNNING | No | No | No | Yes | No | No | Yes | No |
+| PAUSED | No | No | No | No | Yes | Yes | Yes | No |
+| PASSED/FAILED/CANCELLED | Yes | Yes | No | No | No | No | No | Yes |
+| RESETTING | No | No | No | No | No | No | No | No |
+
+While a Stop or Reset operation thread exists, all editor and action controls
+are disabled regardless of the runner state。
 
 - [ ] **Step 4: 集成现有主窗口**
 
@@ -3011,6 +3244,12 @@ configuration in legacy smoke tests, add a disabled `学生编程` tab containin
 `当前窗口未配置学生程序会话` instead of constructing a controller。Do not alter
 existing calibration and classification tab behavior。
 
+`VisionLabWindow.closeEvent()` must call the panel's idempotent
+`request_stop()` rather than controller `cancel()`。It must leave the owner,
+session transport and every subscription untouched until the panel operation
+thread is finished and `wait_for_quiescence(0)` returns true。Panel
+subscription release joins the existing retryable close-cleanup state machine。
+
 Update subtitle to:
 
 ```text
@@ -3024,6 +3263,7 @@ Run:
 ```powershell
 $env:QT_QPA_PLATFORM = 'offscreen'
 python -m pytest `
+  tests/test_student_programs/test_runner.py `
   tests/test_vision_platform/test_student_program_panel.py `
   tests/test_vision_platform/test_pyqt_smoke.py `
   -q
@@ -3037,6 +3277,9 @@ Expected: 全部 PASS。
 git add `
   vision_platform/ui/student_program_panel.py `
   vision_platform/ui/pyqt_app.py `
+  vision_platform/student/runner.py `
+  docs/superpowers/plans/2026-07-30-student-program-runner-v2-plan.md `
+  tests/test_student_programs/test_runner.py `
   tests/test_vision_platform/test_student_program_panel.py `
   tests/test_vision_platform/test_pyqt_smoke.py
 git commit -m "feat(ui): add student program workspace"
