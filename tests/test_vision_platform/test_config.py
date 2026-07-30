@@ -73,3 +73,59 @@ def test_default_config_is_loadable():
     assert cfg.camera_backend in {"sim", "replay", "hik"}
     assert cfg.robot_backend in {"sim", "real"}
     assert cfg.workspace.safe_z_mm > cfg.workspace.z_mm[0]
+
+
+def test_default_student_execution_policy_is_safe():
+    cfg = load_config()
+
+    assert cfg.student["allow_real_backend"] is False
+    assert cfg.student["max_runtime_s"] == 60
+    assert cfg.student["max_commands"] == 200
+    assert cfg.student["command_timeout_s"] == 10
+    assert cfg.student["max_sleep_s"] == 5
+    assert cfg.student["speed_range"] == [1, 30]
+    assert cfg.student["tool_on_max_z_mm"] == 35
+    assert cfg.student["output"] == "artifacts/vision_lab/student-runs"
+
+
+def test_config_without_student_section_remains_compatible(tmp_path):
+    config_file = tmp_path / "config.json"
+    _write_config(config_file)
+
+    cfg = load_config(config_file)
+
+    assert cfg.student == {
+        "allow_real_backend": False,
+        "max_runtime_s": 60,
+        "max_commands": 200,
+        "command_timeout_s": 10,
+        "max_sleep_s": 5,
+        "speed_range": [1, 30],
+        "tool_on_max_z_mm": 35,
+        "output": "artifacts/vision_lab/student-runs",
+    }
+
+
+def test_partial_student_config_merges_with_safe_defaults(tmp_path):
+    config_file = tmp_path / "config.json"
+    _write_config(config_file, student={"max_runtime_s": 30})
+
+    cfg = load_config(config_file)
+
+    assert cfg.student["max_runtime_s"] == 30
+    assert cfg.student["max_commands"] == 200
+    assert cfg.student["speed_range"] == [1, 30]
+
+
+def test_student_speed_range_default_is_not_shared(tmp_path):
+    first_file = tmp_path / "first.json"
+    second_file = tmp_path / "second.json"
+    _write_config(first_file)
+    _write_config(second_file)
+
+    first = load_config(first_file)
+    second = load_config(second_file)
+    first.student["speed_range"].append(999)
+
+    assert first.student["speed_range"] == [1, 30, 999]
+    assert second.student["speed_range"] == [1, 30]

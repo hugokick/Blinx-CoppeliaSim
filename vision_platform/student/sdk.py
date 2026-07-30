@@ -69,10 +69,10 @@ class StudentRobot:
     ) -> None:
         self._rpc.call(
             "robot.move_world",
-            x_mm=float(x_mm),
-            y_mm=float(y_mm),
-            z_mm=float(z_mm),
-            speed=float(speed),
+            x_mm=x_mm,
+            y_mm=y_mm,
+            z_mm=z_mm,
+            speed=speed,
         )
 
     def pose(self) -> tuple[float, float, float]:
@@ -115,7 +115,7 @@ class StudentContext:
         self._rpc.call("context.log", message=str(message))
 
     def sleep(self, seconds: float) -> None:
-        self._rpc.call("context.sleep", seconds=float(seconds))
+        self._rpc.call("context.sleep", seconds=seconds)
 
     def checkpoint(self, label: str) -> None:
         self._rpc.call("context.checkpoint", label=str(label))

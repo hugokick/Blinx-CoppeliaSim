@@ -43,6 +43,16 @@
     "pick_z_mm": 20,
     "drop_z_mm": 20
   },
+  "student": {
+    "allow_real_backend": false,
+    "max_runtime_s": 60,
+    "max_commands": 200,
+    "command_timeout_s": 10,
+    "max_sleep_s": 5,
+    "speed_range": [1, 30],
+    "tool_on_max_z_mm": 35,
+    "output": "artifacts/vision_lab/student-runs"
+  },
   "ui": {
     "preview_width": 640,
     "preview_height": 480

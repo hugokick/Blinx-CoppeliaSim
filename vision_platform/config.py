@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
@@ -9,6 +10,16 @@ from typing import Any, Mapping
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONFIG_PATH = PROJECT_ROOT / "config" / "vision_lab.default.json"
+DEFAULT_STUDENT_CONFIG: Mapping[str, Any] = {
+    "allow_real_backend": False,
+    "max_runtime_s": 60,
+    "max_commands": 200,
+    "command_timeout_s": 10,
+    "max_sleep_s": 5,
+    "speed_range": [1, 30],
+    "tool_on_max_z_mm": 35,
+    "output": "artifacts/vision_lab/student-runs",
+}
 
 
 @dataclass(frozen=True)
@@ -43,6 +54,7 @@ class VisionLabConfig:
     calibration: Mapping[str, Any]
     recognition: Mapping[str, Any]
     task: Mapping[str, Any]
+    student: Mapping[str, Any]
     ui: Mapping[str, Any]
     config_path: Path
     project_root: Path
@@ -68,6 +80,12 @@ def _resolve_camera_paths(camera_options: dict[str, Any], root: Path) -> dict[st
                     str(_absolute(item, root)) for item in value
                 ]
     return resolved
+
+
+def _student_options(payload: Any) -> dict[str, Any]:
+    options = deepcopy(dict(DEFAULT_STUDENT_CONFIG))
+    options.update(deepcopy(dict(payload)))
+    return options
 
 
 def load_config(
@@ -130,6 +148,7 @@ def load_config(
         calibration=dict(payload.get("calibration", {})),
         recognition=dict(payload.get("recognition", {})),
         task=dict(payload.get("task", {})),
+        student=_student_options(payload.get("student", {})),
         ui=dict(payload.get("ui", {})),
         config_path=selected_path,
         project_root=root,
