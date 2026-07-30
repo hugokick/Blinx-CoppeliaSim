@@ -70,3 +70,61 @@ def test_catalog_contains_no_grading_or_score_fields():
     banned = {"grade", "grades", "grading", "score", "scores", "auto_score"}
     for experiment_id in EXPERIMENT_IDS:
         assert banned.isdisjoint(_all_keys(_payload(experiment_id)))
+
+
+def test_retained_files_contains_first_batch_scene_curriculum_assets():
+    retained = {
+        line.strip()
+        for line in (ROOT / "RETAINED_FILES.txt")
+        .read_text(encoding="utf-8")
+        .splitlines()
+        if line.strip() and not line.startswith("#")
+    }
+    required = {
+        "config/experiments/R1-01.json",
+        "config/experiments/R1-02.json",
+        "config/experiments/R1-05.json",
+        "config/experiments/R1-06.json",
+        "config/experiments/R1-07.json",
+        "config/experiments/catalog.json",
+        "docs/experiments/R1-01.md",
+        "docs/experiments/R1-02.md",
+        "docs/experiments/R1-05.md",
+        "docs/experiments/R1-06.md",
+        "docs/experiments/R1-07.md",
+        "simulation/logistics_lab/BL23_logistics_lab.ttt",
+        "simulation/logistics_lab/__init__.py",
+        "simulation/logistics_lab/assets/labels/digits/1.png",
+        "simulation/logistics_lab/assets/labels/digits/2.png",
+        "simulation/logistics_lab/assets/labels/digits/3.png",
+        "simulation/logistics_lab/assets/labels/manifest.json",
+        "simulation/logistics_lab/scene_manifest.json",
+        "simulation/logistics_lab/scene_spec.json",
+        "simulation/robot_basics/BL23_robot_basics.ttt",
+        "simulation/robot_basics/__init__.py",
+        "simulation/robot_basics/scene_manifest.json",
+        "simulation/robot_basics/scene_spec.json",
+        "simulation/training_scenes/__init__.py",
+        "simulation/training_scenes/build_scene.py",
+        "simulation/training_scenes/generate_labels.py",
+        "simulation/training_scenes/scene_contract.py",
+        "simulation/training_scenes/verify_scene.py",
+        "student_programs/__init__.py",
+        "student_programs/templates/__init__.py",
+        "student_programs/templates/r1_01_robot_basics.py",
+        "student_programs/templates/r1_02_teach_points.py",
+        "student_programs/templates/r1_05_visual_stacking.py",
+        "student_programs/templates/r1_06_digit_sort.py",
+        "student_programs/templates/r1_07_component_sort.py",
+        "student_programs/templates/r1_common.py",
+        "tests/test_acceptance/test_coppeliasim_training_scenes.py",
+        "tests/test_acceptance/test_experiment_guides.py",
+        "tests/test_experiments/test_formal_catalog.py",
+        "tests/test_experiments/test_student_templates.py",
+        "tests/test_simulation/test_formal_training_scenes.py",
+        "tests/test_simulation/test_training_labels.py",
+        "tests/test_simulation/test_training_scene_contract.py",
+    }
+
+    assert required <= retained
+    assert all((ROOT / path).is_file() for path in required)
