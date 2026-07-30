@@ -74,6 +74,35 @@ def validate_program(path: str | Path) -> ValidationResult:
         )
         return ValidationResult(selected, False, tuple(issues))
 
+    return _validate_program_payload(selected, payload)
+
+
+def validate_program_bytes(
+    payload: bytes,
+    path: str | Path,
+) -> ValidationResult:
+    selected = Path(path).expanduser().resolve()
+    if selected.suffix.lower() != ".py":
+        return ValidationResult(
+            selected,
+            False,
+            (
+                ValidationIssue(
+                    "FILE_EXTENSION_INVALID",
+                    "学生程序必须使用 .py 扩展名",
+                ),
+            ),
+        )
+    if type(payload) is not bytes:
+        raise TypeError("captured student source must be bytes")
+    return _validate_program_payload(selected, payload)
+
+
+def _validate_program_payload(
+    selected: Path,
+    payload: bytes,
+) -> ValidationResult:
+    issues: list[ValidationIssue] = []
     if len(payload) > MAX_PROGRAM_BYTES:
         issues.append(
             ValidationIssue(

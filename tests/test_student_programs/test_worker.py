@@ -251,3 +251,29 @@ def test_worker_reports_cancelled_connection_and_closes_it(tmp_path: Path) -> No
         },
     }
     assert connection.closed is True
+
+
+def test_worker_compiles_supplied_captured_bytes_not_mutated_disk_source(
+    tmp_path: Path,
+) -> None:
+    program = tmp_path / "captured.py"
+    captured = (
+        b"def main(ctx):\n"
+        b"    ctx.log('captured-version')\n"
+    )
+    program.write_text(
+        "def main(ctx):\n"
+        "    ctx.log('mutated-disk-version')\n",
+        encoding="utf-8",
+    )
+    connection = RecordingConnection()
+
+    result = run_student_worker(
+        program,
+        connection,
+        source_bytes=captured,
+    )
+
+    assert result == {"status": "PASS", "error": None}
+    assert connection.sent[0]["args"]["message"] == "captured-version"
+    assert connection.closed is True

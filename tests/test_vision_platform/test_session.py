@@ -23,12 +23,19 @@ class FakeApplication:
         self.fail_open = fail_open
         self.fail_close = fail_close
         self.close_calls = 0
+        self.close_quarantined_calls = 0
         self.load_calls = 0
         self.open_calls = 0
 
     def close(self) -> None:
         self.close_calls += 1
         self.operations.append(f"{self.number}.close")
+        if self.fail_close is not None:
+            raise self.fail_close
+
+    def close_quarantined(self) -> None:
+        self.close_quarantined_calls += 1
+        self.operations.append(f"{self.number}.close_quarantined")
         if self.fail_close is not None:
             raise self.fail_close
 
@@ -62,6 +69,33 @@ def test_session_reset_closes_old_and_opens_fresh_application() -> None:
     assert operations == ["1.close", "2.load", "2.open"]
     assert replacement is created[1]
     assert session.application is replacement
+
+
+def test_quarantined_reset_never_calls_old_normal_close_or_backend_rpc() -> None:
+    operations: list[str] = []
+    created: list[FakeApplication] = []
+
+    def factory() -> FakeApplication:
+        app = FakeApplication(len(created) + 1, operations=operations)
+        created.append(app)
+        return app
+
+    first = factory()
+    session = VisionLabSession(application=first, factory=factory)
+
+    replacement = session.reset_simulation_quarantined()
+
+    assert operations == [
+        "1.close_quarantined",
+        "2.load",
+        "2.open",
+    ]
+    assert first.close_calls == 0
+    assert first.close_quarantined_calls == 1
+    assert replacement is created[1]
+    assert session.application is replacement
+    session.close()
+    assert first.close_quarantined_calls == 1
 
 
 def test_session_notifies_all_subscribers_after_replacement() -> None:

@@ -13,13 +13,22 @@ from vision_platform.student.sdk import (
 )
 
 
-def _load_module(path: Path) -> ModuleType:
+def _load_module(
+    path: Path,
+    *,
+    source_bytes: bytes | None = None,
+) -> ModuleType:
     name = f"_vision_platform_student_program_{uuid4().hex}"
     module = ModuleType(name)
     module.__file__ = str(path)
     sys.modules[name] = module
     try:
-        source = path.read_text(encoding="utf-8")
+        if source_bytes is None:
+            source = path.read_text(encoding="utf-8")
+        else:
+            if type(source_bytes) is not bytes:
+                raise TypeError("captured student source must be bytes")
+            source = source_bytes.decode("utf-8")
         code = compile(
             source,
             str(path),
@@ -43,11 +52,19 @@ def _cancelled_result() -> dict[str, Any]:
     }
 
 
-def run_student_worker(path: str | Path, connection: Any) -> dict[str, Any]:
+def run_student_worker(
+    path: str | Path,
+    connection: Any,
+    *,
+    source_bytes: bytes | None = None,
+) -> dict[str, Any]:
     selected = Path(path).expanduser().resolve()
     module_name: str | None = None
     try:
-        module = _load_module(selected)
+        module = _load_module(
+            selected,
+            source_bytes=source_bytes,
+        )
         module_name = module.__name__
         entry = getattr(module, "main")
         entry(StudentContext(connection))

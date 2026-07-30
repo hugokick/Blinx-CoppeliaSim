@@ -48,6 +48,13 @@ class VisionLabSession:
         return unsubscribe
 
     def reset_simulation(self) -> Any:
+        return self._reset_simulation(quarantined=False)
+
+    def reset_simulation_quarantined(self) -> Any:
+        """Replace an unusable backend without issuing RPCs on the old app."""
+        return self._reset_simulation(quarantined=True)
+
+    def _reset_simulation(self, *, quarantined: bool) -> Any:
         self._reject_lifecycle_reentry()
         with self._operation_lock:
             with self._state_lock:
@@ -55,7 +62,10 @@ class VisionLabSession:
                 old = self._application
 
             try:
-                self._close_application_once(old)
+                if quarantined:
+                    self._close_application_quarantined_once(old)
+                else:
+                    self._close_application_once(old)
             except Exception:
                 with self._state_lock:
                     self._closed = True
@@ -133,3 +143,9 @@ class VisionLabSession:
             return
         self._closed_applications.append(application)
         application.close()
+
+    def _close_application_quarantined_once(self, application: Any) -> None:
+        if any(item is application for item in self._closed_applications):
+            return
+        self._closed_applications.append(application)
+        application.close_quarantined()

@@ -477,6 +477,40 @@ class VisionLabApplication:
         self._opened = False
         self._closed = True
 
+    def close_quarantined(self) -> None:
+        """Close local resources without sending on an unusable REQ socket."""
+        if self._closed:
+            return
+        try:
+            try:
+                self.camera.close()
+            finally:
+                self.robot.close()
+        finally:
+            try:
+                if self.owns_client and self.client is not None:
+                    self._close_client_transport_locally(self.client)
+            finally:
+                self.sim = None
+                self.client = None
+                self._opened = False
+                self._closed = True
+
+    @staticmethod
+    def _close_client_transport_locally(client: Any) -> None:
+        socket = getattr(client, "socket", None)
+        context = getattr(client, "context", None)
+        try:
+            if socket is not None:
+                close_socket = getattr(socket, "close", None)
+                if callable(close_socket):
+                    close_socket(linger=0)
+        finally:
+            if context is not None:
+                terminate_context = getattr(context, "term", None)
+                if callable(terminate_context):
+                    terminate_context()
+
     def __enter__(self) -> "VisionLabApplication":
         self.open()
         return self

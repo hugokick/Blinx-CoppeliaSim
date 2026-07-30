@@ -11,6 +11,7 @@ from vision_platform.student.validator import (
     ValidationIssue,
     ValidationResult,
     validate_program,
+    validate_program_bytes,
 )
 
 
@@ -21,6 +22,24 @@ def _write(path: Path, source: str) -> Path:
 
 def _codes(result: ValidationResult) -> list[str]:
     return [issue.code for issue in result.issues]
+
+
+def test_captured_bytes_use_the_same_validation_rules_without_rereading(
+    tmp_path,
+):
+    selected = tmp_path / "snapshot.py"
+    selected.write_text("def main(ctx)\n    pass\n", encoding="utf-8")
+    captured = (
+        b"def main(ctx):\n"
+        b"    import subprocess\n"
+        b"    ctx.robot.home()\n"
+    )
+
+    result = validate_program_bytes(captured, selected)
+
+    assert result.path == selected.resolve()
+    assert result.ok is False
+    assert _codes(result) == ["IMPORT_NOT_ALLOWED"]
 
 
 def test_valid_main_contract_passes_and_resolves_path(tmp_path, monkeypatch):

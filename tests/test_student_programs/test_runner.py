@@ -1,0 +1,2153 @@
+from __future__ import annotations
+
+import errno
+import json
+import multiprocessing
+import threading
+import time
+from dataclasses import FrozenInstanceError
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+
+import vision_platform.student.runner as runner_module
+from vision_platform.robot.safety import WorkspacePolicy
+from vision_platform.student.protocol import RunState
+from vision_platform.student.runner import (
+    StudentProgramController,
+    StudentRunResult,
+    StudentRunSnapshot,
+)
+from vision_platform.student.safety import StudentExecutionPolicy
+
+
+class FakeRobot:
+    def __init__(
+        self,
+        actions: list | None = None,
+        *,
+        move_entered: threading.Event | None = None,
+        move_release: threading.Event | None = None,
+        fail_move: bool = False,
+        move_error: BaseException | None = None,
+        fail_home: bool = False,
+        move_duration_s: float = 0.0,
+        pose=(100.0, 20.0, 120.0),
+        timeout_probe=None,
+    ):
+        self.current = pose
+        self.moves: list[tuple[float, float, float, float]] = []
+        self.pose_calls = 0
+        self.home_calls = 0
+        self.actions = actions if actions is not None else []
+        self.move_entered = move_entered
+        self.move_release = move_release
+        self.fail_move = fail_move
+        self.move_error = move_error
+        self.fail_home = fail_home
+        self.move_duration_s = move_duration_s
+        self.timeout_probe = timeout_probe
+        self.timeout_observations: list[tuple[str, tuple]] = []
+
+    def current_world_pose(self):
+        self.pose_calls += 1
+        self._record_timeouts("robot.current_world_pose")
+        return self.current
+
+    def move_world(self, x, y, z, *, speed):
+        self._record_timeouts("robot.move_world")
+        self.actions.append(("move", float(x), float(y), float(z)))
+        if self.move_entered is not None:
+            self.move_entered.set()
+        if self.move_release is not None:
+            if not self.move_release.wait(timeout=5):
+                raise TimeoutError("test move release timed out")
+        deadline = time.monotonic() + self.move_duration_s
+        while time.monotonic() < deadline:
+            threading.Event().wait(
+                min(0.01, max(0.0, deadline - time.monotonic()))
+            )
+        if self.move_error is not None:
+            raise self.move_error
+        if self.fail_move:
+            raise RuntimeError("backend-move-failed")
+        self.current = (float(x), float(y), float(z))
+        self.moves.append((*self.current, float(speed)))
+
+    def move_home(self):
+        self._record_timeouts("robot.move_home")
+        self.actions.append(("home",))
+        self.home_calls += 1
+        if self.fail_home:
+            raise RuntimeError("home-cleanup-failed")
+        self.current = (100.0, 20.0, 120.0)
+
+    def _record_timeouts(self, stage: str) -> None:
+        if self.timeout_probe is not None:
+            self.timeout_observations.append((stage, self.timeout_probe()))
+
+
+class FakeTool:
+    def __init__(
+        self,
+        actions: list | None = None,
+        *,
+        fail_off: bool = False,
+        off_error: BaseException | None = None,
+        alive_probe=None,
+        timeout_probe=None,
+        off_hook=None,
+    ):
+        self.on_calls = 0
+        self.off_calls = 0
+        self.actions = actions if actions is not None else []
+        self.fail_off = fail_off
+        self.off_error = off_error
+        self.alive_probe = alive_probe
+        self.timeout_probe = timeout_probe
+        self.off_hook = off_hook
+        self.cleanup_liveness: list[bool] = []
+        self.timeout_observations: list[tuple] = []
+
+    def on(self):
+        self.actions.append(("tool.on",))
+        self.on_calls += 1
+
+    def off(self):
+        self.actions.append(("tool.off",))
+        self.off_calls += 1
+        if self.timeout_probe is not None:
+            self.timeout_observations.append(self.timeout_probe())
+        if self.off_hook is not None:
+            self.off_hook()
+        if self.alive_probe is not None:
+            self.cleanup_liveness.append(bool(self.alive_probe()))
+        if self.off_error is not None:
+            raise self.off_error
+        if self.fail_off:
+            raise RuntimeError("tool-cleanup-failed")
+
+
+class ProtocolSocket:
+    def __init__(
+        self,
+        *,
+        rcvtimeo: int = 5000,
+        sndtimeo: int = 7000,
+        fail_on_set: str | None = None,
+        fail_on_first_restore: str | None = None,
+    ) -> None:
+        self._rcvtimeo = rcvtimeo
+        self._sndtimeo = sndtimeo
+        self._originals = {
+            "RCVTIMEO": rcvtimeo,
+            "SNDTIMEO": sndtimeo,
+        }
+        self.fail_on_set = fail_on_set
+        self.fail_on_first_restore = fail_on_first_restore
+        self._restore_failed = False
+        self.set_history: list[tuple[str, int, str]] = []
+
+    @property
+    def RCVTIMEO(self) -> int:
+        return self._rcvtimeo
+
+    @RCVTIMEO.setter
+    def RCVTIMEO(self, value: int) -> None:
+        self.set_history.append(
+            ("RCVTIMEO", value, threading.current_thread().name)
+        )
+        if self.fail_on_set == "RCVTIMEO":
+            self.fail_on_set = None
+            raise RuntimeError("rcvtimeo-set-failed")
+        if (
+            self.fail_on_first_restore == "RCVTIMEO"
+            and not self._restore_failed
+            and value == self._originals["RCVTIMEO"]
+            and self._rcvtimeo != value
+        ):
+            self._restore_failed = True
+            raise RuntimeError("rcvtimeo-restore-failed")
+        self._rcvtimeo = value
+
+    @property
+    def SNDTIMEO(self) -> int:
+        return self._sndtimeo
+
+    @SNDTIMEO.setter
+    def SNDTIMEO(self, value: int) -> None:
+        self.set_history.append(
+            ("SNDTIMEO", value, threading.current_thread().name)
+        )
+        if self.fail_on_set == "SNDTIMEO":
+            self.fail_on_set = None
+            raise RuntimeError("sndtimeo-set-failed")
+        if (
+            self.fail_on_first_restore == "SNDTIMEO"
+            and not self._restore_failed
+            and value == self._originals["SNDTIMEO"]
+            and self._sndtimeo != value
+        ):
+            self._restore_failed = True
+            raise RuntimeError("sndtimeo-restore-failed")
+        self._sndtimeo = value
+
+
+class ProtocolFaithfulClient:
+    """Models the timeout-relevant part of RemoteAPIClient._send."""
+
+    def __init__(
+        self,
+        *,
+        timeout: float = 600.0,
+        socket: ProtocolSocket | None = None,
+        send_count: int = 2,
+    ) -> None:
+        self.timeout = timeout
+        self.socket = socket or ProtocolSocket()
+        self.sendCnt = send_count
+
+    def next_request(self) -> dict[str, float]:
+        self.sendCnt += 1
+        request: dict[str, float] = {}
+        if self.sendCnt == 1:
+            request["timeout"] = self.timeout
+        return request
+
+
+class ProtocolAgain(OSError):
+    def __init__(self) -> None:
+        super().__init__(errno.EAGAIN, "Resource temporarily unavailable")
+
+
+class FakeSession:
+    def __init__(
+        self,
+        *,
+        backend="sim",
+        robot: FakeRobot | None = None,
+        tool: FakeTool | None = None,
+        client=None,
+    ):
+        self.actions: list[tuple] = []
+        self._backend = backend
+        self._client = client
+        self.application = self._application(
+            robot or FakeRobot(self.actions),
+            tool or FakeTool(self.actions),
+        )
+        self.reset_calls = 0
+        self.quarantined_reset_calls = 0
+
+    def _application(self, robot, tool):
+        application = SimpleNamespace(
+            robot=robot,
+            tool=tool,
+            workspace=WorkspacePolicy(
+                x_mm=(20, 140),
+                y_mm=(-90, 90),
+                z_mm=(10, 140),
+                safe_z_mm=100,
+            ),
+            config=SimpleNamespace(robot_backend=self._backend),
+        )
+        if self._client is not None:
+            application.client = self._client
+        return application
+
+    def reset_simulation(self):
+        self.reset_calls += 1
+        return self._replace_application()
+
+    def reset_simulation_quarantined(self):
+        self.quarantined_reset_calls += 1
+        return self._replace_application()
+
+    def _replace_application(self):
+        self.actions = []
+        self.application = self._application(
+            FakeRobot(self.actions),
+            FakeTool(self.actions),
+        )
+        return self.application
+
+
+class RebuildingFakeSession(FakeSession):
+    def __init__(self, *, replacement_client, **kwargs):
+        super().__init__(**kwargs)
+        self.replacement_client = replacement_client
+
+    def reset_simulation(self):
+        self._client = self.replacement_client
+        return super().reset_simulation()
+
+    def reset_simulation_quarantined(self):
+        self.quarantined_reset_calls += 1
+        self._client = self.replacement_client
+        return self._replace_application()
+
+
+def wait_until(predicate, timeout_s=2):
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        if predicate():
+            return
+        time.sleep(0.01)
+    raise AssertionError("condition did not become true before timeout")
+
+
+def write_program(tmp_path: Path, source: str, *, name="student.py") -> Path:
+    path = tmp_path / name
+    path.write_text(source, encoding="utf-8")
+    return path
+
+
+def policy(**overrides) -> StudentExecutionPolicy:
+    values = {
+        "min_speed": 1,
+        "max_speed": 30,
+        "max_runtime_s": 2,
+        "max_commands": 200,
+        "command_timeout_s": 1,
+        "max_sleep_s": 0.2,
+        "tool_on_max_z_mm": 35,
+    }
+    values.update(overrides)
+    return StudentExecutionPolicy(**values)
+
+
+def make_controller(
+    tmp_path: Path,
+    source: str,
+    *,
+    backend: str = "sim",
+    execution_policy: StudentExecutionPolicy | None = None,
+    session: FakeSession | None = None,
+):
+    selected_session = session or FakeSession(backend=backend)
+    controller = StudentProgramController(
+        session=selected_session,
+        execution_policy=execution_policy or policy(),
+        output_root=tmp_path / "runs",
+    )
+    program = write_program(tmp_path, source)
+    controller.load(program)
+    return controller, selected_session, program
+
+
+def student_processes():
+    return {
+        child.pid
+        for child in multiprocessing.active_children()
+        if child.name.startswith("StudentProgram-")
+    }
+
+
+def strict_json(value):
+    return json.loads(
+        json.dumps(value, ensure_ascii=False, allow_nan=False)
+    )
+
+
+def test_result_and_snapshot_are_frozen_value_objects(tmp_path):
+    result = StudentRunResult("PASS", None, tmp_path, None)
+    snapshot = StudentRunSnapshot(
+        RunState.EMPTY,
+        None,
+        0,
+        0.0,
+        None,
+        None,
+    )
+
+    with pytest.raises(FrozenInstanceError):
+        result.status = "FAILED"
+    with pytest.raises(FrozenInstanceError):
+        snapshot.command_count = 1
+
+
+def test_valid_program_runs_commands_and_finishes_pass(tmp_path):
+    controller, session, program = make_controller(
+        tmp_path,
+        "def main(ctx):\n"
+        "    ctx.robot.move_world(100, 20, 100, speed=15)\n"
+        "    assert ctx.robot.pose() == (100.0, 20.0, 100.0)\n",
+    )
+    assert controller.validate().ok is True
+
+    controller.start()
+    result = controller.wait(timeout_s=5)
+
+    assert result.status == "PASS"
+    assert result.error is None
+    assert result.evidence_dir is not None
+    assert result.summary_path == result.evidence_dir / "summary.json"
+    assert (result.evidence_dir / "source.py").read_bytes() == (
+        program.read_bytes()
+    )
+    summary = json.loads(result.summary_path.read_text(encoding="utf-8"))
+    assert summary["status"] == "PASS"
+    assert summary["command_count"] == 2
+    assert summary["hardware_status"] == "PENDING_HARDWARE"
+    assert session.application.robot.moves == [
+        (100.0, 20.0, 100.0, 15.0)
+    ]
+    assert controller.process_is_alive is False
+
+
+def test_invalid_program_never_starts_process(tmp_path):
+    controller, _, program = make_controller(
+        tmp_path,
+        "def main(ctx)\n    pass\n",
+    )
+
+    assert controller.validate(program).ok is False
+    with pytest.raises(RuntimeError, match="VALIDATED"):
+        controller.start()
+    assert controller.process_is_alive is False
+
+
+def test_pause_blocks_commands_and_each_step_releases_exactly_one(tmp_path):
+    controller, _, _ = make_controller(
+        tmp_path,
+        "def main(ctx):\n"
+        "    ctx.log('one')\n"
+        "    ctx.log('two')\n",
+    )
+    assert controller.validate().ok is True
+
+    controller.start(paused=True)
+    assert controller.state is RunState.PAUSED
+    controller.step()
+    wait_until(lambda: controller.command_count == 1)
+    assert controller.state is RunState.PAUSED
+    with pytest.raises(TimeoutError):
+        controller.wait(timeout_s=0.02)
+    controller.step()
+
+    assert controller.wait(timeout_s=5).status == "PASS"
+    assert controller.command_count == 2
+
+
+def test_resume_clears_step_permits_and_runs_continuously(tmp_path):
+    controller, _, _ = make_controller(
+        tmp_path,
+        "def main(ctx):\n"
+        "    ctx.log('one')\n"
+        "    ctx.log('two')\n"
+        "    ctx.log('three')\n",
+    )
+    assert controller.validate().ok is True
+    controller.start(paused=True)
+    controller.step()
+    wait_until(lambda: controller.command_count == 1)
+
+    controller.step()
+    controller.resume()
+
+    assert controller.wait(timeout_s=5).status == "PASS"
+    assert controller.command_count == 3
+
+
+def test_low_horizontal_move_fails_before_backend_call(tmp_path):
+    controller, session, _ = make_controller(
+        tmp_path,
+        "def main(ctx):\n"
+        "    ctx.robot.move_world(100, 20, 25, speed=8)\n"
+        "    ctx.robot.move_world(120, 20, 25, speed=8)\n",
+    )
+    assert controller.validate().ok is True
+
+    controller.start()
+    result = controller.wait(timeout_s=5)
+
+    assert result.status == "FAILED"
+    assert result.error["code"] == "TARGET_OUT_OF_WORKSPACE"
+    assert session.application.robot.moves[0] == (
+        100.0,
+        20.0,
+        25.0,
+        8.0,
+    )
+    assert (120.0, 20.0, 25.0, 8.0) not in (
+        session.application.robot.moves
+    )
+
+
+def test_cancel_terminates_worker_before_ordered_cleanup(tmp_path):
+    actions: list[tuple] = []
+    robot = FakeRobot(actions, pose=(100.0, 20.0, 25.0))
+    tool = FakeTool(actions)
+    session = FakeSession(robot=robot, tool=tool)
+    controller, _, _ = make_controller(
+        tmp_path,
+        "def main(ctx):\n"
+        "    while True:\n"
+        "        pass\n",
+        session=session,
+    )
+    tool.alive_probe = lambda: controller.process_is_alive
+    assert controller.validate().ok is True
+    controller.start()
+    wait_until(lambda: controller.process_is_alive)
+
+    controller.cancel()
+    result = controller.wait(timeout_s=5)
+
+    assert result.status == "CANCELLED"
+    assert controller.process_is_alive is False
+    assert tool.cleanup_liveness == [False]
+    assert actions == [
+        ("tool.off",),
+        ("move", 100.0, 20.0, 100.0),
+        ("home",),
+    ]
+
+
+def test_runtime_limit_terminates_infinite_program(tmp_path):
+    controller, _, _ = make_controller(
+        tmp_path,
+        "def main(ctx):\n"
+        "    while True:\n"
+        "        pass\n",
+        execution_policy=policy(max_runtime_s=0.2),
+    )
+    assert controller.validate().ok is True
+    controller.start()
+
+    result = controller.wait(timeout_s=3)
+
+    assert result.status == "FAILED"
+    assert result.error["code"] == "STUDENT_RUNTIME_TIMEOUT"
+    assert controller.process_is_alive is False
+
+
+def test_real_backend_is_rejected_before_evidence_or_process(tmp_path):
+    controller, _, _ = make_controller(
+        tmp_path,
+        "def main(ctx):\n    ctx.robot.home()\n",
+        backend="real",
+    )
+    assert controller.validate().ok is True
+
+    with pytest.raises(RuntimeError, match="REAL_BACKEND_NOT_AUTHORIZED"):
+        controller.start()
+
+    assert controller.process_is_alive is False
+    assert not (tmp_path / "runs").exists()
+    assert controller.state is RunState.VALIDATED
+
+
+def test_command_limit_fails_without_accepting_extra_command(tmp_path):
+    controller, _, _ = make_controller(
+        tmp_path,
+        "def main(ctx):\n"
+        "    ctx.log('one')\n"
+        "    ctx.log('two')\n",
+        execution_policy=policy(max_commands=1),
+    )
+    assert controller.validate().ok is True
+    controller.start()
+
+    result = controller.wait(timeout_s=5)
+
+    assert result.status == "FAILED"
+    assert result.error["code"] == "STUDENT_COMMAND_LIMIT_EXCEEDED"
+    assert controller.command_count == 1
+
+
+def test_sleep_can_be_cancelled_without_waiting_for_full_duration(tmp_path):
+    controller, _, _ = make_controller(
+        tmp_path,
+        "def main(ctx):\n    ctx.sleep(0.2)\n",
+    )
+    assert controller.validate().ok is True
+    controller.start()
+    wait_until(lambda: controller.command_count == 1)
+    started = time.monotonic()
+
+    controller.cancel()
+    result = controller.wait(timeout_s=2)
+
+    assert result.status == "CANCELLED"
+    assert time.monotonic() - started < 0.18
+
+
+def test_cleanup_errors_do_not_overwrite_original_failure(tmp_path):
+    actions: list[tuple] = []
+    robot = FakeRobot(actions, fail_home=True)
+    tool = FakeTool(actions, fail_off=True)
+    session = FakeSession(robot=robot, tool=tool)
+    controller, _, _ = make_controller(
+        tmp_path,
+        "def main(ctx):\n    raise ValueError('original-student-error')\n",
+        session=session,
+    )
+    assert controller.validate().ok is True
+    controller.start()
+
+    result = controller.wait(timeout_s=5)
+    summary = json.loads(result.summary_path.read_text(encoding="utf-8"))
+
+    assert result.status == "FAILED"
+    assert result.error["code"] == "STUDENT_PROGRAM_FAILED"
+    assert "original-student-error" in result.error["message"]
+    assert [item["stage"] for item in summary["cleanup_errors"]] == [
+        "tool.off",
+        "robot.move_home",
+    ]
+
+
+def test_command_evidence_failure_stops_before_backend_and_fails(
+    tmp_path, monkeypatch
+):
+    controller, session, _ = make_controller(
+        tmp_path,
+        "def main(ctx):\n    ctx.robot.home()\n",
+    )
+    assert controller.validate().ok is True
+
+    def fail_record(*args, **kwargs):
+        raise OSError("command-evidence-failed")
+
+    monkeypatch.setattr(
+        runner_module.StudentRunEvidence,
+        "record_command",
+        fail_record,
+    )
+    controller.start()
+    result = controller.wait(timeout_s=5)
+
+    assert result.status == "FAILED"
+    assert result.error["code"] == "STUDENT_EVIDENCE_FAILED"
+    assert session.application.robot.home_calls == 1
+    assert controller.command_count == 1
+
+
+def test_finalize_failure_changes_pass_to_failed_without_summary(
+    tmp_path, monkeypatch
+):
+    controller, session, _ = make_controller(
+        tmp_path,
+        "def main(ctx):\n    pass\n",
+    )
+    assert controller.validate().ok is True
+
+    def fail_finalize(*args, **kwargs):
+        raise OSError("summary-write-failed")
+
+    monkeypatch.setattr(
+        runner_module.StudentRunEvidence,
+        "finalize",
+        fail_finalize,
+    )
+    controller.start()
+    result = controller.wait(timeout_s=5)
+
+    assert result.status == "FAILED"
+    assert result.error["code"] == "STUDENT_EVIDENCE_FAILED"
+    assert result.summary_path is None
+    assert session.application.tool.off_calls == 1
+    assert session.application.robot.home_calls == 1
+
+
+def test_snapshot_is_revalidated_after_original_changes(tmp_path):
+    controller, session, program = make_controller(
+        tmp_path,
+        "def main(ctx):\n    ctx.robot.home()\n",
+    )
+    assert controller.validate().ok is True
+    program.write_text("def main(ctx)\n    pass\n", encoding="utf-8")
+
+    controller.start()
+    result = controller.wait(timeout_s=5)
+
+    assert result.status == "FAILED"
+    assert result.error["code"] == "STUDENT_SNAPSHOT_INVALID"
+    assert controller.process_is_alive is False
+    assert session.application.robot.home_calls == 1
+    assert result.evidence_dir.joinpath("source.py").read_bytes() == (
+        program.read_bytes()
+    )
+
+
+def test_student_exception_and_worker_exit_without_result_are_stable(tmp_path):
+    controller, _, _ = make_controller(
+        tmp_path,
+        "def main(ctx):\n    raise LookupError('student-broke')\n",
+    )
+    assert controller.validate().ok is True
+    controller.start()
+    result = controller.wait(timeout_s=5)
+    assert result.status == "FAILED"
+    assert result.error["code"] == "STUDENT_PROGRAM_FAILED"
+    assert result.error["type"] == "LookupError"
+
+    controller2, _, _ = make_controller(
+        tmp_path,
+        "def main(ctx):\n"
+        "    import os\n"
+        "    os._exit(23)\n",
+    )
+    assert controller2.validate().ok is True
+    controller2.start()
+    result2 = controller2.wait(timeout_s=5)
+    assert result2.status == "FAILED"
+    assert result2.error["code"] == "STUDENT_WORKER_RESULT_MISSING"
+    assert result2.error["exitcode"] == 23
+
+
+def test_repeated_cancel_and_wait_are_idempotent(tmp_path):
+    before = student_processes()
+    controller, _, _ = make_controller(
+        tmp_path,
+        "def main(ctx):\n"
+        "    while True:\n"
+        "        pass\n",
+    )
+    assert controller.validate().ok is True
+    controller.start()
+    wait_until(lambda: controller.process_is_alive)
+
+    controller.cancel()
+    controller.cancel()
+    first = controller.wait(timeout_s=5)
+    second = controller.wait(timeout_s=0)
+    controller.cancel()
+
+    assert first is second
+    assert first.status == "CANCELLED"
+    assert student_processes() == before
+
+
+def test_reset_replaces_application_and_returns_to_validated(tmp_path):
+    controller, session, _ = make_controller(
+        tmp_path,
+        "def main(ctx):\n    pass\n",
+    )
+    assert controller.validate().ok is True
+    old_application = session.application
+    controller.start()
+    assert controller.wait(timeout_s=5).status == "PASS"
+
+    replacement = controller.reset()
+
+    assert replacement is session.application
+    assert replacement is not old_application
+    assert session.reset_calls == 1
+    assert controller.state is RunState.VALIDATED
+    controller.start()
+    assert controller.wait(timeout_s=5).status == "PASS"
+
+
+def test_subscriber_exceptions_do_not_break_run_and_unsubscribe_is_idempotent(
+    tmp_path,
+):
+    controller, _, _ = make_controller(
+        tmp_path,
+        "def main(ctx):\n    ctx.log('hello')\n",
+    )
+    snapshots: list[StudentRunSnapshot] = []
+    unsubscribe_bad = controller.subscribe(
+        lambda snapshot: (_ for _ in ()).throw(RuntimeError("observer-broke"))
+    )
+    unsubscribe_good = controller.subscribe(snapshots.append)
+    assert controller.validate().ok is True
+
+    controller.start()
+    assert controller.wait(timeout_s=5).status == "PASS"
+    unsubscribe_bad()
+    unsubscribe_bad()
+    unsubscribe_good()
+    unsubscribe_good()
+
+    assert snapshots
+    assert snapshots[-1].state is RunState.PASSED
+    assert snapshots[-1].command_count == 1
+
+
+def test_protocol_argument_smuggling_is_rejected_before_backend(tmp_path):
+    controller, session, _ = make_controller(
+        tmp_path,
+        "def main(ctx):\n"
+        "    ctx._rpc.connection.send({\n"
+        "        'schema_version': 1,\n"
+        "        'kind': 'command',\n"
+        "        'command_id': 'evil',\n"
+        "        'name': 'robot.home',\n"
+        "        'args': {'unexpected': True},\n"
+        "    })\n"
+        "    ctx._rpc.connection.recv()\n",
+    )
+    assert controller.validate().ok is True
+    controller.start()
+
+    result = controller.wait(timeout_s=5)
+
+    assert result.status == "FAILED"
+    assert result.error["code"] == "STUDENT_COMMAND_ARGUMENTS_INVALID"
+    assert session.application.robot.home_calls == 1
+
+
+def test_invalid_backend_pose_is_protocol_failure_not_success(tmp_path):
+    robot = FakeRobot(pose=(float("nan"), 20.0, 120.0))
+    session = FakeSession(robot=robot)
+    controller, _, _ = make_controller(
+        tmp_path,
+        "def main(ctx):\n    ctx.robot.pose()\n",
+        session=session,
+    )
+    assert controller.validate().ok is True
+    controller.start()
+
+    result = controller.wait(timeout_s=5)
+
+    assert result.status == "FAILED"
+    assert result.error["code"] == "ROBOT_POSE_INVALID"
+    json.dumps(result.error, allow_nan=False)
+
+
+def test_command_timeout_reaps_child_before_cleanup_and_backend_release(
+    tmp_path,
+):
+    entered = threading.Event()
+    release = threading.Event()
+    actions: list[tuple] = []
+    robot = FakeRobot(
+        actions,
+        move_entered=entered,
+        move_release=release,
+    )
+    tool = FakeTool(actions)
+    session = FakeSession(robot=robot, tool=tool)
+    controller, _, _ = make_controller(
+        tmp_path,
+        "def main(ctx):\n"
+        "    ctx.robot.move_world(100, 20, 100, speed=8)\n",
+        session=session,
+        execution_policy=policy(command_timeout_s=0.1),
+    )
+    tool.alive_probe = lambda: controller.process_is_alive
+    assert controller.validate().ok is True
+    controller.start()
+    assert entered.wait(timeout=2)
+
+    wait_until(lambda: not controller.process_is_alive, timeout_s=2)
+    assert ("tool.off",) not in actions
+    release.set()
+    result = controller.wait(timeout_s=3)
+
+    assert result.status == "FAILED"
+    assert result.error["code"] == "STUDENT_COMMAND_TIMEOUT"
+    assert tool.cleanup_liveness == [False]
+    assert actions[-2:] == [("tool.off",), ("home",)]
+
+
+def test_evidence_creation_failure_is_terminal_without_process(
+    tmp_path, monkeypatch
+):
+    controller, _, _ = make_controller(
+        tmp_path,
+        "def main(ctx):\n    pass\n",
+    )
+    assert controller.validate().ok is True
+
+    def fail_create(*args, **kwargs):
+        raise OSError("cannot-create-evidence")
+
+    monkeypatch.setattr(
+        runner_module.StudentRunEvidence,
+        "create",
+        fail_create,
+    )
+    controller.start()
+    result = controller.wait(timeout_s=1)
+
+    assert result.status == "FAILED"
+    assert result.error["code"] == "STUDENT_EVIDENCE_FAILED"
+    assert result.evidence_dir is None
+    assert result.summary_path is None
+    assert controller.process_is_alive is False
+
+
+def test_worker_is_force_reaped_after_returning_result_with_lingering_thread(
+    tmp_path,
+):
+    controller, _, _ = make_controller(
+        tmp_path,
+        "def main(ctx):\n"
+        "    import threading\n"
+        "    import time\n"
+        "    thread = threading.Thread(target=lambda: time.sleep(2))\n"
+        "    thread.start()\n",
+    )
+    assert controller.validate().ok is True
+    controller.start()
+
+    try:
+        result = controller.wait(timeout_s=5)
+        assert result.status == "PASS"
+        assert controller.process_is_alive is False
+    finally:
+        if controller.process_is_alive:
+            controller._process.terminate()
+            controller._process.join(timeout=2)
+
+
+def test_initial_event_evidence_failure_never_spawns_worker(
+    tmp_path, monkeypatch
+):
+    controller, session, _ = make_controller(
+        tmp_path,
+        "def main(ctx):\n    ctx.robot.home()\n",
+    )
+    assert controller.validate().ok is True
+    before = student_processes()
+
+    def fail_event(*args, **kwargs):
+        raise OSError("event-evidence-failed")
+
+    monkeypatch.setattr(
+        runner_module.StudentRunEvidence,
+        "record_event",
+        fail_event,
+    )
+    controller.start()
+    result = controller.wait(timeout_s=2)
+
+    assert result.status == "FAILED"
+    assert result.error["code"] == "STUDENT_EVIDENCE_FAILED"
+    assert controller.process_is_alive is False
+    assert student_processes() == before
+    assert session.application.robot.home_calls == 1
+
+
+def test_spawn_failure_is_recorded_and_does_not_escape_or_leak(
+    tmp_path, monkeypatch
+):
+    controller, _, _ = make_controller(
+        tmp_path,
+        "def main(ctx):\n    pass\n",
+    )
+    assert controller.validate().ok is True
+    before = student_processes()
+    monkeypatch.setattr(
+        runner_module,
+        "_child_entry",
+        lambda *args: None,
+    )
+
+    controller.start()
+    result = controller.wait(timeout_s=2)
+
+    assert result.status == "FAILED"
+    assert result.error["code"] == "STUDENT_WORKER_START_FAILED"
+    assert controller.process_is_alive is False
+    assert student_processes() == before
+
+
+@pytest.mark.parametrize(
+    ("payload", "expected_code"),
+    [
+        (
+            "{'schema_version': 1, 'kind': 'command', "
+            "'command_id': 'evil', 'name': 'sim.call', 'args': {}}",
+            "COMMAND_NOT_ALLOWED",
+        ),
+        (
+            "{'schema_version': 1, 'kind': 'command', "
+            "'command_id': 'evil', 'name': 'robot.home', 'args': []}",
+            "STUDENT_PROTOCOL_ERROR",
+        ),
+        (
+            "{'schema_version': 99, 'kind': 'command', "
+            "'command_id': 'evil', 'name': 'robot.home', 'args': {}}",
+            "PROTOCOL_VERSION_UNSUPPORTED",
+        ),
+        (
+            "{'schema_version': 1, 'kind': 'event', "
+            "'command_id': 'evil', 'name': 'robot.home', 'args': {}}",
+            "PROTOCOL_KIND_INVALID",
+        ),
+    ],
+)
+def test_malformed_or_unknown_protocol_is_stable_and_never_dispatched(
+    tmp_path,
+    payload,
+    expected_code,
+):
+    controller, session, _ = make_controller(
+        tmp_path,
+        "def main(ctx):\n"
+        f"    ctx._rpc.connection.send({payload})\n"
+        "    ctx._rpc.connection.recv()\n",
+    )
+    assert controller.validate().ok is True
+    controller.start()
+
+    result = controller.wait(timeout_s=5)
+
+    assert result.status == "FAILED"
+    assert result.error["code"] == expected_code
+    assert session.application.robot.home_calls == 1
+    json.dumps(result.error, allow_nan=False)
+
+
+def test_finalize_is_attempted_exactly_once(tmp_path, monkeypatch):
+    controller, _, _ = make_controller(
+        tmp_path,
+        "def main(ctx):\n    pass\n",
+    )
+    assert controller.validate().ok is True
+    original = runner_module.StudentRunEvidence.finalize
+    calls = 0
+
+    def counting_finalize(self, **kwargs):
+        nonlocal calls
+        calls += 1
+        return original(self, **kwargs)
+
+    monkeypatch.setattr(
+        runner_module.StudentRunEvidence,
+        "finalize",
+        counting_finalize,
+    )
+    controller.start()
+
+    first = controller.wait(timeout_s=5)
+    second = controller.wait(timeout_s=0)
+
+    assert first is second
+    assert first.status == "PASS"
+    assert calls == 1
+
+
+def test_pipe_eof_does_not_beat_delayed_dedicated_worker_result(tmp_path):
+    controller, _, _ = make_controller(
+        tmp_path,
+        "def main(ctx):\n"
+        "    import time\n"
+        "    ctx._rpc.connection.close()\n"
+        "    time.sleep(0.4)\n",
+    )
+    assert controller.validate().ok is True
+    controller.start()
+
+    result = controller.wait(timeout_s=5)
+
+    assert result.status == "PASS"
+    assert controller.process_is_alive is False
+
+
+def test_timeout_during_evidence_write_never_reaches_student_backend(
+    tmp_path, monkeypatch
+):
+    controller, session, _ = make_controller(
+        tmp_path,
+        "def main(ctx):\n    ctx.robot.home()\n",
+        execution_policy=policy(command_timeout_s=0.1),
+    )
+    assert controller.validate().ok is True
+    original = runner_module.StudentRunEvidence.record_command
+
+    def delayed_record(self, payload):
+        original(self, payload)
+        deadline = time.monotonic() + 2
+        while controller.process_is_alive and time.monotonic() < deadline:
+            threading.Event().wait(0.01)
+
+    monkeypatch.setattr(
+        runner_module.StudentRunEvidence,
+        "record_command",
+        delayed_record,
+    )
+    controller.start()
+    result = controller.wait(timeout_s=3)
+
+    assert result.status == "FAILED"
+    assert result.error["code"] == "STUDENT_COMMAND_TIMEOUT"
+    # The only home is failure cleanup; the timed-out student command did not
+    # cross the parent-side backend boundary.
+    assert session.application.robot.home_calls == 1
+
+
+def test_command_timeout_remains_primary_when_backend_later_raises(tmp_path):
+    entered = threading.Event()
+    release = threading.Event()
+    robot = FakeRobot(
+        move_entered=entered,
+        move_release=release,
+        fail_move=True,
+    )
+    session = FakeSession(robot=robot)
+    controller, _, _ = make_controller(
+        tmp_path,
+        "def main(ctx):\n"
+        "    ctx.robot.move_world(100, 20, 100, speed=8)\n",
+        session=session,
+        execution_policy=policy(command_timeout_s=0.1),
+    )
+    assert controller.validate().ok is True
+    controller.start()
+    assert entered.wait(timeout=2)
+    wait_until(lambda: not controller.process_is_alive, timeout_s=2)
+
+    release.set()
+    result = controller.wait(timeout_s=3)
+
+    assert result.status == "FAILED"
+    assert result.error["code"] == "STUDENT_COMMAND_TIMEOUT"
+
+
+def test_runner_validates_and_executes_the_same_captured_source_bytes(
+    tmp_path, monkeypatch
+):
+    controller, session, _ = make_controller(
+        tmp_path,
+        "def main(ctx):\n    ctx.robot.home()\n",
+    )
+    assert controller.validate().ok is True
+    original_validate = runner_module.validate_program_bytes
+
+    def validate_then_replace(payload, path):
+        result = original_validate(payload, path)
+        Path(path).write_text(
+            "def main(ctx):\n"
+            "    ctx.robot.move_world(120, 20, 120, speed=8)\n",
+            encoding="utf-8",
+        )
+        return result
+
+    monkeypatch.setattr(
+        runner_module,
+        "validate_program_bytes",
+        validate_then_replace,
+    )
+    controller.start()
+    result = controller.wait(timeout_s=5)
+
+    assert result.status == "PASS"
+    assert session.application.robot.home_calls == 1
+    assert session.application.robot.moves == []
+
+
+def test_evidence_source_hash_mismatch_is_rejected_before_spawn(
+    tmp_path, monkeypatch
+):
+    controller, _, _ = make_controller(
+        tmp_path,
+        "def main(ctx):\n    pass\n",
+    )
+    assert controller.validate().ok is True
+    original_create = runner_module.StudentRunEvidence.create
+    before = student_processes()
+
+    def create_then_corrupt(**kwargs):
+        evidence = original_create(**kwargs)
+        evidence.source_path.write_text(
+            "def main(ctx):\n    ctx.robot.home()\n",
+            encoding="utf-8",
+        )
+        return evidence
+
+    monkeypatch.setattr(
+        runner_module.StudentRunEvidence,
+        "create",
+        create_then_corrupt,
+    )
+    controller.start()
+    result = controller.wait(timeout_s=2)
+
+    assert result.status == "FAILED"
+    assert result.error["code"] == "STUDENT_EVIDENCE_HASH_MISMATCH"
+    assert controller.process_is_alive is False
+    assert student_processes() == before
+
+
+def test_finalize_failure_reports_cleanup_errors_from_degraded_pass(
+    tmp_path, monkeypatch
+):
+    actions: list[tuple] = []
+    robot = FakeRobot(actions, fail_home=True)
+    tool = FakeTool(actions, fail_off=True)
+    session = FakeSession(robot=robot, tool=tool)
+    controller, _, _ = make_controller(
+        tmp_path,
+        "def main(ctx):\n    pass\n",
+        session=session,
+    )
+    assert controller.validate().ok is True
+
+    def fail_finalize(*args, **kwargs):
+        raise OSError("summary-write-failed")
+
+    monkeypatch.setattr(
+        runner_module.StudentRunEvidence,
+        "finalize",
+        fail_finalize,
+    )
+    controller.start()
+    result = controller.wait(timeout_s=5)
+
+    assert result.status == "FAILED"
+    assert result.summary_path is None
+    assert result.error["code"] == "STUDENT_EVIDENCE_FAILED"
+    cleanup_errors = result.error["details"]["cleanup_errors"]
+    assert [item["stage"] for item in cleanup_errors] == [
+        "tool.off",
+        "robot.move_home",
+    ]
+
+
+def test_result_and_snapshot_errors_are_deeply_immutable_and_json_safe(
+    tmp_path,
+):
+    source_error = {
+        "code": "BROKEN",
+        "message": "broken",
+        "details": {"items": [{"value": 1}]},
+    }
+    result = StudentRunResult("FAILED", None, tmp_path, source_error)
+    snapshot = StudentRunSnapshot(
+        RunState.FAILED,
+        None,
+        0,
+        0.0,
+        source_error,
+        tmp_path,
+    )
+    source_error["code"] = "MUTATED"
+    source_error["details"]["items"][0]["value"] = 99
+
+    for frozen_error in (result.error, snapshot.error):
+        assert frozen_error.get("code") == "BROKEN"
+        assert frozen_error["details"]["items"][0]["value"] == 1
+        with pytest.raises(TypeError):
+            frozen_error["code"] = "changed"
+        with pytest.raises(TypeError):
+            frozen_error["details"]["items"][0]["value"] = 2
+        with pytest.raises(AttributeError):
+            frozen_error["details"]["items"].append({"value": 3})
+        json.dumps(frozen_error, ensure_ascii=False, allow_nan=False)
+
+
+def test_permanently_blocked_backend_returns_fail_closed_quarantine(
+    tmp_path,
+):
+    entered = threading.Event()
+    release = threading.Event()
+    actions: list[tuple] = []
+    robot = FakeRobot(
+        actions,
+        move_entered=entered,
+        move_release=release,
+    )
+    tool = FakeTool(actions)
+    old_socket = ProtocolSocket(rcvtimeo=5000, sndtimeo=7000)
+    client = ProtocolFaithfulClient(socket=old_socket)
+    replacement_client = ProtocolFaithfulClient(
+        socket=ProtocolSocket(rcvtimeo=9000, sndtimeo=11000)
+    )
+    session = RebuildingFakeSession(
+        robot=robot,
+        tool=tool,
+        client=client,
+        replacement_client=replacement_client,
+    )
+    controller, _, _ = make_controller(
+        tmp_path,
+        "def main(ctx):\n"
+        "    ctx.robot.move_world(100, 20, 100, speed=8)\n",
+        session=session,
+        execution_policy=policy(command_timeout_s=0.1),
+    )
+    assert controller.validate().ok is True
+    controller.start()
+    assert entered.wait(timeout=2)
+
+    result = None
+    try:
+        result = controller.wait(timeout_s=0.75)
+        assert result.status == "FAILED"
+        assert result.error["code"] == "STUDENT_COMMAND_TIMEOUT"
+        cleanup_errors = result.error["details"]["cleanup_errors"]
+        assert cleanup_errors[0]["error"]["code"] == (
+            "STUDENT_BACKEND_COMMAND_STUCK"
+        )
+        summary = json.loads(
+            result.summary_path.read_text(encoding="utf-8")
+        )
+        assert summary["cleanup_errors"][0]["error"]["code"] == (
+            "STUDENT_BACKEND_COMMAND_STUCK"
+        )
+        assert controller.process_is_alive is False
+        assert client.timeout == 600.0
+        assert old_socket.RCVTIMEO == 100
+        assert old_socket.SNDTIMEO == 100
+        assert tool.off_calls == 0
+        assert robot.home_calls == 0
+        with pytest.raises(RuntimeError, match="BACKEND_COMMAND_STUCK"):
+            controller.reset()
+    finally:
+        release.set()
+        if result is None:
+            try:
+                controller.wait(timeout_s=3)
+            except (RuntimeError, TimeoutError):
+                pass
+
+    wait_until(
+        lambda: not controller._backend_action_is_alive(),
+        timeout_s=2,
+    )
+    assert tool.off_calls == 0
+    assert robot.home_calls == 0
+    assert controller.reset() is session.application
+    assert session.quarantined_reset_calls == 1
+    assert session.reset_calls == 0
+    assert old_socket.RCVTIMEO == 100
+    assert old_socket.SNDTIMEO == 100
+    assert session.application.client is replacement_client
+
+
+def test_connected_client_and_socket_timeouts_are_bounded_and_restored(
+    tmp_path,
+):
+    socket = ProtocolSocket(rcvtimeo=5000, sndtimeo=7000)
+    client = ProtocolFaithfulClient(socket=socket, send_count=2)
+    assert "timeout" not in client.next_request()
+    session = FakeSession(client=client)
+    controller, _, _ = make_controller(
+        tmp_path,
+        "def main(ctx):\n"
+        "    while True:\n"
+        "        pass\n",
+        session=session,
+        execution_policy=policy(command_timeout_s=0.2001),
+    )
+    assert controller.validate().ok is True
+
+    controller.start()
+    assert client.timeout == 0.2001
+    assert socket.RCVTIMEO == 201
+    assert socket.SNDTIMEO == 201
+    controller.cancel()
+    assert controller.wait(timeout_s=3).status == "CANCELLED"
+
+    assert client.timeout == 600.0
+    assert socket.RCVTIMEO == 5000
+    assert socket.SNDTIMEO == 7000
+
+
+def test_socket_timeout_partial_set_failure_rolls_back_and_fails_closed(
+    tmp_path,
+):
+    socket = ProtocolSocket(
+        rcvtimeo=5000,
+        sndtimeo=7000,
+        fail_on_set="SNDTIMEO",
+    )
+    client = ProtocolFaithfulClient(socket=socket)
+    session = FakeSession(client=client)
+    controller, _, _ = make_controller(
+        tmp_path,
+        "def main(ctx):\n    pass\n",
+        session=session,
+        execution_policy=policy(command_timeout_s=0.2),
+    )
+    assert controller.validate().ok is True
+
+    controller.start()
+    result = controller.wait(timeout_s=3)
+
+    assert result.status == "FAILED"
+    assert result.error["code"] == "STUDENT_TRANSPORT_TIMEOUT_GUARD_FAILED"
+    assert result.error["details"]["quarantined"] is True
+    assert result.error["details"]["connection_unusable"] is True
+    assert controller.process_is_alive is False
+    assert client.timeout == 600.0
+    assert socket.RCVTIMEO == 5000
+    assert socket.SNDTIMEO == 7000
+    assert session.application.tool.off_calls == 0
+    assert session.application.robot.home_calls == 0
+
+
+def test_transport_timeout_quarantines_connection_and_reset_rebuilds_client(
+    tmp_path,
+):
+    actions: list[tuple] = []
+    robot = FakeRobot(actions, move_error=ProtocolAgain())
+    tool = FakeTool(actions)
+    old_socket = ProtocolSocket(rcvtimeo=5000, sndtimeo=7000)
+    old_client = ProtocolFaithfulClient(socket=old_socket)
+    replacement_client = ProtocolFaithfulClient(
+        socket=ProtocolSocket(rcvtimeo=9000, sndtimeo=11000)
+    )
+    session = RebuildingFakeSession(
+        robot=robot,
+        tool=tool,
+        client=old_client,
+        replacement_client=replacement_client,
+    )
+    controller, _, _ = make_controller(
+        tmp_path,
+        "def main(ctx):\n"
+        "    ctx.robot.move_world(100, 20, 100, speed=8)\n",
+        session=session,
+        execution_policy=policy(command_timeout_s=0.2),
+    )
+    assert controller.validate().ok is True
+
+    started = time.monotonic()
+    controller.start()
+    result = controller.wait(timeout_s=2)
+
+    assert time.monotonic() - started < 1
+    assert result.status == "FAILED"
+    assert result.error["code"] == "STUDENT_BACKEND_TRANSPORT_TIMEOUT"
+    assert result.error["details"]["quarantined"] is True
+    assert result.error["details"]["connection_unusable"] is True
+    assert controller.process_is_alive is False
+    assert tool.off_calls == 0
+    assert robot.home_calls == 0
+    summary = json.loads(result.summary_path.read_text(encoding="utf-8"))
+    assert summary["error"]["details"]["quarantined"] is True
+    assert summary["error"]["details"]["connection_unusable"] is True
+    assert summary["cleanup_errors"][0]["stage"] == "backend.connection"
+    assert old_client.timeout == 600.0
+    assert old_socket.RCVTIMEO == 5000
+    assert old_socket.SNDTIMEO == 7000
+    with pytest.raises(RuntimeError, match="VALIDATED"):
+        controller.start()
+
+    assert controller.reset() is session.application
+    assert session.application.client is replacement_client
+    assert controller.state is RunState.VALIDATED
+
+
+def test_non_transport_backend_failure_restores_socket_timeouts(tmp_path):
+    actions: list[tuple] = []
+    robot = FakeRobot(actions, fail_move=True)
+    tool = FakeTool(actions)
+    socket = ProtocolSocket(rcvtimeo=5000, sndtimeo=7000)
+    client = ProtocolFaithfulClient(socket=socket)
+    session = FakeSession(robot=robot, tool=tool, client=client)
+    controller, _, _ = make_controller(
+        tmp_path,
+        "def main(ctx):\n"
+        "    ctx.robot.move_world(100, 20, 100, speed=8)\n",
+        session=session,
+        execution_policy=policy(command_timeout_s=0.2),
+    )
+    assert controller.validate().ok is True
+
+    controller.start()
+    result = controller.wait(timeout_s=3)
+
+    assert result.status == "FAILED"
+    assert result.error["code"] == "STUDENT_COMMAND_FAILED"
+    assert client.timeout == 600.0
+    assert socket.RCVTIMEO == 5000
+    assert socket.SNDTIMEO == 7000
+
+
+def test_cleanup_tool_transport_timeout_quarantines_and_stops_old_connection(
+    tmp_path,
+):
+    actions: list[tuple] = []
+    robot = FakeRobot(actions, pose=(100.0, 20.0, 25.0))
+    tool = FakeTool(actions, off_error=ProtocolAgain())
+    old_socket = ProtocolSocket(rcvtimeo=5000, sndtimeo=7000)
+    old_client = ProtocolFaithfulClient(socket=old_socket)
+    replacement_client = ProtocolFaithfulClient()
+    session = RebuildingFakeSession(
+        robot=robot,
+        tool=tool,
+        client=old_client,
+        replacement_client=replacement_client,
+    )
+    controller, _, _ = make_controller(
+        tmp_path,
+        "def main(ctx):\n"
+        "    raise ValueError('original-student-error')\n",
+        session=session,
+    )
+    assert controller.validate().ok is True
+
+    controller.start()
+    result = controller.wait(timeout_s=3)
+
+    assert result.status == "FAILED"
+    assert result.error["code"] == "STUDENT_PROGRAM_FAILED"
+    assert result.error["details"]["quarantined"] is True
+    assert result.error["details"]["connection_unusable"] is True
+    assert controller.process_is_alive is False
+    assert controller._backend_quarantined is True
+    assert tool.off_calls == 1
+    assert robot.pose_calls == 0
+    assert robot.moves == []
+    assert robot.home_calls == 0
+    summary = json.loads(result.summary_path.read_text(encoding="utf-8"))
+    assert summary["last_pose_mm"] is None
+    assert summary["error"]["details"]["quarantined"] is True
+    assert summary["error"]["details"]["connection_unusable"] is True
+    assert [item["stage"] for item in summary["cleanup_errors"]] == [
+        "tool.off",
+        "backend.connection",
+    ]
+    assert old_client.timeout == 600.0
+    assert old_socket.RCVTIMEO == 5000
+    assert old_socket.SNDTIMEO == 7000
+
+    assert controller.reset() is session.application
+    assert session.application.client is replacement_client
+    assert controller.state is RunState.VALIDATED
+
+
+def test_quarantined_reset_fails_closed_without_safe_session_contract(
+    tmp_path,
+):
+    actions: list[tuple] = []
+    robot = FakeRobot(actions)
+    tool = FakeTool(actions, off_error=ProtocolAgain())
+    session = FakeSession(robot=robot, tool=tool)
+    session.reset_simulation_quarantined = None
+    controller, _, _ = make_controller(
+        tmp_path,
+        "def main(ctx):\n"
+        "    raise ValueError('original-student-error')\n",
+        session=session,
+    )
+    assert controller.validate().ok is True
+    controller.start()
+    result = controller.wait(timeout_s=3)
+    assert result.error["details"]["quarantined"] is True
+
+    with pytest.raises(
+        RuntimeError,
+        match="QUARANTINED_RESET_UNAVAILABLE",
+    ):
+        controller.reset()
+
+    assert session.reset_calls == 0
+    assert controller.state is RunState.FAILED
+
+
+def test_cleanup_safe_lift_transport_timeout_skips_home(tmp_path):
+    actions: list[tuple] = []
+    robot = FakeRobot(
+        actions,
+        pose=(100.0, 20.0, 25.0),
+        move_error=ProtocolAgain(),
+    )
+    tool = FakeTool(actions)
+    session = FakeSession(robot=robot, tool=tool)
+    controller, _, _ = make_controller(
+        tmp_path,
+        "def main(ctx):\n"
+        "    raise ValueError('original-student-error')\n",
+        session=session,
+    )
+    assert controller.validate().ok is True
+
+    controller.start()
+    result = controller.wait(timeout_s=3)
+
+    assert result.status == "FAILED"
+    assert result.error["details"]["quarantined"] is True
+    assert result.error["details"]["connection_unusable"] is True
+    assert controller.process_is_alive is False
+    assert tool.off_calls == 1
+    assert robot.pose_calls == 1
+    assert len(robot.moves) == 0
+    assert robot.home_calls == 0
+    summary = json.loads(result.summary_path.read_text(encoding="utf-8"))
+    assert [item["stage"] for item in summary["cleanup_errors"]] == [
+        "robot.safe_lift",
+        "backend.connection",
+    ]
+
+
+def test_permanently_blocked_cleanup_is_bounded_and_quarantined(tmp_path):
+    entered = threading.Event()
+    release = threading.Event()
+
+    def block_cleanup():
+        entered.set()
+        assert release.wait(timeout=5)
+
+    actions: list[tuple] = []
+    robot = FakeRobot(actions)
+    tool = FakeTool(actions, off_hook=block_cleanup)
+    socket = ProtocolSocket(rcvtimeo=5000, sndtimeo=7000)
+    client = ProtocolFaithfulClient(socket=socket)
+    replacement_client = ProtocolFaithfulClient()
+    session = RebuildingFakeSession(
+        robot=robot,
+        tool=tool,
+        client=client,
+        replacement_client=replacement_client,
+    )
+    controller, _, _ = make_controller(
+        tmp_path,
+        "def main(ctx):\n"
+        "    raise ValueError('original-student-error')\n",
+        session=session,
+        execution_policy=policy(command_timeout_s=0.05),
+    )
+    assert controller.validate().ok is True
+    controller.start()
+    assert entered.wait(timeout=2)
+    wait_started = time.monotonic()
+
+    result = None
+    sealed_summary = None
+    sealed_error = None
+    try:
+        result = controller.wait(timeout_s=0.6)
+        assert time.monotonic() - wait_started < 0.4
+        assert result.status == "FAILED"
+        assert result.error["code"] == "STUDENT_BACKEND_COMMAND_STUCK"
+        assert result.error["details"]["quarantined"] is True
+        assert result.error["details"]["connection_unusable"] is True
+        assert controller.process_is_alive is False
+        assert controller._backend_action_is_alive() is True
+        assert controller._backend_action_thread.daemon is True
+        assert controller._backend_action_thread.name.startswith(
+            "StudentCleanupAction-"
+        )
+        assert tool.off_calls == 1
+        assert robot.pose_calls == 0
+        assert robot.home_calls == 0
+        assert client.timeout == 600.0
+        assert socket.RCVTIMEO == 50
+        assert socket.SNDTIMEO == 50
+        summary = json.loads(
+            result.summary_path.read_text(encoding="utf-8")
+        )
+        assert summary["error"]["code"] == (
+            "STUDENT_BACKEND_COMMAND_STUCK"
+        )
+        assert [item["stage"] for item in summary["cleanup_errors"]] == [
+            "tool.off",
+            "backend.connection",
+        ]
+        sealed_summary = result.summary_path.read_bytes()
+        sealed_error = json.dumps(result.error, sort_keys=True)
+        with pytest.raises(RuntimeError, match="BACKEND_COMMAND_STUCK"):
+            controller.reset()
+    finally:
+        release.set()
+        if result is None:
+            try:
+                controller.wait(timeout_s=3)
+            except (RuntimeError, TimeoutError):
+                pass
+
+    wait_until(
+        lambda: not controller._backend_action_is_alive(),
+        timeout_s=2,
+    )
+    assert result.summary_path.read_bytes() == sealed_summary
+    assert json.dumps(result.error, sort_keys=True) == sealed_error
+    assert robot.pose_calls == 0
+    assert robot.home_calls == 0
+
+    controller.reset()
+    assert session.quarantined_reset_calls == 1
+    assert session.reset_calls == 0
+    assert socket.RCVTIMEO == 50
+    assert socket.SNDTIMEO == 50
+    assert session.application.client is replacement_client
+
+
+def test_finalize_failure_cleanup_transport_timeout_is_quarantined(
+    tmp_path,
+    monkeypatch,
+):
+    actions: list[tuple] = []
+    robot = FakeRobot(actions, pose=(100.0, 20.0, 25.0))
+    tool = FakeTool(actions, off_error=ProtocolAgain())
+    session = FakeSession(robot=robot, tool=tool)
+    controller, _, _ = make_controller(
+        tmp_path,
+        "def main(ctx):\n    pass\n",
+        session=session,
+    )
+    assert controller.validate().ok is True
+
+    def fail_finalize(*args, **kwargs):
+        raise OSError("summary-write-failed")
+
+    monkeypatch.setattr(
+        runner_module.StudentRunEvidence,
+        "finalize",
+        fail_finalize,
+    )
+    controller.start()
+    result = controller.wait(timeout_s=3)
+
+    assert result.status == "FAILED"
+    assert result.summary_path is None
+    assert result.error["code"] == "STUDENT_EVIDENCE_FAILED"
+    assert result.error["details"]["quarantined"] is True
+    assert result.error["details"]["connection_unusable"] is True
+    assert [item["stage"] for item in result.error["details"][
+        "cleanup_errors"
+    ]] == ["tool.off", "backend.connection"]
+    assert controller.process_is_alive is False
+    assert controller._backend_quarantined is True
+    assert tool.off_calls == 1
+    assert robot.pose_calls == 0
+    assert robot.home_calls == 0
+
+
+def test_finalize_failure_cleanup_runs_with_transport_timeouts_rebound(
+    tmp_path,
+    monkeypatch,
+):
+    socket = ProtocolSocket(rcvtimeo=5000, sndtimeo=7000)
+    client = ProtocolFaithfulClient(socket=socket)
+
+    def timeout_probe():
+        return (client.timeout, socket.RCVTIMEO, socket.SNDTIMEO)
+
+    actions: list[tuple] = []
+    robot = FakeRobot(actions, timeout_probe=timeout_probe)
+    tool = FakeTool(actions, timeout_probe=timeout_probe)
+    session = FakeSession(robot=robot, tool=tool, client=client)
+    controller, _, _ = make_controller(
+        tmp_path,
+        "def main(ctx):\n    pass\n",
+        session=session,
+        execution_policy=policy(command_timeout_s=0.1),
+    )
+    assert controller.validate().ok is True
+
+    def fail_finalize(*args, **kwargs):
+        raise OSError("summary-write-failed")
+
+    monkeypatch.setattr(
+        runner_module.StudentRunEvidence,
+        "finalize",
+        fail_finalize,
+    )
+    controller.start()
+    result = controller.wait(timeout_s=3)
+
+    bounded = (0.1, 100, 100)
+    assert result.status == "FAILED"
+    assert result.error["code"] == "STUDENT_EVIDENCE_FAILED"
+    assert tool.timeout_observations == [bounded]
+    assert robot.timeout_observations == [
+        ("robot.current_world_pose", bounded),
+        ("robot.move_home", bounded),
+    ]
+    assert client.timeout == 600.0
+    assert socket.RCVTIMEO == 5000
+    assert socket.SNDTIMEO == 7000
+
+
+def test_finalize_failure_delayed_transport_timeout_is_bounded(
+    tmp_path,
+    monkeypatch,
+):
+    socket = ProtocolSocket(rcvtimeo=5000, sndtimeo=7000)
+    client = ProtocolFaithfulClient(socket=socket)
+    delay: dict[str, float] = {}
+
+    def timeout_probe():
+        return (client.timeout, socket.RCVTIMEO, socket.SNDTIMEO)
+
+    def wait_for_transport_timeout():
+        started = time.monotonic()
+        threading.Event().wait(min(socket.RCVTIMEO / 1000.0, 0.35))
+        delay["elapsed"] = time.monotonic() - started
+
+    actions: list[tuple] = []
+    robot = FakeRobot(actions)
+    tool = FakeTool(
+        actions,
+        timeout_probe=timeout_probe,
+        off_hook=wait_for_transport_timeout,
+        off_error=ProtocolAgain(),
+    )
+    session = FakeSession(robot=robot, tool=tool, client=client)
+    controller, _, _ = make_controller(
+        tmp_path,
+        "def main(ctx):\n    pass\n",
+        session=session,
+        execution_policy=policy(command_timeout_s=0.1),
+    )
+    assert controller.validate().ok is True
+
+    def fail_finalize(*args, **kwargs):
+        raise OSError("summary-write-failed")
+
+    monkeypatch.setattr(
+        runner_module.StudentRunEvidence,
+        "finalize",
+        fail_finalize,
+    )
+    controller.start()
+    result = controller.wait(timeout_s=3)
+
+    assert result.status == "FAILED"
+    assert result.error["details"]["quarantined"] is True
+    assert result.error["details"]["connection_unusable"] is True
+    assert tool.timeout_observations == [(0.1, 100, 100)]
+    assert delay["elapsed"] < 0.2
+    assert robot.pose_calls == 0
+    assert robot.home_calls == 0
+    assert client.timeout == 600.0
+    assert socket.RCVTIMEO == 5000
+    assert socket.SNDTIMEO == 7000
+
+
+def test_finalize_failure_timeout_rebind_failure_skips_backend_cleanup(
+    tmp_path,
+    monkeypatch,
+):
+    socket = ProtocolSocket(rcvtimeo=5000, sndtimeo=7000)
+    client = ProtocolFaithfulClient(socket=socket)
+    actions: list[tuple] = []
+    robot = FakeRobot(actions)
+    tool = FakeTool(actions)
+    session = FakeSession(robot=robot, tool=tool, client=client)
+    controller, _, _ = make_controller(
+        tmp_path,
+        "def main(ctx):\n    pass\n",
+        session=session,
+        execution_policy=policy(command_timeout_s=0.1),
+    )
+    assert controller.validate().ok is True
+
+    def fail_finalize(*args, **kwargs):
+        socket.fail_on_set = "RCVTIMEO"
+        raise OSError("summary-write-failed")
+
+    monkeypatch.setattr(
+        runner_module.StudentRunEvidence,
+        "finalize",
+        fail_finalize,
+    )
+    controller.start()
+    result = controller.wait(timeout_s=3)
+
+    assert result.status == "FAILED"
+    assert result.error["code"] == "STUDENT_EVIDENCE_FAILED"
+    assert result.error["details"]["quarantined"] is True
+    assert result.error["details"]["connection_unusable"] is True
+    assert [item["stage"] for item in result.error["details"][
+        "cleanup_errors"
+    ]] == [
+        "client.transport_timeout.rebind",
+        "backend.connection",
+    ]
+    assert tool.off_calls == 0
+    assert robot.pose_calls == 0
+    assert robot.home_calls == 0
+    assert client.timeout == 600.0
+    assert socket.RCVTIMEO == 5000
+    assert socket.SNDTIMEO == 7000
+
+
+def test_finalize_failure_second_timeout_restore_error_is_reported(
+    tmp_path,
+    monkeypatch,
+):
+    socket = ProtocolSocket(rcvtimeo=5000, sndtimeo=7000)
+    client = ProtocolFaithfulClient(socket=socket)
+    replacement_client = ProtocolFaithfulClient()
+
+    def fail_next_restore():
+        socket.fail_on_set = "RCVTIMEO"
+
+    actions: list[tuple] = []
+    robot = FakeRobot(actions)
+    tool = FakeTool(actions, off_hook=fail_next_restore)
+    session = RebuildingFakeSession(
+        robot=robot,
+        tool=tool,
+        client=client,
+        replacement_client=replacement_client,
+    )
+    controller, _, _ = make_controller(
+        tmp_path,
+        "def main(ctx):\n    pass\n",
+        session=session,
+        execution_policy=policy(command_timeout_s=0.1),
+    )
+    assert controller.validate().ok is True
+    snapshots: list[StudentRunSnapshot] = []
+    controller.subscribe(snapshots.append)
+
+    def fail_finalize(*args, **kwargs):
+        raise OSError("summary-write-failed")
+
+    monkeypatch.setattr(
+        runner_module.StudentRunEvidence,
+        "finalize",
+        fail_finalize,
+    )
+    controller.start()
+    result = controller.wait(timeout_s=3)
+
+    assert result.status == "FAILED"
+    assert result.error["code"] == "STUDENT_EVIDENCE_FAILED"
+    assert "client.transport_timeout.restore" in [
+        item["stage"]
+        for item in result.error["details"]["cleanup_errors"]
+    ]
+    assert result.error["details"]["quarantined"] is True
+    assert result.error["details"]["connection_unusable"] is True
+    result_error = strict_json(result.error)
+    assert result.summary_path is None
+    assert strict_json(snapshots[-1].error) == result_error
+    assert strict_json(controller._cleanup_errors) == (
+        result_error["details"]["cleanup_errors"]
+    )
+    assert socket.RCVTIMEO == 100
+
+    controller.reset()
+    assert session.quarantined_reset_calls == 1
+    assert session.reset_calls == 0
+    assert socket.RCVTIMEO == 100
+    assert session.application.client is replacement_client
+
+
+def test_first_timeout_restore_failure_never_runs_unprotected_cleanup(
+    tmp_path,
+):
+    socket = ProtocolSocket(
+        rcvtimeo=5000,
+        sndtimeo=7000,
+        fail_on_first_restore="RCVTIMEO",
+    )
+    client = ProtocolFaithfulClient(socket=socket)
+    replacement_client = ProtocolFaithfulClient()
+    actions: list[tuple] = []
+    robot = FakeRobot(actions)
+    tool = FakeTool(actions)
+    session = RebuildingFakeSession(
+        robot=robot,
+        tool=tool,
+        client=client,
+        replacement_client=replacement_client,
+    )
+    controller, _, _ = make_controller(
+        tmp_path,
+        "def main(ctx):\n    pass\n",
+        session=session,
+        execution_policy=policy(command_timeout_s=0.1),
+    )
+    assert controller.validate().ok is True
+    snapshots: list[StudentRunSnapshot] = []
+    controller.subscribe(snapshots.append)
+
+    controller.start()
+    result = controller.wait(timeout_s=3)
+
+    assert result.status == "FAILED"
+    assert result.error["code"] == "STUDENT_CLIENT_TIMEOUT_RESTORE_FAILED"
+    assert result.error["details"]["quarantined"] is True
+    assert result.error["details"]["connection_unusable"] is True
+    assert [item["stage"] for item in result.error["details"][
+        "cleanup_errors"
+    ]] == [
+        "client.transport_timeout.restore",
+        "backend.connection",
+    ]
+    summary = json.loads(result.summary_path.read_text(encoding="utf-8"))
+    result_error = strict_json(result.error)
+    assert result_error == summary["error"]
+    assert result_error["details"]["cleanup_errors"] == (
+        summary["cleanup_errors"]
+    )
+    assert strict_json(controller._cleanup_errors) == (
+        summary["cleanup_errors"]
+    )
+    assert strict_json(snapshots[-1].error) == result_error
+    assert summary["error"]["details"]["quarantined"] is True
+    assert summary["error"]["details"]["connection_unusable"] is True
+    assert tool.off_calls == 0
+    assert robot.pose_calls == 0
+    assert robot.home_calls == 0
+    assert socket.RCVTIMEO == 100
+
+    controller.reset()
+    assert session.quarantined_reset_calls == 1
+    assert session.reset_calls == 0
+    assert tool.off_calls == 0
+    assert socket.RCVTIMEO == 100
+    assert session.application.client is replacement_client
+
+
+def test_reset_rejects_until_prior_run_threads_have_exited(tmp_path):
+    controller, _, _ = make_controller(
+        tmp_path,
+        "def main(ctx):\n    pass\n",
+    )
+    callback_entered = threading.Event()
+    callback_release = threading.Event()
+
+    def blocking_terminal_callback(snapshot):
+        if snapshot.state is RunState.PASSED:
+            callback_entered.set()
+            callback_release.wait(timeout=5)
+
+    unsubscribe = controller.subscribe(blocking_terminal_callback)
+    assert controller.validate().ok is True
+    controller.start()
+    assert controller.wait(timeout_s=5).status == "PASS"
+    assert callback_entered.wait(timeout=2)
+
+    try:
+        with pytest.raises(RuntimeError, match="threads are still active"):
+            controller.reset()
+        assert controller.state is RunState.PASSED
+    finally:
+        callback_release.set()
+        unsubscribe()
+
+    wait_until(
+        lambda: not controller._command_thread.is_alive(),
+        timeout_s=2,
+    )
+    controller.reset()
+    assert controller.state is RunState.VALIDATED
+
+
+def test_reset_is_rejected_from_the_finishing_command_thread(tmp_path):
+    controller, _, _ = make_controller(
+        tmp_path,
+        "def main(ctx):\n    pass\n",
+    )
+    controller._state = RunState.PASSED
+    controller._command_thread = threading.current_thread()
+
+    with pytest.raises(RuntimeError, match="threads are still active"):
+        controller.reset()
+
+    assert controller.state is RunState.PASSED
+
+
+def test_rapid_pass_reset_generations_do_not_interfere(tmp_path):
+    controller, _, _ = make_controller(
+        tmp_path,
+        "def main(ctx):\n    pass\n",
+    )
+    assert controller.validate().ok is True
+
+    for index in range(5):
+        controller.start()
+        assert controller.wait(timeout_s=5).status == "PASS"
+        if index < 4:
+            controller.reset()
+            assert controller.state is RunState.VALIDATED
+
+
+def test_requested_terminal_outcome_wins_over_racing_worker_pass(
+    tmp_path, monkeypatch
+):
+    controller, _, _ = make_controller(
+        tmp_path,
+        "def main(ctx):\n    pass\n",
+    )
+    assert controller.validate().ok is True
+    original = controller._worker_outcome
+
+    def request_cancel_then_report(payload):
+        outcome = original(payload)
+        controller._request_stop(
+            "CANCELLED",
+            {
+                "code": "STUDENT_PROGRAM_CANCELLED",
+                "message": "barrier cancellation",
+            },
+        )
+        return outcome
+
+    monkeypatch.setattr(
+        controller,
+        "_worker_outcome",
+        request_cancel_then_report,
+    )
+    controller.start()
+    result = controller.wait(timeout_s=5)
+
+    assert result.status == "CANCELLED"
+    assert result.error["code"] == "STUDENT_PROGRAM_CANCELLED"
+
+
+def test_total_runtime_is_rechecked_synchronously_without_watchdog(
+    tmp_path, monkeypatch
+):
+    controller, _, _ = make_controller(
+        tmp_path,
+        "def main(ctx):\n"
+        "    import time\n"
+        "    time.sleep(0.15)\n",
+        execution_policy=policy(max_runtime_s=0.1),
+    )
+    assert controller.validate().ok is True
+    monkeypatch.setattr(controller, "_watchdog_loop", lambda: None)
+
+    controller.start()
+    result = controller.wait(timeout_s=3)
+
+    assert result.status == "FAILED"
+    assert result.error["code"] == "STUDENT_RUNTIME_TIMEOUT"
+
+
+def test_command_timeout_is_rechecked_synchronously_without_watchdog(
+    tmp_path, monkeypatch
+):
+    robot = FakeRobot(move_duration_s=0.15)
+    session = FakeSession(robot=robot)
+    controller, _, _ = make_controller(
+        tmp_path,
+        "def main(ctx):\n"
+        "    ctx.robot.move_world(100, 20, 100, speed=8)\n",
+        session=session,
+        execution_policy=policy(command_timeout_s=0.1),
+    )
+    assert controller.validate().ok is True
+    monkeypatch.setattr(controller, "_watchdog_loop", lambda: None)
+
+    controller.start()
+    result = controller.wait(timeout_s=3)
+
+    assert result.status == "FAILED"
+    assert result.error["code"] == "STUDENT_COMMAND_TIMEOUT"
+
+
+def test_reap_gives_cooperative_exit_grace_before_terminate(tmp_path):
+    class GracefulProcess:
+        def __init__(self):
+            self.alive = True
+            self.terminate_calls = 0
+            self.join_timeouts = []
+
+        def is_alive(self):
+            return self.alive
+
+        def join(self, timeout=None):
+            self.join_timeouts.append(timeout)
+            self.alive = False
+
+        def terminate(self):
+            self.terminate_calls += 1
+            self.alive = False
+
+    controller, _, _ = make_controller(
+        tmp_path,
+        "def main(ctx):\n    pass\n",
+    )
+    process = GracefulProcess()
+    controller._process = process
+
+    assert controller._reap_child(force=True) is True
+    assert process.join_timeouts[0] > 0
+    assert process.terminate_calls == 0
