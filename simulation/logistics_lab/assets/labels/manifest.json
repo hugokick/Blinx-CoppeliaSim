@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "generator": "simulation.training_scenes.generate_labels",
+  "license": "project-original-generated",
+  "rendering": "project-original seven-segment geometry",
+  "files": [
+    {
+      "digit": 1,
+      "path": "digits/1.png",
+      "sha256": "75705d3239ff0dc900760ccc155270a7ed5d7d81827e6b81dbc6f54bfa2b522e",
+      "size": [
+        64,
+        96
+      ]
+    },
+    {
+      "digit": 2,
+      "path": "digits/2.png",
+      "sha256": "6317e231b0b4c0e8f36080f25fd9594c49d26eb6ed2ac51a55a9ae6083a99c85",
+      "size": [
+        64,
+        96
+      ]
+    },
+    {
+      "digit": 3,
+      "path": "digits/3.png",
+      "sha256": "5561eb48523ff7c8f142666e7a8a6ec2b3a3c783c3b667cda522f76c81b5eb40",
+      "size": [
+        64,
+        96
+      ]
+    }
+  ]
+}
