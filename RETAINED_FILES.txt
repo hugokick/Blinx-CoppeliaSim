@@ -23,6 +23,7 @@ docs/实验三-CoppeliaSim视觉标定.md
 docs/实验四-CoppeliaSim物体分类.md
 docs/视觉仿真实训平台V2-开发端执行Prompt.md
 docs/视觉仿真实训平台使用说明.md
+docs/视觉仿真实训平台V2.2-首批课程开发端执行Prompt.md
 docs/视觉仿真实训平台自动验收报告.md
 requirements-vision-cad.txt
 requirements-vision.txt
