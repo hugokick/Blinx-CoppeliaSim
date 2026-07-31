@@ -2627,7 +2627,7 @@ git commit -m "feat(simulation): add original labels and scene contracts"
 - Create: `simulation/logistics_lab/BL23_logistics_lab.ttt`
 - Create: `tests/test_simulation/test_formal_training_scenes.py`
 
-- [ ] **Step 1: 写两个正式场景的静态失败测试**
+- [x] **Step 1: 写两个正式场景的静态失败测试**
 
 Create `tests/test_simulation/test_formal_training_scenes.py`:
 
@@ -2700,7 +2700,7 @@ def test_logistics_scene_declares_three_isolated_task_groups():
     assert len(spec["tasks"]["Classes"]["objects"]) == 4
 ```
 
-- [ ] **Step 2: 运行测试并确认先失败**
+- [x] **Step 2: 运行测试并确认先失败**
 
 Run:
 
@@ -2710,7 +2710,7 @@ python -m pytest tests/test_simulation/test_formal_training_scenes.py -q
 
 Expected: FAIL，指出正式场景规格或清单不存在。
 
-- [ ] **Step 3: 创建机器人基础场景规格**
+- [x] **Step 3: 创建机器人基础场景规格**
 
 Create `simulation/robot_basics/scene_spec.json`:
 
@@ -2762,7 +2762,7 @@ Create `simulation/robot_basics/scene_spec.json`:
 }
 ```
 
-- [ ] **Step 4: 创建物流场景规格**
+- [x] **Step 4: 创建物流场景规格**
 
 Create `simulation/logistics_lab/scene_spec.json`:
 
@@ -2856,7 +2856,7 @@ Create `simulation/logistics_lab/scene_spec.json`:
 }
 ```
 
-- [ ] **Step 5: 实现通用新场景构建器**
+- [x] **Step 5: 实现通用新场景构建器**
 
 Create `simulation/training_scenes/build_scene.py`:
 
@@ -3215,7 +3215,7 @@ Create `simulation/robot_basics/__init__.py` and `simulation/logistics_lab/__ini
 """Formal modular CoppeliaSim training scene."""
 ```
 
-- [ ] **Step 6: 启动 CoppeliaSim 并构建两个独立场景**
+- [x] **Step 6: 启动 CoppeliaSim 并构建两个独立场景**
 
 Run:
 
@@ -3237,7 +3237,7 @@ Expected:
 - 生成两个非空 `.ttt` 和两个 `scene_manifest.json`；
 - 输出路径与模板路径不同。
 
-- [ ] **Step 7: 验证静态合同和受保护文件零差异**
+- [x] **Step 7: 验证静态合同和受保护文件零差异**
 
 Run:
 
@@ -3257,7 +3257,7 @@ git diff --exit-code -- `
 
 Expected: 全部 PASS；受保护场景和资产零差异。
 
-- [ ] **Step 8: 提交两个正式场景**
+- [x] **Step 8: 提交两个正式场景**
 
 Run:
 
@@ -3269,6 +3269,53 @@ git add `
   tests/test_simulation/test_formal_training_scenes.py
 git commit -m "feat(simulation): add robot basics and logistics scenes"
 ```
+
+> **集成审计（2026-07-31）：** 候选提交 `30719dc` 已带入两份规格、
+> 两个场景、清单、构建器和静态测试；首次按本 Task 运行候选测试得到
+> `3 passed`，因此没有虚构“正式场景缺失”的 RED。随后针对候选构建器会
+> 直接删除/覆盖正式 `.ttt`、路径和 schema 校验不足、别名可逃逸、旧清单
+> 可能指向新损坏场景等真实风险补充失败测试，首次结果为
+> `13 failed, 5 passed`。加固后正式场景测试为 `20 passed`，Task 9/10、
+> 场景合同和机器人资产来源联合测试为 `85 passed`，发布合同为
+> `32 passed`，完整静态回归为 `856 passed, 5 skipped`；五项 skip 仍是
+> 显式 CoppeliaSim 在线门禁，不能计为在线 PASS，本 Task 也不提前替代
+> Task 15。构建器现仅接受两个固定 spec/scene/root/output 绑定，严格拒绝
+> bool schema、绝对或逃逸路径、symlink/junction/hardlink alias，并在连接
+> CoppeliaSim 及任何写入前核验 `SOURCE_MANIFEST` 和 34 项保护快照；它只
+> 将场景保存到输出目录内唯一 staged `.ttt`，验证后使旧清单失效，原子
+> 发布场景并最后发布 staged manifest，失败仅清理本轮临时文件。实际使用
+> `E:\CoppeliaSim` 启动本任务 PID `23792`（端口 `23000`），构建结果为：
+> `robot-basics` 11,599,773 bytes、SHA-256
+> `9a2ce252e3f61f08c7498e2cdaf682bfe5255c99d8871dc242b0255555413ea4`；
+> `logistics-lab` 11,664,564 bytes、SHA-256
+> `bc81a8cbf9f05a079d6fd62309b284d135ea0f1dcc251da5f53363275c8ce8c3`；
+> 两次 JSON 均为 `protected_assets_unchanged=true`。随后按 PID、可执行路径
+> 和启动时刻精确停止，CoppeliaSim 进程及端口监听均为 0；五类受保护资产
+> 相对本 Task 基线零差异。候选将三个任务组根路径加入 `required_paths`，
+> 并把 `yellow_cylinder` 的 y 坐标设为 `-25 mm`；审计保留这两项合理偏差，
+> 静态合同验证三组根路径存在，且 yellow 与 green 的平面包围盒不重叠。
+> 本 Task 十个正式路径均已逐条核对 `RETAINED_FILES.txt`，各出现一次；整份
+> 白名单为 237 项、0 重复、0 缺失、0 禁入项。
+
+> **质量复审加固（2026-07-31）：** 针对同一输出的跨进程交错、cleanup
+> 覆盖主异常、以及 scene replace 失败前旧 manifest 被删除三项审查意见，
+> 先增加确定性复现测试，首次为 `6 failed, 21 passed`；另以单独 RED 证明
+> staging 名称碰撞时旧实现会误删非本轮文件，并以另一条 RED 证明保护声明
+> 无效的旧 manifest 不能视为可恢复发布。构建器现按规范化正式 output
+> 同时取得进程内非阻塞线程锁和系统临时目录中的 OS 文件锁；Windows 使用
+> `msvcrt.LK_NBLCK`，进程异常退出后由操作系统释放，锁范围从保护快照覆盖
+> 到 client、stop/load/build/save、scene/manifest 发布、独立资源清理，
+> 第二个构建明确返回 `build already in progress`。client close、每个
+> staged/backup 删除及锁释放均独立尝试：存在主异常时通过异常注记报告
+> cleanup 诊断并重抛原异常；已完成 manifest-last 提交时只返回
+> `cleanup_errors` 并发出 warning，不把已提交构建误报为普通失败。旧 output
+> 与 manifest 自洽时，旧 manifest 先原子移动到本轮唯一 backup；scene
+> replace 失败且旧 scene 的 hash/size 仍一致时恢复，否则保持正式 manifest
+> 缺失；scene 已变化而新 manifest 发布失败时同样保持无 manifest。最终
+> Task 10 测试为 `30 passed`，Task 9/10、场景合同和资产来源联合为
+> `95 passed`，发布合同为 `32 passed`，完整静态回归为
+> `866 passed, 5 skipped`。本次只修改构建器、测试和审计记录，没有重新
+> 构建正式场景；两份 `.ttt` 和两份 manifest 的字节保持不变。
 
 ### Task 11: 记录实验初态和终态场景探针
 

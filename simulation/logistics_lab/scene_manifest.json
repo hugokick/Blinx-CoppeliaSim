@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "scene_id": "logistics-lab",
-  "generated_at": "2026-07-30T18:20:10.784135+00:00",
+  "generated_at": "2026-07-31T14:02:35.887304+00:00",
   "generator": "simulation.training_scenes.build_scene",
   "template": {
     "path": "simulation/vision_lab/BL23_vision_lab.ttt",
@@ -9,8 +9,8 @@
   },
   "scene": {
     "path": "simulation/logistics_lab/BL23_logistics_lab.ttt",
-    "sha256": "92021e28bb1be6ba855fe4dd4ebd900eda473ffecbdcf504ffc547f4bbdbed34",
-    "size_bytes": 11664611
+    "sha256": "bc81a8cbf9f05a079d6fd62309b284d135ea0f1dcc251da5f53363275c8ce8c3",
+    "size_bytes": 11664564
   },
   "required_paths": [
     "/BLX_base_link",

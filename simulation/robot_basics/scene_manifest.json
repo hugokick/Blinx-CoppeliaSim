@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "scene_id": "robot-basics",
-  "generated_at": "2026-07-30T18:20:09.367505+00:00",
+  "generated_at": "2026-07-31T14:02:30.436941+00:00",
   "generator": "simulation.training_scenes.build_scene",
   "template": {
     "path": "simulation/vision_lab/BL23_vision_lab.ttt",
@@ -9,8 +9,8 @@
   },
   "scene": {
     "path": "simulation/robot_basics/BL23_robot_basics.ttt",
-    "sha256": "6324511d2f882d8e2fc1eb633db2d4a5e66d89de0006e7abef2655c273decbc6",
-    "size_bytes": 11599781
+    "sha256": "9a2ce252e3f61f08c7498e2cdaf682bfe5255c99d8871dc242b0255555413ea4",
+    "size_bytes": 11599773
   },
   "required_paths": [
     "/BLX_base_link",
