@@ -12,6 +12,7 @@
     "robot.home",
     "robot.pose",
     "robot.move_world",
+    "experiment.info",
     "scene.probe"
   ],
   "workspace": {

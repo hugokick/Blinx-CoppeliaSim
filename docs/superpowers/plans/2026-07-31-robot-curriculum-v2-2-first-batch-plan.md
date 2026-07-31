@@ -581,7 +581,7 @@ git commit -m "feat(experiments): add strict experiment catalog"
 - Create: `config/experiments/R1-07.json`
 - Create: `tests/test_experiments/test_formal_catalog.py`
 
-- [ ] **Step 1: 写正式目录合同测试**
+- [x] **Step 1: 写正式目录合同测试**
 
 Create `tests/test_experiments/test_formal_catalog.py`:
 
@@ -645,7 +645,7 @@ def test_each_experiment_declares_automated_and_human_checks():
         }
 ```
 
-- [ ] **Step 2: 运行正式目录测试并确认先失败**
+- [x] **Step 2: 运行正式目录测试并确认先失败**
 
 Run:
 
@@ -655,7 +655,7 @@ python -m pytest tests/test_experiments/test_formal_catalog.py -q
 
 Expected: FAIL，指出 `config/experiments/catalog.json` 不存在。
 
-- [ ] **Step 3: 创建正式目录索引**
+- [x] **Step 3: 创建正式目录索引**
 
 Create `config/experiments/catalog.json`:
 
@@ -672,7 +672,7 @@ Create `config/experiments/catalog.json`:
 }
 ```
 
-- [ ] **Step 4: 创建 R1-01 和 R1-02 清单**
+- [x] **Step 4: 创建 R1-01 和 R1-02 清单**
 
 Create `config/experiments/R1-01.json`:
 
@@ -687,7 +687,7 @@ Create `config/experiments/R1-01.json`:
   "scene_manifest": "simulation/robot_basics/scene_manifest.json",
   "student_template": "student_programs/templates/r1_01_robot_basics.py",
   "guide": "docs/experiments/R1-01.md",
-  "capabilities": ["robot.home", "robot.pose", "robot.move_world", "scene.probe"],
+  "capabilities": ["robot.home", "robot.pose", "robot.move_world", "experiment.info", "scene.probe"],
   "workspace": {
     "x_mm": [20, 140],
     "y_mm": [-90, 90],
@@ -721,7 +721,7 @@ Create `config/experiments/R1-02.json`:
   "scene_manifest": "simulation/robot_basics/scene_manifest.json",
   "student_template": "student_programs/templates/r1_02_teach_points.py",
   "guide": "docs/experiments/R1-02.md",
-  "capabilities": ["robot.home", "robot.pose", "robot.move_world", "scene.probe"],
+  "capabilities": ["robot.home", "robot.pose", "robot.move_world", "experiment.info", "scene.probe"],
   "workspace": {
     "x_mm": [20, 140],
     "y_mm": [-90, 90],
@@ -741,7 +741,7 @@ Create `config/experiments/R1-02.json`:
 }
 ```
 
-- [ ] **Step 5: 创建 R1-05、R1-06 和 R1-07 清单**
+- [x] **Step 5: 创建 R1-05、R1-06 和 R1-07 清单**
 
 Create `config/experiments/R1-05.json`:
 
@@ -831,7 +831,7 @@ Create `config/experiments/R1-07.json`:
   "schema_version": 1,
   "experiment_id": "R1-07",
   "pack_id": "R1",
-  "title": "基于视觉的水果与构件分类",
+  "title": "基于视觉的施工构件与物流目标分类",
   "version": "2.2.0",
   "scene": "simulation/logistics_lab/BL23_logistics_lab.ttt",
   "scene_manifest": "simulation/logistics_lab/scene_manifest.json",
@@ -869,7 +869,7 @@ Create `config/experiments/R1-07.json`:
 }
 ```
 
-- [ ] **Step 6: 运行正式目录测试**
+- [x] **Step 6: 运行正式目录测试**
 
 Run:
 
@@ -879,7 +879,7 @@ python -m pytest tests/test_experiments/test_catalog.py tests/test_experiments/t
 
 Expected: `8 passed`。场景、模板和说明路径将在对应后续任务创建并由最终发布合同解析。
 
-- [ ] **Step 7: 只提交目录清单和测试**
+- [x] **Step 7: 只提交目录清单和测试**
 
 Run:
 

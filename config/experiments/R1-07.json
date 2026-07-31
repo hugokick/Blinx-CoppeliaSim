@@ -2,7 +2,7 @@
   "schema_version": 1,
   "experiment_id": "R1-07",
   "pack_id": "R1",
-  "title": "基于视觉的水果与构件分类",
+  "title": "基于视觉的施工构件与物流目标分类",
   "version": "2.2.0",
   "scene": "simulation/logistics_lab/BL23_logistics_lab.ttt",
   "scene_manifest": "simulation/logistics_lab/scene_manifest.json",
