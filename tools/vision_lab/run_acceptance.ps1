@@ -12,6 +12,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $ProjectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
+. (Join-Path $PSScriptRoot "process_ownership.ps1")
 $Python = Join-Path $ProjectRoot ".venv-vision\Scripts\python.exe"
 $Scene = Join-Path `
     $ProjectRoot `
@@ -28,6 +29,8 @@ $SummaryPath = Join-Path $OutputDir "acceptance-summary.json"
 $Steps = [ordered]@{}
 $FailureMessage = $null
 $OwnedProcessId = $null
+$OwnedProcessPath = $null
+$OwnedProcessStartTimeUtcTicks = $null
 
 # Required live gates are intentionally explicit for delivery auditing:
 # python -m vision_platform.cli accept
@@ -58,11 +61,37 @@ function Invoke-CheckedPython {
     }
 }
 
-$ListenerBefore = Get-NetTCPConnection `
-    -LocalPort $Port `
-    -State Listen `
-    -ErrorAction SilentlyContinue |
-    Select-Object -First 1
+function Assert-JUnitNoSkips {
+    param(
+        [string]$Name,
+        [string]$Path
+    )
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+        $Steps[$Name]["status"] = "FAIL"
+        throw "Step '$Name' did not produce JUnit evidence: $Path"
+    }
+    [xml]$Report = Get-Content -LiteralPath $Path -Raw -Encoding UTF8
+    $Suites = @($Report.SelectNodes("//testsuite"))
+    if ($Suites.Count -eq 0) {
+        $Steps[$Name]["status"] = "FAIL"
+        throw "Step '$Name' produced invalid JUnit evidence: $Path"
+    }
+    [int]$Tests = 0
+    [int]$Skipped = 0
+    foreach ($Suite in $Suites) {
+        $Tests += [int]$Suite.tests
+        $Skipped += [int]$Suite.skipped
+    }
+    $Steps[$Name]["tests"] = $Tests
+    $Steps[$Name]["skipped"] = $Skipped
+    if ($Tests -lt 1 -or $Skipped -ne 0) {
+        $Steps[$Name]["status"] = "FAIL"
+        throw (
+            "Step '$Name' requires executed tests with zero skips; " +
+            "tests=$Tests skipped=$Skipped"
+        )
+    }
+}
 
 Push-Location $ProjectRoot
 try {
@@ -73,8 +102,11 @@ try {
         -Port $Port `
         -Hidden
     $Launch | Format-Table -AutoSize | Out-Host
-    if (-not $ListenerBefore -and $Launch.StartedByScript) {
+    if ($Launch.StartedByScript) {
         $OwnedProcessId = [int]$Launch.ProcessId
+        $OwnedProcessPath = [string]$Launch.ProcessPath
+        $OwnedProcessStartTimeUtcTicks = `
+            [long]$Launch.ProcessStartTimeUtcTicks
     }
 
     Invoke-CheckedPython -Name "closed_loop_acceptance" -Arguments @(
@@ -101,9 +133,24 @@ try {
         "tests/test_acceptance/test_coppeliasim_calibration.py",
         "tests/test_acceptance/test_coppeliasim_classification.py",
         "-m", "coppeliasim",
+        "--coppelia-host", $HostAddress,
+        "--coppelia-port", [string]$Port,
         "--junitxml", (Join-Path $OutputDir "coppeliasim-tests.xml"),
         "-q"
     )
+
+    Invoke-CheckedPython -Name "student_program_online" -Arguments @(
+        "-m", "pytest",
+        "tests/test_acceptance/test_coppeliasim_student_program.py",
+        "-m", "coppeliasim",
+        "--coppelia-host", $HostAddress,
+        "--coppelia-port", [string]$Port,
+        "--junitxml", (Join-Path $OutputDir "student-program.xml"),
+        "-q"
+    )
+    Assert-JUnitNoSkips `
+        -Name "student_program_online" `
+        -Path (Join-Path $OutputDir "student-program.xml")
 
     $PreviousQtPlatform = $env:QT_QPA_PLATFORM
     $env:QT_QPA_PLATFORM = "offscreen"
@@ -138,6 +185,28 @@ try {
     $FailureMessage = $_.Exception.Message
 } finally {
     Pop-Location
+    if ($OwnedProcessId) {
+        try {
+            Stop-ExactOwnedProcess `
+                -ProcessId $OwnedProcessId `
+                -ProcessPath $OwnedProcessPath `
+                -ProcessStartTimeUtcTicks `
+                    $OwnedProcessStartTimeUtcTicks
+        } catch {
+            $CleanupFailure = (
+                "Owned CoppeliaSim cleanup failed: " +
+                $_.Exception.Message
+            )
+            if ($FailureMessage) {
+                $FailureMessage = (
+                    $FailureMessage + [Environment]::NewLine +
+                    $CleanupFailure
+                )
+            } else {
+                $FailureMessage = $CleanupFailure
+            }
+        }
+    }
     $OverallStatus = if ($FailureMessage) { "FAIL" } else { "PASS" }
     $Summary = [ordered]@{
         schema_version = 1
@@ -163,17 +232,6 @@ try {
     $Summary |
         ConvertTo-Json -Depth 12 |
         Set-Content -LiteralPath $SummaryPath -Encoding UTF8
-    if ($OwnedProcessId) {
-        $OwnedProcess = Get-Process `
-            -Id $OwnedProcessId `
-            -ErrorAction SilentlyContinue
-        if (
-            $OwnedProcess -and
-            $OwnedProcess.Path -eq (Join-Path $CoppeliaRoot "coppeliaSim.exe")
-        ) {
-            Stop-Process -Id $OwnedProcessId -Force
-        }
-    }
 }
 
 Write-Host "Acceptance summary: $SummaryPath"

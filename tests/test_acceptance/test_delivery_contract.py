@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from vision_platform.student.validator import BLOCKED_IMPORTS
+
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -93,6 +95,32 @@ def test_acceptance_script_runs_live_gates_and_marks_hardware_pending():
     assert "acceptance-summary.json" in text
 
 
+def test_acceptance_tracks_structured_launch_and_exact_final_cleanup():
+    source = (
+        ROOT / "tools" / "vision_lab" / "run_acceptance.ps1"
+    ).read_text(encoding="utf-8")
+    compact = " ".join(source.replace("`", "").split())
+
+    assert "$Launch = &" in source
+    assert "if ($Launch.StartedByScript)" in source
+    assert "$OwnedProcessId = [int]$Launch.ProcessId" in source
+    assert "$OwnedProcessPath = [string]$Launch.ProcessPath" in source
+    assert (
+        "$OwnedProcessStartTimeUtcTicks = "
+        "[long]$Launch.ProcessStartTimeUtcTicks"
+    ) in compact
+    assert "process_ownership.ps1" in source
+    assert "Stop-ExactOwnedProcess" in source
+    assert "-ProcessId $OwnedProcessId" in compact
+    assert "-ProcessPath $OwnedProcessPath" in compact
+    assert (
+        "-ProcessStartTimeUtcTicks $OwnedProcessStartTimeUtcTicks"
+        in compact
+    )
+    assert "$ListenerBefore" not in source
+    assert "Stop-Process -Name" not in source
+
+
 def test_coppeliasim_launcher_quotes_scene_paths_with_spaces():
     text = (
         ROOT / "tools" / "vision_lab" / "launch_coppeliasim.ps1"
@@ -101,6 +129,61 @@ def test_coppeliasim_launcher_quotes_scene_paths_with_spaces():
     assert """$QuotedScene = '"' + $Scene + '"'""" in text
     argument_block = text.split("$StartArguments = @(", 1)[1].split(")", 1)[0]
     assert "$QuotedScene" in argument_block
+
+
+def test_launcher_uses_rpc_scene_readiness_helper_before_returning():
+    helper = ROOT / "vision_platform" / "coppeliasim_readiness.py"
+    launcher = ROOT / "tools" / "vision_lab" / "launch_coppeliasim.ps1"
+    source = launcher.read_text(encoding="utf-8")
+
+    assert helper.is_file()
+    assert "& $Python -m vision_platform.coppeliasim_readiness" in source
+    assert "--host $HostAddress" in source
+    assert "--port $Port" in source
+    assert "--scene $Scene" in source
+    assert "--timeout $TimeoutSeconds" in source
+    assert "$ReadyExitCode = $LASTEXITCODE" in source
+    assert "readiness failed" in source
+
+
+def test_launcher_keeps_readiness_text_out_of_structured_return_pipeline():
+    source = (
+        ROOT / "tools" / "vision_lab" / "launch_coppeliasim.ps1"
+    ).read_text(encoding="utf-8")
+    compact = " ".join(source.replace("`", "").split())
+
+    assert (
+        "$ReadinessOutput = & $Python "
+        "-m vision_platform.coppeliasim_readiness"
+    ) in compact
+    assert "$ReadyExitCode = $LASTEXITCODE" in source
+    assert "$ReadinessOutput | Out-Host" in source
+    assert "2>&1" not in source
+
+
+def test_launcher_readiness_failure_cleans_only_exact_started_process():
+    source = (
+        ROOT / "tools" / "vision_lab" / "launch_coppeliasim.ps1"
+    ).read_text(encoding="utf-8")
+    compact = " ".join(source.replace("`", "").split())
+
+    assert "$StartedProcess = $null" in source
+    assert "if ($null -ne $StartedProcess)" in source
+    assert "process_ownership.ps1" in source
+    assert "Stop-ExactOwnedProcess" in source
+    assert "-ProcessId $LaunchProcessId" in compact
+    assert "-ProcessPath $LaunchProcessPath" in compact
+    assert (
+        "-ProcessStartTimeUtcTicks $LaunchProcessStartTimeUtcTicks"
+        in compact
+    )
+    assert "ProcessStartTimeUtcTicks = $LaunchProcessStartTimeUtcTicks" in source
+    assert "$HasCapturedLaunchIdentity" in source
+    assert "Stop-StartedProcessObject" in source
+    assert "-StartedProcess $StartedProcess" in compact
+    assert "Stop-Process -Name" not in source
+    assert "Stop-Process -Id" not in source
+    assert "taskkill" not in source.lower()
 
 
 def test_student_launcher_has_required_contract():
@@ -125,6 +208,57 @@ def test_student_launcher_does_not_kill_unowned_simulator():
 
     assert "Stop-Process -Name" not in source
     assert "taskkill" not in source.lower()
+
+
+def test_student_launcher_finally_cleans_only_its_owned_launch():
+    source = (
+        ROOT / "tools" / "vision_lab" / "run_student_program.ps1"
+    ).read_text(encoding="utf-8")
+    compact = " ".join(source.replace("`", "").split())
+
+    assert "$Launch = &" in source
+    assert "$Launch.StartedByScript" in source
+    assert "$OwnedProcessId = [int]$Launch.ProcessId" in source
+    assert "$OwnedProcessPath = [string]$Launch.ProcessPath" in source
+    assert (
+        "$OwnedProcessStartTimeUtcTicks = "
+        "[long]$Launch.ProcessStartTimeUtcTicks"
+    ) in compact
+    assert "finally {" in source
+    assert "process_ownership.ps1" in source
+    assert "Stop-ExactOwnedProcess" in source
+    assert "-ProcessId $OwnedProcessId" in compact
+    assert "-ProcessPath $OwnedProcessPath" in compact
+    assert (
+        "-ProcessStartTimeUtcTicks $OwnedProcessStartTimeUtcTicks"
+        in compact
+    )
+
+
+def test_pyqt_launcher_finally_cleans_only_its_owned_launch():
+    source = (
+        ROOT / "tools" / "vision_lab" / "run_pyqt.ps1"
+    ).read_text(encoding="utf-8")
+    compact = " ".join(source.replace("`", "").split())
+
+    assert "$Launch = &" in source
+    assert "$Launch.StartedByScript" in source
+    assert "$OwnedProcessId = [int]$Launch.ProcessId" in source
+    assert "$OwnedProcessPath = [string]$Launch.ProcessPath" in source
+    assert (
+        "$OwnedProcessStartTimeUtcTicks = "
+        "[long]$Launch.ProcessStartTimeUtcTicks"
+    ) in compact
+    assert "finally {" in source
+    assert "process_ownership.ps1" in source
+    assert "Stop-ExactOwnedProcess" in source
+    assert "-ProcessId $OwnedProcessId" in compact
+    assert "-ProcessPath $OwnedProcessPath" in compact
+    assert (
+        "-ProcessStartTimeUtcTicks $OwnedProcessStartTimeUtcTicks"
+        in compact
+    )
+    assert "Stop-Process -Name" not in source
 
 
 def test_student_program_guide_has_complete_simulation_contract():
@@ -154,3 +288,332 @@ def test_student_program_guide_has_complete_simulation_contract():
     )
     for item in required:
         assert item in source
+
+
+def test_live_student_program_acceptance_has_required_contract():
+    test_path = (
+        ROOT
+        / "tests"
+        / "test_acceptance"
+        / "test_coppeliasim_student_program.py"
+    )
+
+    assert test_path.is_file()
+    source = test_path.read_text(encoding="utf-8")
+    required = (
+        "@pytest.mark.coppeliasim",
+        "running_vision_scene",
+        "StudentProgramController",
+        "StudentExecutionPolicy",
+        "student_programs",
+        "pick_and_place.py",
+            'result.status == "PASS"',
+            "critical_commands",
+            "len(move_commands) == 6",
+            "measured_pose_results",
+            'move_commands[5]["args"]',
+            "pytest.approx(",
+            '"robot.pose"',
+        '"/VisionLab/Pickables/object_01_red_square"',
+        "application.sim.getObjectPosition",
+        'application.scene_spec["zones"]["red"]',
+        "controller.wait_for_quiescence",
+        "controller.process_is_alive is False",
+        '"source.py"',
+        '"source.sha256"',
+        '"manifest.json"',
+        '"summary.json"',
+        '"hardware_status"] == "PENDING_HARDWARE"',
+        "teaching_ready_pose",
+        "dist(actual, expected) <= 2.0",
+        "online test must not reset before assertions",
+        "finally:",
+        "controller.cancel()",
+    )
+    for item in required:
+        assert item in source
+    assert "pytest.skip" not in source
+
+
+def test_acceptance_script_has_explicit_live_student_program_gate():
+    source = (
+        ROOT / "tools" / "vision_lab" / "run_acceptance.ps1"
+    ).read_text(encoding="utf-8")
+
+    required = (
+        'Invoke-CheckedPython -Name "student_program_online"',
+        '"tests/test_acceptance/test_coppeliasim_student_program.py"',
+        '"-m", "coppeliasim"',
+        "student-program.xml",
+        "Assert-JUnitNoSkips",
+        "student_program_online",
+    )
+    for item in required:
+        assert item in source
+
+
+def test_acceptance_live_pytest_groups_receive_selected_endpoint():
+    source = (
+        ROOT / "tools" / "vision_lab" / "run_acceptance.ps1"
+    ).read_text(encoding="utf-8")
+
+    for step_name in (
+        "live_coppeliasim_tests",
+        "student_program_online",
+    ):
+        block = source.split(
+            f'Invoke-CheckedPython -Name "{step_name}"',
+            1,
+        )[1].split(")", 1)[0]
+        assert '"--coppelia-host", $HostAddress' in block
+        assert '"--coppelia-port", [string]$Port' in block
+
+
+def test_live_student_acceptance_checks_pick_place_command_semantics():
+    source = (
+        ROOT
+        / "tests"
+        / "test_acceptance"
+        / "test_coppeliasim_student_program.py"
+    ).read_text(encoding="utf-8")
+
+    required = (
+        "pick_and_place.py",
+        'command["name"]',
+        "critical_commands",
+        "len(move_commands) == 6",
+        "measured_pose_results[0][0]",
+        "measured_pose_results[2][1]",
+        'move_commands[5]["args"]',
+        "pytest.approx(",
+        '"robot.pose"',
+        '"/VisionLab/Pickables/object_01_red_square"',
+        "application.sim.getObjectPosition",
+        'application.scene_spec["zones"]["red"]',
+        "tolerance_mm = 2.0",
+    )
+    for item in required:
+        assert item in source
+
+
+def test_student_self_programming_lab_guide_is_complete():
+    guide = ROOT / "docs" / "学生自编程实验说明.md"
+
+    assert guide.is_file()
+    source = guide.read_text(encoding="utf-8")
+    required = (
+        "# 学生自编程实验说明",
+        "## 学习目标",
+        "## 从模板复制程序",
+        "## 教学 SDK",
+        "ctx.robot.home() -> None",
+        "ctx.robot.move_world(x_mm, y_mm, z_mm, *, speed) -> None",
+        "ctx.robot.pose() -> tuple[float, float, float]",
+        "ctx.tool.on() -> None",
+        "ctx.tool.off() -> None",
+        "ctx.log(message) -> None",
+        "ctx.sleep(seconds) -> None",
+        "ctx.checkpoint(label) -> None",
+        "mm",
+        "safe_z",
+        "35 mm",
+        "## PyQt 操作流程",
+        "打开程序",
+        "保存",
+        "检查代码",
+        "运行",
+        "暂停",
+        "继续",
+        "下一步",
+        "停止",
+        "复位场景",
+        "## CLI 与 PowerShell 操作",
+        "Set-Location -LiteralPath",
+        "student-validate",
+        "run_student_program.ps1",
+        "## 运行证据",
+        "source.py",
+        "source.sha256",
+        "manifest.json",
+        "commands.jsonl",
+        "events.jsonl",
+        "summary.json",
+        "## 故意失败练习",
+        "MAIN_MISSING",
+        "IMPORT_NOT_ALLOWED",
+        "TARGET_OUT_OF_WORKSPACE",
+        "STUDENT_SPEED_INVALID",
+        "STUDENT_TOOL_HEIGHT_INVALID",
+        "STUDENT_SLEEP_INVALID",
+        "## 仿真与真机边界",
+        "不是恶意代码安全沙箱",
+        "海康相机",
+        "PENDING_HARDWARE",
+        "## 学生提交清单",
+        "## 教师验收清单",
+    )
+    for item in required:
+        assert item in source
+
+
+def test_student_guide_import_exercise_matches_validator_blocklist():
+    source = (
+        ROOT / "docs" / "学生自编程实验说明.md"
+    ).read_text(encoding="utf-8")
+    exercise = source.split("## 故意失败练习", 1)[1].split(
+        "## 仿真与真机边界",
+        1,
+    )[0]
+
+    assert "socket" in BLOCKED_IMPORTS
+    assert "os" not in BLOCKED_IMPORTS
+    assert "`import socket`" in exercise
+    assert "`import os`" not in exercise
+    assert "危险模块" in source
+    assert "不是恶意代码安全沙箱" in source
+
+
+def test_task11_file_manifest_matches_actual_online_acceptance_scope():
+    plan = (
+        ROOT
+        / "docs"
+        / "superpowers"
+        / "plans"
+        / "2026-07-30-student-program-runner-v2-plan.md"
+    ).read_text(encoding="utf-8")
+    task11 = plan.split(
+        "### Task 11: 增加真实 CoppeliaSim 在线验收",
+        1,
+    )[1].split("### Task 12:", 1)[0]
+
+    required = (
+        "- Create: `vision_platform/coppeliasim_readiness.py`",
+        "- Create: `tools/vision_lab/process_ownership.ps1`",
+        "- Create: `tests/test_acceptance/test_coppeliasim_readiness.py`",
+        "- Create: `tests/test_acceptance/test_coppeliasim_fixture_helpers.py`",
+        "- Create: `tests/test_acceptance/test_coppeliasim_student_program.py`",
+        "- Create: `tests/test_acceptance/test_powershell_process_ownership.py`",
+        "- Modify: `student_programs/templates/pick_and_place.py`",
+        "- Modify: `tests/test_acceptance/test_delivery_contract.py`",
+        "- Modify: `tests/test_acceptance/conftest.py`",
+        "- Modify: `tests/test_student_programs/test_student_safety.py`",
+    )
+    for item in required:
+        assert item in task11
+    assert (
+        'git commit -m "test(student): verify live student program workflow"'
+        in task11
+    )
+
+
+def test_main_usage_guide_links_student_self_programming_workflow():
+    source = (
+        ROOT / "docs" / "视觉仿真实训平台使用说明.md"
+    ).read_text(encoding="utf-8")
+
+    required = (
+        "## 6. 学生自编程",
+        "[学生自编程实验说明](学生自编程实验说明.md)",
+        "student_programs\\templates\\basic_motion.py",
+        "run_student_program.ps1",
+        "student-validate",
+        "PyQt",
+        "artifacts/vision_lab/student-runs",
+        "safe_z",
+        "PENDING_HARDWARE",
+    )
+    for item in required:
+        assert item in source
+
+
+def test_v21_docs_define_prelaunched_listener_ownership_contract():
+    architecture_docs = (
+        ROOT
+        / "docs"
+        / "superpowers"
+        / "specs"
+        / "2026-07-30-student-program-runner-v2-design.md",
+        ROOT
+        / "docs"
+        / "superpowers"
+        / "plans"
+        / "2026-07-30-student-program-runner-v2-plan.md",
+        ROOT / "docs" / "视觉仿真实训平台V2-开发端执行Prompt.md",
+    )
+    for path in architecture_docs:
+        source = path.read_text(encoding="utf-8")
+        assert "vision_platform/coppeliasim_readiness.py" in source
+        assert "launch_coppeliasim.ps1" in source
+        assert "StartedByScript" in source
+        assert "fixture 不启动或终止 CoppeliaSim" in source
+
+
+def test_v21_docs_define_hardened_readiness_and_physical_pick_drop_gate():
+    architecture_docs = (
+        ROOT
+        / "docs"
+        / "superpowers"
+        / "specs"
+        / "2026-07-30-student-program-runner-v2-design.md",
+        ROOT
+        / "docs"
+        / "superpowers"
+        / "plans"
+        / "2026-07-30-student-program-runner-v2-plan.md",
+        ROOT / "docs" / "视觉仿真实训平台V2-开发端执行Prompt.md",
+    )
+    for path in architecture_docs:
+        source = path.read_text(encoding="utf-8")
+        assert "timeout_s" in source
+        assert "READY" in source
+        assert "Resolve-Path" in source
+        assert "Stop-Process -InputObject" in source
+        assert "ProcessStartTimeUtcTicks" in source
+        assert "pick_approach_pose" in source
+        assert "drop_approach_pose" in source
+        assert "object_01_red_square" in source
+        assert "red zone" in source
+
+
+def test_pick_place_template_uses_measured_vertical_transitions():
+    source = (
+        ROOT / "student_programs" / "templates" / "pick_and_place.py"
+    ).read_text(encoding="utf-8")
+    compact = " ".join(source.split())
+
+    assert "safe_z = 110" in source
+    assert "pick_approach_pose = ctx.robot.pose()" in source
+    assert "pick_pose = ctx.robot.pose()" in source
+    assert "drop_approach_pose = ctx.robot.pose()" in source
+    assert "drop_pose = ctx.robot.pose()" in source
+    assert (
+        "ctx.robot.move_world( "
+        "pick_approach_pose[0], pick_approach_pose[1], "
+        "pick[2], speed=8 )"
+    ) in compact
+    assert (
+        "ctx.robot.move_world("
+        "pick_pose[0], pick_pose[1], safe_z, speed=12)"
+    ) in source
+    assert (
+        "ctx.robot.move_world( "
+        "drop_approach_pose[0], drop_approach_pose[1], "
+        "drop[2], speed=8 )"
+    ) in compact
+    assert (
+        "ctx.robot.move_world("
+        "drop_pose[0], drop_pose[1], safe_z, speed=12)"
+    ) in source
+
+
+def test_online_guides_launch_coppeliasim_before_direct_pytest():
+    guides = (
+        ROOT / "docs" / "视觉仿真实训平台使用说明.md",
+        ROOT / "docs" / "学生自编程实验说明.md",
+    )
+    for path in guides:
+        source = path.read_text(encoding="utf-8")
+        launch_position = source.index("launch_coppeliasim.ps1")
+        pytest_position = source.index("-m pytest")
+        assert launch_position < pytest_position
+        assert "fixture 不会启动或终止 CoppeliaSim" in source

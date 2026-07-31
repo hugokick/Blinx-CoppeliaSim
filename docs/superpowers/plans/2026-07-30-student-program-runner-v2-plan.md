@@ -2361,18 +2361,26 @@ Create `student_programs/templates/pick_and_place.py`:
 def main(ctx):
     pick = (55, -55, 20)
     drop = (122, -66, 20)
-    safe_z = 100
+    safe_z = 110
 
     ctx.log("单物体吸取与放置开始")
     ctx.robot.home()
     ctx.robot.move_world(pick[0], pick[1], safe_z, speed=15)
-    ctx.robot.move_world(*pick, speed=8)
+    pick_approach_pose = ctx.robot.pose()
+    ctx.robot.move_world(
+        pick_approach_pose[0], pick_approach_pose[1], pick[2], speed=8
+    )
     ctx.tool.on()
-    ctx.robot.move_world(pick[0], pick[1], safe_z, speed=12)
+    pick_pose = ctx.robot.pose()
+    ctx.robot.move_world(pick_pose[0], pick_pose[1], safe_z, speed=12)
     ctx.robot.move_world(drop[0], drop[1], safe_z, speed=15)
-    ctx.robot.move_world(*drop, speed=8)
+    drop_approach_pose = ctx.robot.pose()
+    ctx.robot.move_world(
+        drop_approach_pose[0], drop_approach_pose[1], drop[2], speed=8
+    )
     ctx.tool.off()
-    ctx.robot.move_world(drop[0], drop[1], safe_z, speed=12)
+    drop_pose = ctx.robot.pose()
+    ctx.robot.move_world(drop_pose[0], drop_pose[1], safe_z, speed=12)
     ctx.robot.home()
     ctx.log("单物体吸取与放置完成")
 ```
@@ -2400,6 +2408,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $ProjectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
+. (Join-Path $PSScriptRoot "process_ownership.ps1")
 $Python = Join-Path $ProjectRoot ".venv-vision\Scripts\python.exe"
 if (-not (Test-Path -LiteralPath $Python -PathType Leaf)) {
     throw "Python environment is missing: $Python"
@@ -2418,36 +2427,56 @@ if (-not [System.IO.Path]::IsPathRooted($OutputDir)) {
 }
 New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
 
-& (Join-Path $PSScriptRoot "launch_coppeliasim.ps1") `
-    -CoppeliaRoot $CoppeliaRoot `
-    -HostAddress $HostAddress `
-    -Port $Port |
-    Format-Table -AutoSize |
-    Out-Host
-
-$env:COPPELIA_HOST = $HostAddress
-$env:COPPELIA_PORT = [string]$Port
 $Scene = Join-Path $ProjectRoot "simulation\vision_lab\BL23_vision_lab.ttt"
+$OwnedProcessId = $null
+$OwnedProcessPath = $null
+$OwnedProcessStartTimeUtcTicks = $null
 $StudentExitCode = 1
-
-Push-Location $ProjectRoot
 try {
-    & $Python -m vision_platform.cli student-run `
-        --program $Program `
-        --robot sim `
-        --scene $Scene `
-        --host $HostAddress `
-        --port $Port `
-        --output $OutputDir
-    $StudentExitCode = $LASTEXITCODE
+    $Launch = & (Join-Path $PSScriptRoot "launch_coppeliasim.ps1") `
+        -CoppeliaRoot $CoppeliaRoot `
+        -Scene $Scene `
+        -HostAddress $HostAddress `
+        -Port $Port
+    $Launch | Format-Table -AutoSize | Out-Host
+    if ($Launch.StartedByScript) {
+        $OwnedProcessId = [int]$Launch.ProcessId
+        $OwnedProcessPath = [string]$Launch.ProcessPath
+        $OwnedProcessStartTimeUtcTicks = `
+            [long]$Launch.ProcessStartTimeUtcTicks
+    }
+
+    $env:COPPELIA_HOST = $HostAddress
+    $env:COPPELIA_PORT = [string]$Port
+    Push-Location $ProjectRoot
+    try {
+        & $Python -m vision_platform.cli student-run `
+            --program $Program `
+            --robot sim `
+            --scene $Scene `
+            --host $HostAddress `
+            --port $Port `
+            --output $OutputDir
+        $StudentExitCode = $LASTEXITCODE
+    } finally {
+        Pop-Location
+    }
 } finally {
-    Pop-Location
+    if ($OwnedProcessId) {
+        Stop-ExactOwnedProcess `
+            -ProcessId $OwnedProcessId `
+            -ProcessPath $OwnedProcessPath `
+            -ProcessStartTimeUtcTicks $OwnedProcessStartTimeUtcTicks
+    }
 }
 exit $StudentExitCode
 ```
 
-This script intentionally does not stop any CoppeliaSim process. Process
-ownership remains with `launch_coppeliasim.ps1` and the teacher。
+This script captures the structured launch result. If
+`StartedByScript=true`, it records `ProcessId`, normalized `ProcessPath` and
+launch-time `ProcessStartTimeUtcTicks`, then passes that immutable triple to
+the shared cleanup helper in `finally`; a reused teacher-owned listener is
+never stopped。
 
 - [ ] **Step 6: 扩展现有发布合同测试**
 
@@ -3288,10 +3317,61 @@ git commit -m "feat(ui): add student program workspace"
 ### Task 11: 增加真实 CoppeliaSim 在线验收
 
 **Files:**
+- Create: `vision_platform/coppeliasim_readiness.py`
+- Create: `tools/vision_lab/process_ownership.ps1`
+- Create: `tests/test_acceptance/test_coppeliasim_readiness.py`
+- Create: `tests/test_acceptance/test_coppeliasim_fixture_helpers.py`
 - Create: `tests/test_acceptance/test_coppeliasim_student_program.py`
+- Create: `tests/test_acceptance/test_powershell_process_ownership.py`
+- Modify: `student_programs/templates/pick_and_place.py`
+- Modify: `tests/test_acceptance/conftest.py`
+- Modify: `tests/test_acceptance/test_delivery_contract.py`
+- Modify: `tests/test_student_programs/test_student_safety.py`
+- Modify: `tools/vision_lab/launch_coppeliasim.ps1`
 - Modify: `tools/vision_lab/run_acceptance.ps1`
+- Modify: `tools/vision_lab/run_student_program.ps1`
+- Modify: `tools/vision_lab/run_pyqt.ps1`
+- Modify: `docs/superpowers/plans/2026-07-30-student-program-runner-v2-plan.md`
+- Modify: `docs/superpowers/specs/2026-07-30-student-program-runner-v2-design.md`
+- Modify: `docs/视觉仿真实训平台V2-开发端执行Prompt.md`
 - Modify: `docs/视觉仿真实训平台使用说明.md`
 - Create: `docs/学生自编程实验说明.md`
+
+**在线架构修正：**
+
+- `vision_platform/coppeliasim_readiness.py` 以 fresh ZMQ clients 验证真实
+  RPC、目标 scene path 和 `/VisionLab`、`/BLX_base_link`；失败 client
+  必须 `linger=0` 并释放 context，超时有界且保留最后 cause。`timeout_s`
+  与 retry interval 在首次 factory 前验证为有限合法值；成功 client 必须
+  先释放 socket/context，之后才打印 `READY`。
+- `launch_coppeliasim.ps1` 在启动或取得既有 listener 后立即冻结启动身份；
+  结构化结果包含 `StartedByScript`、`ProcessId`、规范 `ProcessPath` 和
+  `ProcessStartTimeUtcTicks`。PowerShell 调用方只在自身启动时传递该启动
+  三元组，borrowed listener 永不终止。四个入口共用
+  `process_ownership.ps1`，并把身份无法读取、三元组不符、退出超时和原
+  三元组 survivor 当作失败。launcher 以 `Resolve-Path` 规范化 dotted
+  root 与 executable；helper 在首次 Get 后、Stop 前严格比较启动三元组，
+  不匹配时 StopCalls=0，并使用
+  `Stop-Process -InputObject $VerifiedProcess` 停止首次验证对象。停止后的
+  survivor 仍与原三元组比较，绝不按 PID 停止复用后的新对象。如果
+  `Start-Process` 成功但首次身份捕获失败，launcher 调用
+  `Stop-StartedProcessObject`，只停止 `Start-Process` 返回的原始 Process
+  对象并等待退出，禁止查询或按未验证 PID 查杀。
+- pytest fixture 不启动或终止 CoppeliaSim；缺 listener 或错误场景直接
+  FAIL 并显示 `launch_coppeliasim.ps1` 命令。fixture 只在稳定 borrowed
+  listener 上完成 stop→load→start 与 fresh-client teardown；载入临时
+  场景后的 start/running readiness 失败也要 stop 并恢复源场景。
+- 在线 pytest 端点按显式 `--coppelia-host`/`--coppelia-port`、环境变量、
+  默认 `127.0.0.1:23000` 解析；完整验收的两组 live pytest 必须透传入口
+  的 HostAddress/Port。
+- 学生 live gate 必须核对完整关键命令、六个 move 的参数；两个下探 move
+  的 X/Y 分别等于前一条 `robot.pose` 返回的实测安全高度 X/Y，仅改变 Z。
+  同时查询
+  `object_01_red_square` 最终 XY 是否处于 red zone；只有命令名不能证明
+  实际吸附与释放。
+- 直接在线 pytest 必须先运行 `launch_coppeliasim.ps1`；完整自动验收由
+  `run_acceptance.ps1` 启动、记录并在 `finally` 精确回收。清理失败必须
+  在 summary 写入前转成 `FAIL` 和非零退出。
 
 - [ ] **Step 1: 写在线验收测试**
 
@@ -3315,7 +3395,7 @@ PROGRAM = (
     PROJECT_ROOT
     / "student_programs"
     / "templates"
-    / "basic_motion.py"
+    / "pick_and_place.py"
 )
 
 
@@ -3350,14 +3430,22 @@ def test_student_program_moves_live_openr6_and_records_evidence(
         execution_policy=policy,
         output_root=tmp_path / "student-runs",
     )
+    measured_pose_results = []
+    original_command_pose = controller._command_pose
+
+    def record_command_pose(args):
+        value = original_command_pose(args)
+        measured_pose_results.append(tuple(value))
+        return value
+
+    controller._command_pose = record_command_pose
     controller.load(PROGRAM)
     assert controller.validate().ok is True
 
     controller.start()
-    result = controller.wait(timeout_s=15)
+    result = controller.wait(timeout_s=30)
 
     assert result.status == "PASS"
-    assert controller.command_count >= 5
     assert controller.process_is_alive is False
     for name in (
         "source.py",
@@ -3373,6 +3461,76 @@ def test_student_program_moves_live_openr6_and_records_evidence(
     )
     assert summary["status"] == "PASS"
     assert summary["hardware_status"] == "PENDING_HARDWARE"
+    commands = [
+        json.loads(line)
+        for line in (result.evidence_dir / "commands.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+        if line.strip()
+    ]
+    critical_commands = [
+        command for command in commands
+        if command["name"] != "context.log"
+    ]
+    assert [command["name"] for command in critical_commands] == [
+        "robot.home",
+        "robot.move_world",
+        "robot.pose",
+        "robot.move_world",
+        "tool.on",
+        "robot.pose",
+        "robot.move_world",
+        "robot.move_world",
+        "robot.pose",
+        "robot.move_world",
+        "tool.off",
+        "robot.pose",
+        "robot.move_world",
+        "robot.home",
+    ]
+    move_commands = [
+        command for command in critical_commands
+        if command["name"] == "robot.move_world"
+    ]
+    assert len(move_commands) == 6
+    assert move_commands[0]["args"] == {
+        "x_mm": 55, "y_mm": -55, "z_mm": 110, "speed": 15,
+    }
+    assert move_commands[1]["args"]["x_mm"] == pytest.approx(
+        measured_pose_results[0][0],
+        abs=1e-9,
+    )
+    assert move_commands[1]["args"]["y_mm"] == pytest.approx(
+        measured_pose_results[0][1],
+        abs=1e-9,
+    )
+    assert move_commands[4]["args"]["x_mm"] == pytest.approx(
+        measured_pose_results[2][0],
+        abs=1e-9,
+    )
+    assert move_commands[4]["args"]["y_mm"] == pytest.approx(
+        measured_pose_results[2][1],
+        abs=1e-9,
+    )
+    assert move_commands[5]["args"]["z_mm"] == 110
+    assert move_commands[5]["args"]["speed"] == 12
+
+    object_handle = application.sim.getObject(
+        "/VisionLab/Pickables/object_01_red_square"
+    )
+    object_position = application.sim.getObjectPosition(
+        object_handle,
+        application.sim.handle_world,
+    )
+    object_xy_mm = [float(value) * 1000 for value in object_position[:2]]
+    red_zone = application.scene_spec["zones"]["red"]
+    center_x, center_y, _ = red_zone["center_mm"]
+    size_x, size_y, _ = red_zone["size_mm"]
+    tolerance_mm = 2.0
+    assert center_x - size_x / 2 - tolerance_mm <= object_xy_mm[0]
+    assert object_xy_mm[0] <= center_x + size_x / 2 + tolerance_mm
+    assert center_y - size_y / 2 - tolerance_mm <= object_xy_mm[1]
+    assert object_xy_mm[1] <= center_y + size_y / 2 + tolerance_mm
 
     expected = tuple(
         float(value)
@@ -3393,6 +3551,8 @@ Invoke-CheckedPython -Name "student_program_online" -Arguments @(
     "-m", "pytest",
     "tests/test_acceptance/test_coppeliasim_student_program.py",
     "-m", "coppeliasim",
+    "--coppelia-host", $HostAddress,
+    "--coppelia-port", [string]$Port,
     "--junitxml", (Join-Path $OutputDir "student-program.xml"),
     "-q"
 )
@@ -3433,12 +3593,17 @@ Expected: 0 failed；CoppeliaSim online tests may be skipped only in this static
 
 - [ ] **Step 6: Run the live student test**
 
-Run with CoppeliaSim available:
+先启动并完成 RPC、场景路径和哨兵 readiness，再运行 live test：
 
 ```powershell
+powershell -ExecutionPolicy Bypass `
+  -File tools\vision_lab\launch_coppeliasim.ps1
+
 python -m pytest `
   tests/test_acceptance/test_coppeliasim_student_program.py `
   -m coppeliasim `
+  --coppelia-host 127.0.0.1 `
+  --coppelia-port 23000 `
   -q
 ```
 
@@ -3448,8 +3613,23 @@ Expected: PASS, not skip。
 
 ```powershell
 git add `
+  vision_platform/coppeliasim_readiness.py `
+  tools/vision_lab/process_ownership.ps1 `
+  student_programs/templates/pick_and_place.py `
+  tests/test_acceptance/conftest.py `
+  tests/test_acceptance/test_coppeliasim_readiness.py `
+  tests/test_acceptance/test_coppeliasim_fixture_helpers.py `
   tests/test_acceptance/test_coppeliasim_student_program.py `
+  tests/test_acceptance/test_powershell_process_ownership.py `
+  tests/test_acceptance/test_delivery_contract.py `
+  tests/test_student_programs/test_student_safety.py `
+  tools/vision_lab/launch_coppeliasim.ps1 `
   tools/vision_lab/run_acceptance.ps1 `
+  tools/vision_lab/run_student_program.ps1 `
+  tools/vision_lab/run_pyqt.ps1 `
+  docs/superpowers/plans/2026-07-30-student-program-runner-v2-plan.md `
+  docs/superpowers/specs/2026-07-30-student-program-runner-v2-design.md `
+  docs/视觉仿真实训平台V2-开发端执行Prompt.md `
   docs/视觉仿真实训平台使用说明.md `
   docs/学生自编程实验说明.md
 git commit -m "test(student): verify live student program workflow"

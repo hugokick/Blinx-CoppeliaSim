@@ -152,16 +152,28 @@ UI 新增 `vision_platform/ui/student_program_panel.py`。该面板只负责编�
 
 ```python
 def main(ctx):
+    pick = (55, -55, 20)
+    drop = (122, -66, 20)
+    safe_z = 110
+
     ctx.log("程序开始")
     ctx.robot.home()
-    ctx.robot.move_world(100, 60, 120, speed=15)
-    ctx.robot.move_world(100, 60, 25, speed=8)
+    ctx.robot.move_world(pick[0], pick[1], safe_z, speed=15)
+    pick_approach_pose = ctx.robot.pose()
+    ctx.robot.move_world(
+        pick_approach_pose[0], pick_approach_pose[1], pick[2], speed=8
+    )
     ctx.tool.on()
-    ctx.robot.move_world(100, 60, 120, speed=15)
-    ctx.robot.move_world(120, -60, 120, speed=15)
-    ctx.robot.move_world(120, -60, 25, speed=8)
+    pick_pose = ctx.robot.pose()
+    ctx.robot.move_world(pick_pose[0], pick_pose[1], safe_z, speed=12)
+    ctx.robot.move_world(drop[0], drop[1], safe_z, speed=15)
+    drop_approach_pose = ctx.robot.pose()
+    ctx.robot.move_world(
+        drop_approach_pose[0], drop_approach_pose[1], drop[2], speed=8
+    )
     ctx.tool.off()
-    ctx.robot.move_world(120, -60, 120, speed=15)
+    drop_pose = ctx.robot.pose()
+    ctx.robot.move_world(drop_pose[0], drop_pose[1], safe_z, speed=12)
     ctx.robot.home()
     ctx.log("程序结束")
 ```
@@ -377,6 +389,49 @@ CLI 子命令：
 
 PowerShell 入口负责定位项目、启动或复用 CoppeliaSim、传递端口和场景并调用 CLI，不复制 Python 安全逻辑。
 
+### 14.1 CoppeliaSim readiness 与进程所有权
+
+- `vision_platform/coppeliasim_readiness.py` 是正式 readiness helper；它通过项目
+  `.venv-vision` 使用 fresh ZMQ client 验证真实 RPC、目标场景路径以及
+  `/VisionLab`、`/BLX_base_link`，不能只把 TCP 23000 打开当作可用。
+  `timeout_s` 必须有限且不小于 0，retry interval 必须有限且大于 0；两者
+  在首次 client factory 前验证。成功 client 必须先完成 socket
+  `linger=0` 与 context 释放，之后才允许打印 `READY`；清理失败只能打印
+  `NOT_READY`。
+- `launch_coppeliasim.ps1` 在启动或取得既有 listener 后立即冻结规范化
+  启动身份，并返回唯一结构化结果，包含 `StartedByScript`、`ProcessId`、
+  `ProcessPath` 和 `ProcessStartTimeUtcTicks`。`run_acceptance.ps1`、
+  `run_student_program.ps1` 与 `run_pyqt.ps1` 只在
+  `StartedByScript=true` 时于 `finally` 传递启动时捕获的 PID、规范路径和
+  UTC 启动 ticks；复用的用户 listener 永不终止。四个入口共用
+  `tools/vision_lab/process_ownership.ps1`；路径不一致、`WaitForExit`
+  超时或相同启动三元组仍存活都必须使入口失败，禁止忽略清理结果。
+  launcher 在启动前以 `Resolve-Path` 规范化 `CoppeliaRoot` 与 executable，
+  包括带 `\.` 的路径。停止时必须执行
+  `Stop-Process -InputObject $VerifiedProcess`，不能在验证对象后再按 PID
+  停止。helper 在首次 `Get-Process` 后、停止前严格比较启动时捕获的三元组；
+  路径或启动时间无法读取、任一字段不匹配时均失败且不调用停止。停止后的
+  survivor 仍与原三元组比较，PID 复用后的新对象不得被停止。如果
+  `Start-Process` 已成功但首次身份捕获失败，launcher 必须改用
+  `Stop-StartedProcessObject`，只把 `Start-Process` 返回的原始 Process
+  对象交给 `Stop-Process -InputObject` 并等待退出；该回退不得查询或按
+  未验证 PID 查杀。
+- 在线 pytest fixture 不启动或终止 CoppeliaSim，只连接已由
+  `launch_coppeliasim.ps1` 验证的 BL23 listener，管理
+  stop→load→start 和 fresh-client teardown。临时场景载入后的启动或
+  running-readiness 失败，也必须用 fresh clients 停止并恢复正式源场景，
+  同时保留准备异常为主异常、清理异常为 cause。缺 listener 或场景错误
+  必须 FAIL 并给出启动命令。
+- pytest 端点参数为 `--coppelia-host` 和 `--coppelia-port`，优先级为
+  显式参数、`COPPELIA_HOST`/`COPPELIA_PORT`、最后
+  `127.0.0.1:23000`。`run_acceptance.ps1` 的两组在线 pytest 必须透传
+  本次 `HostAddress`/`Port`，不能暗中回到 23000。
+- 直接运行 `-m coppeliasim` 前，必须先运行
+  `tools/vision_lab/launch_coppeliasim.ps1`；完整自动验收则由
+  `run_acceptance.ps1` 持有并最终回收自己启动的进程。该脚本必须在写
+  `acceptance-summary.json` 前完成清理；清理失败时汇总为 `FAIL` 且退出
+  非零。
+
 ## 15. 证据与可追溯性
 
 每次运行生成唯一目录：
@@ -420,7 +475,13 @@ artifacts/vision_lab/student-runs/
 2. Fake 后端的进程运行、暂停、继续、单步、停止、超时和清理集成测试；
 3. PyQt 离屏测试：页面构造、文件操作、按钮状态和运行投影；
 4. 发布合同测试：入口、模板、文档和 `RETAINED_FILES.txt`；
-5. CoppeliaSim 在线测试：示例程序完成至少四个世界坐标点、一次吸盘开关、回零和证据生成。
+5. CoppeliaSim 在线测试：逐条核对 `commands.jsonl` 中完整关键顺序与六个
+   `move_world` 的坐标/速度；两个下探动作的 X/Y 必须分别等于其前一条
+   `robot.pose` 返回的实测安全高度 X/Y，仅 Z 改为抓取或放置高度。完成
+   吸盘开关和回零后，还必须通过
+   `application.sim` 证明
+   `/VisionLab/Pickables/object_01_red_square` 的最终 XY 位于 red zone
+   范围内。仿真结果仍为 `PENDING_HARDWARE`。
 
 ### 16.2 基线保护
 

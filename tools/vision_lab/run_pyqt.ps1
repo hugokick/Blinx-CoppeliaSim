@@ -18,6 +18,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $ProjectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
+. (Join-Path $PSScriptRoot "process_ownership.ps1")
 $Python = Join-Path $ProjectRoot ".venv-vision\Scripts\python.exe"
 if (-not (Test-Path -LiteralPath $Python -PathType Leaf)) {
     throw (
@@ -31,44 +32,67 @@ if (-not [System.IO.Path]::IsPathRooted($OutputDir)) {
 }
 New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
 
-if ($Camera -eq "sim" -or $Robot -eq "sim") {
-    $LaunchArguments = @{
-        CoppeliaRoot = $CoppeliaRoot
-        HostAddress = $HostAddress
-        Port = $Port
-    }
-    if ($HiddenSimulator) {
-        $LaunchArguments.Hidden = $true
-    }
-    & (Join-Path $PSScriptRoot "launch_coppeliasim.ps1") @LaunchArguments |
-        Format-Table -AutoSize |
-        Out-Host
-}
-
-$env:COPPELIA_HOST = $HostAddress
-$env:COPPELIA_PORT = [string]$Port
-$env:COPPELIA_SCENE = Join-Path `
+$Scene = Join-Path `
     $ProjectRoot `
     "simulation\vision_lab\BL23_vision_lab.ttt"
-
-$Arguments = @(
-    "-m"
-    "vision_platform.ui.pyqt_app"
-    "--camera"
-    $Camera
-    "--robot"
-    $Robot
-    "--output"
-    $OutputDir
-)
-if ($Config) {
-    $Arguments += @("--config", $Config)
-}
-
-Push-Location $ProjectRoot
+$OwnedProcessId = $null
+$OwnedProcessPath = $null
+$OwnedProcessStartTimeUtcTicks = $null
+$AppExitCode = 1
 try {
-    & $Python @Arguments
-    exit $LASTEXITCODE
+    if ($Camera -eq "sim" -or $Robot -eq "sim") {
+        $LaunchArguments = @{
+            CoppeliaRoot = $CoppeliaRoot
+            HostAddress = $HostAddress
+            Port = $Port
+            Scene = $Scene
+        }
+        if ($HiddenSimulator) {
+            $LaunchArguments.Hidden = $true
+        }
+        $Launch = & (
+            Join-Path $PSScriptRoot "launch_coppeliasim.ps1"
+        ) @LaunchArguments
+        $Launch | Format-Table -AutoSize | Out-Host
+        if ($Launch.StartedByScript) {
+            $OwnedProcessId = [int]$Launch.ProcessId
+            $OwnedProcessPath = [string]$Launch.ProcessPath
+            $OwnedProcessStartTimeUtcTicks = `
+                [long]$Launch.ProcessStartTimeUtcTicks
+        }
+    }
+
+    $env:COPPELIA_HOST = $HostAddress
+    $env:COPPELIA_PORT = [string]$Port
+    $env:COPPELIA_SCENE = $Scene
+
+    $Arguments = @(
+        "-m"
+        "vision_platform.ui.pyqt_app"
+        "--camera"
+        $Camera
+        "--robot"
+        $Robot
+        "--output"
+        $OutputDir
+    )
+    if ($Config) {
+        $Arguments += @("--config", $Config)
+    }
+
+    Push-Location $ProjectRoot
+    try {
+        & $Python @Arguments
+        $AppExitCode = $LASTEXITCODE
+    } finally {
+        Pop-Location
+    }
 } finally {
-    Pop-Location
+    if ($OwnedProcessId) {
+        Stop-ExactOwnedProcess `
+            -ProcessId $OwnedProcessId `
+            -ProcessPath $OwnedProcessPath `
+            -ProcessStartTimeUtcTicks $OwnedProcessStartTimeUtcTicks
+    }
 }
+exit $AppExitCode

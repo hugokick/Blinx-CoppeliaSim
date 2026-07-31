@@ -14,6 +14,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $ProjectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
+. (Join-Path $PSScriptRoot "process_ownership.ps1")
 $Python = Join-Path $ProjectRoot ".venv-vision\Scripts\python.exe"
 if (-not (Test-Path -LiteralPath $Python -PathType Leaf)) {
     throw "Python environment is missing: $Python"
@@ -37,28 +38,45 @@ $OutputDir = [System.IO.Path]::GetFullPath($OutputDir)
 New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
 
 $Scene = Join-Path $ProjectRoot "simulation\vision_lab\BL23_vision_lab.ttt"
-& (Join-Path $PSScriptRoot "launch_coppeliasim.ps1") `
-    -CoppeliaRoot $CoppeliaRoot `
-    -Scene $Scene `
-    -HostAddress $HostAddress `
-    -Port $Port |
-    Format-Table -AutoSize |
-    Out-Host
-
-$env:COPPELIA_HOST = $HostAddress
-$env:COPPELIA_PORT = [string]$Port
+$OwnedProcessId = $null
+$OwnedProcessPath = $null
+$OwnedProcessStartTimeUtcTicks = $null
 $StudentExitCode = 1
-Push-Location -LiteralPath $ProjectRoot
 try {
-    & $Python -m vision_platform.cli student-run `
-        --program $Program `
-        --robot sim `
-        --scene $Scene `
-        --host $HostAddress `
-        --port $Port `
-        --output $OutputDir
-    $StudentExitCode = $LASTEXITCODE
+    $Launch = & (Join-Path $PSScriptRoot "launch_coppeliasim.ps1") `
+        -CoppeliaRoot $CoppeliaRoot `
+        -Scene $Scene `
+        -HostAddress $HostAddress `
+        -Port $Port
+    $Launch | Format-Table -AutoSize | Out-Host
+    if ($Launch.StartedByScript) {
+        $OwnedProcessId = [int]$Launch.ProcessId
+        $OwnedProcessPath = [string]$Launch.ProcessPath
+        $OwnedProcessStartTimeUtcTicks = `
+            [long]$Launch.ProcessStartTimeUtcTicks
+    }
+
+    $env:COPPELIA_HOST = $HostAddress
+    $env:COPPELIA_PORT = [string]$Port
+    Push-Location -LiteralPath $ProjectRoot
+    try {
+        & $Python -m vision_platform.cli student-run `
+            --program $Program `
+            --robot sim `
+            --scene $Scene `
+            --host $HostAddress `
+            --port $Port `
+            --output $OutputDir
+        $StudentExitCode = $LASTEXITCODE
+    } finally {
+        Pop-Location
+    }
 } finally {
-    Pop-Location
+    if ($OwnedProcessId) {
+        Stop-ExactOwnedProcess `
+            -ProcessId $OwnedProcessId `
+            -ProcessPath $OwnedProcessPath `
+            -ProcessStartTimeUtcTicks $OwnedProcessStartTimeUtcTicks
+    }
 }
 exit $StudentExitCode

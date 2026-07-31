@@ -89,6 +89,21 @@ def test_horizontal_tolerance_and_safe_height_boundary_are_allowed():
     ) == (120.0, 20.0, 100.0)
 
 
+@pytest.mark.parametrize("step_mm", (0.1, 0.5))
+def test_repeated_small_low_altitude_horizontal_steps_are_rejected(
+    step_mm: float,
+):
+    guard = _guard()
+
+    for start_x in (54.9, 55.0, 55.1):
+        with pytest.raises(MotionSafetyError, match="低于安全高度"):
+            guard.validate_move(
+                (start_x, -55.0, 20.3),
+                (start_x + step_mm, -55.0, 20.3),
+                speed=12,
+            )
+
+
 def test_workspace_and_speed_are_checked():
     guard = _guard()
 
