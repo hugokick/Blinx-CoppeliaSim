@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from math import pi
+from math import isfinite, pi
 from pathlib import Path
 
 import cv2
 import numpy as np
+
+
+MIN_VISUAL_CONFIDENCE = 0.5
 
 
 @dataclass(frozen=True)
@@ -17,16 +20,75 @@ class VisualObject:
     confidence: float
 
 
+def _finite_float(value, label):
+    if isinstance(value, (bool, np.bool_)):
+        raise ValueError(f"{label} 必须是有限数值")
+    try:
+        result = float(value)
+    except (TypeError, ValueError, OverflowError) as error:
+        raise ValueError(f"{label} 必须是有限数值") from error
+    if not isfinite(result):
+        raise ValueError(f"{label} 必须是有限数值")
+    return result
+
+
+def _finite_vector(value, length, label):
+    if isinstance(value, (str, bytes, bytearray)):
+        raise ValueError(f"{label} 必须包含 {length} 个有限数值")
+    try:
+        if len(value) != length:
+            raise ValueError
+        return tuple(
+            _finite_float(value[index], f"{label}[{index}]")
+            for index in range(length)
+        )
+    except (TypeError, ValueError, IndexError) as error:
+        if isinstance(error, ValueError) and "必须是有限数值" in str(error):
+            raise
+        raise ValueError(
+            f"{label} 必须包含 {length} 个有限数值"
+        ) from error
+
+
+def _affine_matrix(matrix):
+    if isinstance(matrix, (str, bytes, bytearray)):
+        raise ValueError("calibration_matrix 必须是 2×3 有限矩阵")
+    try:
+        if len(matrix) != 2:
+            raise ValueError
+        return tuple(
+            _finite_vector(row, 3, f"calibration_matrix[{index}]")
+            for index, row in enumerate(matrix)
+        )
+    except (TypeError, ValueError, IndexError) as error:
+        if isinstance(error, ValueError) and "必须是有限数值" in str(error):
+            raise
+        raise ValueError("calibration_matrix 必须是 2×3 有限矩阵") from error
+
+
+def _bgr_image(image_bgr):
+    if (
+        not isinstance(image_bgr, np.ndarray)
+        or image_bgr.dtype != np.uint8
+        or image_bgr.ndim != 3
+        or image_bgr.shape[0] <= 0
+        or image_bgr.shape[1] <= 0
+        or image_bgr.shape[2] != 3
+    ):
+        raise ValueError("image_bgr 必须是非空 uint8 BGR 图像")
+    return image_bgr
+
+
 def pixel_to_world(matrix, center_px):
-    u, v = (float(center_px[0]), float(center_px[1]))
-    return (
-        float(matrix[0][0]) * u
-        + float(matrix[0][1]) * v
-        + float(matrix[0][2]),
-        float(matrix[1][0]) * u
-        + float(matrix[1][1]) * v
-        + float(matrix[1][2]),
+    affine = _affine_matrix(matrix)
+    u, v = _finite_vector(center_px, 2, "center_px")
+    result = (
+        affine[0][0] * u + affine[0][1] * v + affine[0][2],
+        affine[1][0] * u + affine[1][1] * v + affine[1][2],
     )
+    if not all(isfinite(component) for component in result):
+        raise ValueError("像素到世界坐标的结果必须是有限数值")
+    return result
 
 
 def _color_name(hue):
@@ -48,6 +110,12 @@ def detect_colored_objects(
     pick_x_max_mm,
     minimum_area_px=180,
 ):
+    image_bgr = _bgr_image(image_bgr)
+    calibration_matrix = _affine_matrix(calibration_matrix)
+    pick_x_max_mm = _finite_float(pick_x_max_mm, "pick_x_max_mm")
+    minimum_area_px = _finite_float(minimum_area_px, "minimum_area_px")
+    if minimum_area_px <= 0:
+        raise ValueError("minimum_area_px 必须大于 0")
     hsv = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2HSV)
     mask = cv2.inRange(
         hsv,
@@ -67,7 +135,7 @@ def detect_colored_objects(
     )
     for contour in contours:
         area = float(cv2.contourArea(contour))
-        if area < float(minimum_area_px):
+        if area < minimum_area_px:
             continue
         moments = cv2.moments(contour)
         if moments["m00"] == 0:
@@ -77,7 +145,7 @@ def detect_colored_objects(
             moments["m01"] / moments["m00"],
         )
         world_xy = pixel_to_world(calibration_matrix, center)
-        if world_xy[0] > float(pick_x_max_mm):
+        if world_xy[0] > pick_x_max_mm:
             continue
         perimeter = float(cv2.arcLength(contour, True))
         circularity = (
@@ -85,17 +153,50 @@ def detect_colored_objects(
             if perimeter > 0
             else 0.0
         )
-        sample = hsv[int(round(center[1])), int(round(center[0]))]
+        sample_y = int(round(center[1]))
+        sample_x = int(round(center[0]))
+        if not (
+            0 <= sample_y < hsv.shape[0]
+            and 0 <= sample_x < hsv.shape[1]
+        ):
+            continue
+        sample = hsv[sample_y, sample_x]
         output.append(
             VisualObject(
                 center_px=center,
                 world_xy_mm=world_xy,
                 color=_color_name(int(sample[0])),
-                shape="cylinder" if circularity >= 0.78 else "block",
+                shape="cylinder" if circularity >= 0.86 else "block",
                 confidence=min(1.0, area / 600.0),
             )
         )
     return sorted(output, key=lambda item: item.world_xy_mm)
+
+
+def _canonical_digit_topology(image):
+    _, foreground_mask = cv2.threshold(
+        image,
+        0,
+        255,
+        cv2.THRESH_BINARY_INV | cv2.THRESH_OTSU,
+    )
+    canvas = np.zeros((96, 64), dtype=np.uint8)
+    points = cv2.findNonZero(foreground_mask)
+    if points is None:
+        return canvas
+    x, y, width, height = cv2.boundingRect(points)
+    foreground = foreground_mask[y : y + height, x : x + width]
+    target_width = 40
+    target_height = 72
+    resized = cv2.resize(
+        foreground,
+        (target_width, target_height),
+        interpolation=cv2.INTER_NEAREST,
+    )
+    left = (64 - target_width) // 2
+    top = (96 - target_height) // 2
+    canvas[top : top + target_height, left : left + target_width] = resized
+    return canvas
 
 
 def detect_digit_objects(
@@ -105,6 +206,9 @@ def detect_digit_objects(
     pick_x_max_mm,
     reference_dir,
 ):
+    image_bgr = _bgr_image(image_bgr)
+    calibration_matrix = _affine_matrix(calibration_matrix)
+    pick_x_max_mm = _finite_float(pick_x_max_mm, "pick_x_max_mm")
     gray = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
     bright = cv2.inRange(gray, 180, 255)
     contours, _ = cv2.findContours(
@@ -121,6 +225,15 @@ def detect_digit_objects(
     }
     if any(image is None for image in references.values()):
         raise RuntimeError("数字参考图读取失败")
+    if any(
+        image.dtype != np.uint8 or image.shape != (96, 64)
+        for image in references.values()
+    ):
+        raise RuntimeError("数字参考图尺寸必须为 64×96")
+    canonical_references = {
+        digit: _canonical_digit_topology(image)
+        for digit, image in references.items()
+    }
     output = []
     for contour in contours:
         x, y, width, height = cv2.boundingRect(contour)
@@ -128,21 +241,31 @@ def detect_digit_objects(
             continue
         center = (x + width / 2.0, y + height / 2.0)
         world_xy = pixel_to_world(calibration_matrix, center)
-        if world_xy[0] > float(pick_x_max_mm):
+        if world_xy[0] > pick_x_max_mm:
             continue
         crop = gray[y : y + height, x : x + width]
-        normalized = cv2.resize(crop, (64, 96))
-        scores = {
-            digit: float(
-                cv2.matchTemplate(
-                    normalized,
-                    reference,
-                    cv2.TM_CCOEFF_NORMED,
-                )[0, 0]
-            )
-            for digit, reference in references.items()
-        }
+        normalized = _canonical_digit_topology(crop)
+        scores = {}
+        for digit, reference in canonical_references.items():
+            try:
+                score = float(
+                    cv2.matchTemplate(
+                        normalized,
+                        reference,
+                        cv2.TM_CCOEFF_NORMED,
+                    )[0, 0]
+                )
+            except (cv2.error, TypeError, ValueError, IndexError) as error:
+                raise RuntimeError("数字模板匹配失败") from error
+            if not isfinite(score):
+                raise RuntimeError("数字模板匹配置信度必须是有限数值")
+            scores[digit] = score
         digit, confidence = max(scores.items(), key=lambda item: item[1])
+        if confidence < MIN_VISUAL_CONFIDENCE:
+            raise RuntimeError(
+                "数字模板匹配置信度低于 "
+                f"{MIN_VISUAL_CONFIDENCE:.1f}，停止运动"
+            )
         output.append((digit, world_xy, confidence))
     return sorted(output, key=lambda item: item[0])
 
@@ -156,17 +279,45 @@ def pick_and_place(
     safe_z_mm,
     speed,
 ):
-    x_mm, y_mm = (float(pick_xy[0]), float(pick_xy[1]))
-    drop_x, drop_y, drop_z = (
-        float(drop_xyz[0]),
-        float(drop_xyz[1]),
-        float(drop_xyz[2]),
-    )
-    ctx.robot.move_world(x_mm, y_mm, safe_z_mm, speed=speed)
-    ctx.robot.move_world(x_mm, y_mm, pick_z_mm, speed=8.0)
-    ctx.tool.on()
-    ctx.robot.move_world(x_mm, y_mm, safe_z_mm, speed=speed)
-    ctx.robot.move_world(drop_x, drop_y, safe_z_mm, speed=speed)
-    ctx.robot.move_world(drop_x, drop_y, drop_z, speed=8.0)
-    ctx.tool.off()
-    ctx.robot.move_world(drop_x, drop_y, safe_z_mm, speed=speed)
+    x_mm, y_mm = _finite_vector(pick_xy, 2, "pick_xy")
+    drop_x, drop_y, drop_z = _finite_vector(drop_xyz, 3, "drop_xyz")
+    pick_z_mm = _finite_float(pick_z_mm, "pick_z_mm")
+    safe_z_mm = _finite_float(safe_z_mm, "safe_z_mm")
+    speed = _finite_float(speed, "speed")
+    if speed <= 0:
+        raise ValueError("speed 必须大于 0")
+    if safe_z_mm <= max(pick_z_mm, drop_z):
+        raise ValueError("safe_z_mm 必须高于抓取和放置高度")
+
+    try:
+        current_x, current_y, current_z = _finite_vector(
+            ctx.robot.pose(),
+            3,
+            "robot.pose",
+        )
+        if current_z < safe_z_mm:
+            ctx.robot.move_world(
+                current_x,
+                current_y,
+                safe_z_mm,
+                speed=speed,
+            )
+        ctx.robot.move_world(x_mm, y_mm, safe_z_mm, speed=speed)
+        ctx.robot.move_world(x_mm, y_mm, pick_z_mm, speed=8.0)
+        ctx.tool.on()
+        ctx.robot.move_world(x_mm, y_mm, safe_z_mm, speed=speed)
+        ctx.robot.move_world(drop_x, drop_y, safe_z_mm, speed=speed)
+        ctx.robot.move_world(drop_x, drop_y, drop_z, speed=8.0)
+        ctx.tool.off()
+        ctx.robot.move_world(drop_x, drop_y, safe_z_mm, speed=speed)
+    except BaseException as error:
+        try:
+            ctx.tool.off()
+        except BaseException as cleanup_error:
+            add_note = getattr(error, "add_note", None)
+            if callable(add_note):
+                add_note(
+                    "吸盘安全释放失败："
+                    f"{type(cleanup_error).__name__}: {cleanup_error}"
+                )
+        raise

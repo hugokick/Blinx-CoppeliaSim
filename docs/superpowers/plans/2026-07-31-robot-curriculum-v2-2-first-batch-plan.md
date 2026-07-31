@@ -3787,7 +3787,7 @@ git commit -m "feat(experiments): record initial and final scene probes"
 - Create: `tests/test_experiments/test_student_templates.py`
 - Create: `tests/test_acceptance/test_experiment_guides.py`
 
-- [ ] **Step 1: 写模板合同失败测试**
+- [x] **Step 1: 写模板合同失败测试**
 
 Create `tests/test_experiments/test_student_templates.py`:
 
@@ -3907,7 +3907,7 @@ def test_visual_object_is_immutable():
         item.color = "blue"
 ```
 
-- [ ] **Step 2: 写实验说明合同失败测试**
+- [x] **Step 2: 写实验说明合同失败测试**
 
 Create `tests/test_acceptance/test_experiment_guides.py`:
 
@@ -3943,7 +3943,7 @@ def test_first_batch_guides_have_complete_teaching_contract():
         assert "自动评分" not in text
 ```
 
-- [ ] **Step 3: 运行测试并确认先失败**
+- [x] **Step 3: 运行测试并确认先失败**
 
 Run:
 
@@ -3956,7 +3956,7 @@ python -m pytest `
 
 Expected: FAIL，指出学生模板或实验说明不存在。
 
-- [ ] **Step 4: 实现模板共用视觉和运动函数**
+- [x] **Step 4: 实现模板共用视觉和运动函数**
 
 Create `student_programs/templates/r1_common.py`:
 
@@ -4141,7 +4141,7 @@ Create both package initializers:
 """Student-facing example programs for the robot curriculum."""
 ```
 
-- [ ] **Step 5: 实现 R1-01 和 R1-02 模板**
+- [x] **Step 5: 实现 R1-01 和 R1-02 模板**
 
 Create `student_programs/templates/r1_01_robot_basics.py`:
 
@@ -4172,7 +4172,7 @@ def main(ctx):
     ctx.robot.home()
 ```
 
-- [ ] **Step 6: 实现三个视觉闭环模板**
+- [x] **Step 6: 实现三个视觉闭环模板**
 
 Create `student_programs/templates/r1_05_visual_stacking.py`:
 
@@ -4287,7 +4287,7 @@ def main(ctx):
     ctx.robot.home()
 ```
 
-- [ ] **Step 7: 创建五份完整实验说明**
+- [x] **Step 7: 创建五份完整实验说明**
 
 每份说明必须使用 Step 2 的九个固定二级标题，并写入下列实际内容：
 
@@ -4305,7 +4305,7 @@ def main(ctx):
 本实验当前只完成软件与 CoppeliaSim 仿真验证，硬件状态为 PENDING_HARDWARE。仿真 PASS 不代表真机验收通过；真实相机噪声、机械臂误差、急停、气路和物理抓取需在 V2.3 单独验收。
 ```
 
-- [ ] **Step 8: 运行模板、说明和校验器回归**
+- [x] **Step 8: 运行模板、说明和校验器回归**
 
 Run:
 
@@ -4319,7 +4319,7 @@ python -m pytest `
 
 Expected: 全部 PASS，五个模板均满足 V2.1 学生程序契约。
 
-- [ ] **Step 9: 提交学生材料**
+- [x] **Step 9: 提交学生材料**
 
 Run:
 
