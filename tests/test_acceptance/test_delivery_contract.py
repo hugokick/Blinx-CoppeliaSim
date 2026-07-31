@@ -7,6 +7,75 @@ from vision_platform.student.validator import BLOCKED_IMPORTS
 
 ROOT = Path(__file__).resolve().parents[2]
 
+V21_REQUIRED_RELEASE_PATHS = frozenset(
+    {
+        "README.md",
+        "RETAINED_FILES.txt",
+        "config/vision_lab.default.json",
+        "docs/superpowers/plans/"
+        "2026-07-30-student-program-runner-v2-plan.md",
+        "docs/superpowers/specs/"
+        "2026-07-30-student-program-runner-v2-design.md",
+        "docs/学生自编程实验说明.md",
+        "docs/视觉仿真实训平台V2-开发端执行Prompt.md",
+        "docs/视觉仿真实训平台使用说明.md",
+        "docs/视觉仿真实训平台自动验收报告.md",
+        "student_programs/README.md",
+        "student_programs/templates/basic_motion.py",
+        "student_programs/templates/pick_and_place.py",
+        "tests/fixtures/student_programs/infinite_loop.py",
+        "tests/test_acceptance/conftest.py",
+        "tests/test_acceptance/test_coppeliasim_fixture_helpers.py",
+        "tests/test_acceptance/test_coppeliasim_readiness.py",
+        "tests/test_acceptance/test_coppeliasim_student_program.py",
+        "tests/test_acceptance/test_delivery_contract.py",
+        "tests/test_acceptance/test_powershell_process_ownership.py",
+        "tests/test_student_programs/test_cli.py",
+        "tests/test_student_programs/test_evidence.py",
+        "tests/test_student_programs/test_protocol.py",
+        "tests/test_student_programs/test_runner.py",
+        "tests/test_student_programs/test_sdk.py",
+        "tests/test_student_programs/test_student_safety.py",
+        "tests/test_student_programs/test_validator.py",
+        "tests/test_student_programs/test_worker.py",
+        "tests/test_vision_platform/test_application_close.py",
+        "tests/test_vision_platform/test_config.py",
+        "tests/test_vision_platform/test_pyqt_smoke.py",
+        "tests/test_vision_platform/test_session.py",
+        "tests/test_vision_platform/test_student_program_panel.py",
+        "tools/vision_lab/launch_coppeliasim.ps1",
+        "tools/vision_lab/process_ownership.ps1",
+        "tools/vision_lab/run_acceptance.ps1",
+        "tools/vision_lab/run_pyqt.ps1",
+        "tools/vision_lab/run_student_program.ps1",
+        "vision_platform/application.py",
+        "vision_platform/cli.py",
+        "vision_platform/config.py",
+        "vision_platform/coppeliasim_readiness.py",
+        "vision_platform/session.py",
+        "vision_platform/student/__init__.py",
+        "vision_platform/student/evidence.py",
+        "vision_platform/student/protocol.py",
+        "vision_platform/student/runner.py",
+        "vision_platform/student/safety.py",
+        "vision_platform/student/sdk.py",
+        "vision_platform/student/validator.py",
+        "vision_platform/student/worker.py",
+        "vision_platform/ui/pyqt_app.py",
+        "vision_platform/ui/student_program_panel.py",
+    }
+)
+
+
+def _retained_release_paths() -> set[str]:
+    return {
+        line.strip().replace("\\", "/")
+        for line in (ROOT / "RETAINED_FILES.txt").read_text(
+            encoding="utf-8"
+        ).splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    }
+
 
 def test_delivery_has_one_command_for_each_student_workflow():
     required = [
@@ -93,6 +162,40 @@ def test_acceptance_script_runs_live_gates_and_marks_hardware_pending():
     assert "-m coppeliasim" in text
     assert "PENDING_HARDWARE" in text
     assert "acceptance-summary.json" in text
+    workflow_definition = text.index(
+        "function Invoke-AcceptanceWorkflow"
+    )
+    offscreen_position = text.index(
+        '$env:QT_QPA_PLATFORM = "offscreen"'
+    )
+    pyqt_position = text.index(
+        'Invoke-CheckedPython -Name "pyqt_offscreen_smoke"'
+    )
+    full_static_position = text.index(
+        'Invoke-CheckedPython -Name "full_static_test_suite"'
+    )
+    scene_position = text.index(
+        'Invoke-CheckedPython -Name "scene_runtime_verification"'
+    )
+    clear_position = text.rindex("$env:QT_QPA_PLATFORM = $null")
+    workflow_call = text.rindex("Invoke-AcceptanceWorkflow")
+    restore_position = text.rindex(
+        "$env:QT_QPA_PLATFORM = $CallerQtPlatform"
+    )
+    assert "$CallerQtPlatform = $env:QT_QPA_PLATFORM" in text
+    assert (
+        workflow_definition
+        < offscreen_position
+        < pyqt_position
+        < full_static_position
+        < scene_position
+    )
+    assert clear_position < workflow_call < restore_position
+    assert (
+        "$env:QT_QPA_PLATFORM = $null"
+        in text[offscreen_position:scene_position]
+    )
+    assert "PostReadinessSettleMilliseconds" not in text
 
 
 def test_acceptance_tracks_structured_launch_and_exact_final_cleanup():
@@ -617,3 +720,101 @@ def test_online_guides_launch_coppeliasim_before_direct_pytest():
         pytest_position = source.index("-m pytest")
         assert launch_position < pytest_position
         assert "fixture 不会启动或终止 CoppeliaSim" in source
+
+
+def test_clean_release_whitelist_contains_complete_v21_delivery():
+    retained = _retained_release_paths()
+    missing = sorted(V21_REQUIRED_RELEASE_PATHS - retained)
+
+    assert not missing, (
+        f"RETAINED_FILES.txt is missing {len(missing)} V2.1 paths: "
+        + ", ".join(missing)
+    )
+    assert all(
+        (ROOT / path).is_file()
+        for path in V21_REQUIRED_RELEASE_PATHS
+    )
+    assert all((ROOT / path).is_file() for path in retained)
+
+
+def test_clean_release_whitelist_excludes_generated_or_personal_data():
+    retained = _retained_release_paths()
+    forbidden_roots = (
+        "artifacts/",
+        ".venv-vision/",
+        "submissions/",
+        "student_submissions/",
+        "student_programs/submissions/",
+    )
+    forbidden_parts = {
+        "__pycache__",
+        ".pytest_cache",
+        ".mypy_cache",
+        ".ruff_cache",
+        "cache",
+    }
+
+    for path in retained:
+        normalized = path.replace("\\", "/").lower()
+        assert not normalized.startswith(forbidden_roots)
+        assert forbidden_parts.isdisjoint(Path(normalized).parts)
+
+
+def test_entry_docs_cover_complete_student_programming_workflow():
+    entry_docs = (
+        ROOT / "README.md",
+        ROOT / "docs" / "视觉仿真实训平台使用说明.md",
+    )
+    required = (
+        "student_programs",
+        "templates",
+        "basic_motion.py",
+        "pick_and_place.py",
+        "学生编程",
+        "student-validate",
+        "run_student_program.ps1",
+        "暂停",
+        "单步",
+        "停止",
+        "复位",
+        "artifacts/vision_lab/student-runs",
+        "不是恶意代码安全沙箱",
+        "PENDING_HARDWARE",
+    )
+
+    for path in entry_docs:
+        source = path.read_text(encoding="utf-8")
+        missing = [item for item in required if item not in source]
+        assert not missing, f"{path.name} is missing: {missing}"
+
+
+def test_v21_acceptance_report_preserves_automated_and_manual_boundaries():
+    source = (
+        ROOT / "docs" / "视觉仿真实训平台自动验收报告.md"
+    ).read_text(encoding="utf-8")
+    required = (
+        "V2.1 Task 12 自动验收增补",
+        "artifacts/vision_lab/student-program-v2-final/",
+        "624 passed, 3 skipped",
+        "2 passed, 0 skipped",
+        "1 passed, 0 skipped",
+        "21 passed",
+        "`update_count` 以 `simui-smoke.json` 为准",
+        "39 passed",
+        "RETAINED_FILES.txt",
+        "人工可见检查：PASS",
+        "real Windows Qt window",
+        "offscreen: false",
+        "manual-ui-evidence/manual-ui-summary.json",
+        "08-stopped.png",
+        "09-reset.png",
+        "PENDING_HUMAN_ACCEPTANCE",
+        "PENDING_HARDWARE",
+        "一期历史验收记录",
+        "不是恶意代码安全沙箱",
+    )
+
+    for item in required:
+        assert item in source
+    assert "待主代理真实检查" not in source
+    assert "V2.1 全部完成：PASS" not in source

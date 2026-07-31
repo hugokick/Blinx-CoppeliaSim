@@ -41,7 +41,7 @@
 - Read: `docs/视觉仿真实训平台自动验收报告.md`
 - Read: `simulation/vision_lab/robot_assets_manifest.json`
 
-- [ ] **Step 1: 检查干净发布基线和文档交接改动**
+- [x] **Step 1: 检查干净发布基线和文档交接改动**
 
 Run:
 
@@ -62,7 +62,7 @@ Expected:
 - 若远端后来已有经教师确认的新提交，先更新文档中的基线记录再继续；
 - 不执行 `reset --hard`、`checkout --` 或 `clean`。
 
-- [ ] **Step 2: 在当前专用干净仓库创建开发分支并提交文档基线**
+- [x] **Step 2: 在当前专用干净仓库创建开发分支并提交文档基线**
 
 Run:
 
@@ -83,7 +83,7 @@ git -C $project status --short --branch
 
 Expected: 当前专用仓库位于 `codex/student-program-runner-v2`，文档基线已提交，工作树干净。
 
-- [ ] **Step 3: 创建项目本地环境并运行基线静态测试**
+- [x] **Step 3: 创建项目本地环境并运行基线静态测试**
 
 Run:
 
@@ -101,7 +101,7 @@ try {
 
 Expected: `158 passed, 2 skipped`。两个 skip 是显式隔离的 CoppeliaSim 在线测试，不能记作在线 PASS。
 
-- [ ] **Step 4: 验证正式资产基线**
+- [x] **Step 4: 验证正式资产基线**
 
 Run:
 
@@ -125,7 +125,7 @@ Expected: 该测试文件全部 PASS，八个分段网格、对齐锚点和正�
 - Create: `vision_platform/student/protocol.py`
 - Test: `tests/test_student_programs/test_protocol.py`
 
-- [ ] **Step 1: 写协议失败测试**
+- [x] **Step 1: 写协议失败测试**
 
 Create `tests/test_student_programs/test_protocol.py`:
 
@@ -204,7 +204,7 @@ def test_protocol_exposes_only_student_sdk_commands():
     )
 ```
 
-- [ ] **Step 2: 验证测试先失败**
+- [x] **Step 2: 验证测试先失败**
 
 Run:
 
@@ -214,7 +214,7 @@ python -m pytest tests/test_student_programs/test_protocol.py -q
 
 Expected: FAIL，提示 `vision_platform.student` 不存在。
 
-- [ ] **Step 3: 实现协议**
+- [x] **Step 3: 实现协议**
 
 Create `vision_platform/student/protocol.py`:
 
@@ -353,7 +353,7 @@ __all__ = [
 ]
 ```
 
-- [ ] **Step 4: 运行协议测试**
+- [x] **Step 4: 运行协议测试**
 
 Run:
 
@@ -363,7 +363,7 @@ python -m pytest tests/test_student_programs/test_protocol.py -q
 
 Expected: `5 passed`。
 
-- [ ] **Step 5: 提交协议**
+- [x] **Step 5: 提交协议**
 
 ```powershell
 git add vision_platform/student tests/test_student_programs/test_protocol.py
@@ -376,7 +376,7 @@ git commit -m "feat(student): define runner protocol and states"
 - Create: `vision_platform/student/validator.py`
 - Test: `tests/test_student_programs/test_validator.py`
 
-- [ ] **Step 1: 写校验器失败测试**
+- [x] **Step 1: 写校验器失败测试**
 
 Create `tests/test_student_programs/test_validator.py`:
 
@@ -482,7 +482,7 @@ def test_non_py_and_large_files_are_rejected(tmp_path):
     assert validate_program(large).issues[0].code == "FILE_TOO_LARGE"
 ```
 
-- [ ] **Step 2: 验证测试先失败**
+- [x] **Step 2: 验证测试先失败**
 
 Run:
 
@@ -492,7 +492,7 @@ python -m pytest tests/test_student_programs/test_validator.py -q
 
 Expected: FAIL，提示 `validator` 模块不存在。
 
-- [ ] **Step 3: 实现校验器**
+- [x] **Step 3: 实现校验器**
 
 Create `vision_platform/student/validator.py`:
 
@@ -657,7 +657,7 @@ def validate_program(path: str | Path) -> ValidationResult:
     return ValidationResult(selected, not issues, tuple(issues))
 ```
 
-- [ ] **Step 4: 运行校验器测试**
+- [x] **Step 4: 运行校验器测试**
 
 Run:
 
@@ -667,7 +667,7 @@ python -m pytest tests/test_student_programs/test_validator.py -q
 
 Expected: `8 passed`。
 
-- [ ] **Step 5: 提交校验器**
+- [x] **Step 5: 提交校验器**
 
 ```powershell
 git add vision_platform/student/validator.py tests/test_student_programs/test_validator.py
@@ -682,7 +682,7 @@ git commit -m "feat(student): validate student program contract"
 - Test: `tests/test_student_programs/test_sdk.py`
 - Test: `tests/test_student_programs/test_worker.py`
 
-- [ ] **Step 1: 写 SDK 失败测试**
+- [x] **Step 1: 写 SDK 失败测试**
 
 Create `tests/test_student_programs/test_sdk.py`:
 
@@ -757,7 +757,7 @@ def test_failed_response_becomes_student_runtime_error():
         raise AssertionError("Expected student SDK to raise")
 ```
 
-- [ ] **Step 2: 写 Worker 失败测试**
+- [x] **Step 2: 写 Worker 失败测试**
 
 Create `tests/test_student_programs/test_worker.py`:
 
@@ -822,7 +822,7 @@ def test_worker_reports_uncaught_exception(tmp_path):
     assert "student-error" in result["error"]["message"]
 ```
 
-- [ ] **Step 3: 验证 SDK 和 Worker 测试先失败**
+- [x] **Step 3: 验证 SDK 和 Worker 测试先失败**
 
 Run:
 
@@ -835,7 +835,7 @@ python -m pytest `
 
 Expected: FAIL，提示模块不存在。
 
-- [ ] **Step 4: 实现 SDK**
+- [x] **Step 4: 实现 SDK**
 
 Create `vision_platform/student/sdk.py`:
 
@@ -924,7 +924,7 @@ class StudentContext:
         self._rpc.call("context.checkpoint", label=str(label))
 ```
 
-- [ ] **Step 5: 实现 Worker**
+- [x] **Step 5: 实现 Worker**
 
 Create `vision_platform/student/worker.py`:
 
@@ -982,7 +982,7 @@ def run_student_worker(path: str | Path, connection) -> dict[str, Any]:
             pass
 ```
 
-- [ ] **Step 6: 运行 SDK 和 Worker 测试**
+- [x] **Step 6: 运行 SDK 和 Worker 测试**
 
 Run:
 
@@ -995,7 +995,7 @@ python -m pytest `
 
 Expected: `4 passed`。
 
-- [ ] **Step 7: 提交 SDK 和 Worker**
+- [x] **Step 7: 提交 SDK 和 Worker**
 
 ```powershell
 git add `
@@ -1015,7 +1015,7 @@ git commit -m "feat(student): add proxy sdk and worker"
 - Test: `tests/test_student_programs/test_student_safety.py`
 - Test: `tests/test_vision_platform/test_config.py`
 
-- [ ] **Step 1: 写安全网关失败测试**
+- [x] **Step 1: 写安全网关失败测试**
 
 Create `tests/test_student_programs/test_student_safety.py`:
 
@@ -1092,7 +1092,7 @@ def test_sleep_and_log_limits_are_checked():
         guard.validate_log("x" * 501)
 ```
 
-- [ ] **Step 2: 扩展配置测试**
+- [x] **Step 2: 扩展配置测试**
 
 Append to `tests/test_vision_platform/test_config.py`:
 
@@ -1107,7 +1107,7 @@ def test_default_student_execution_policy_is_safe():
     assert cfg.student["tool_on_max_z_mm"] == 35
 ```
 
-- [ ] **Step 3: 验证安全测试先失败**
+- [x] **Step 3: 验证安全测试先失败**
 
 Run:
 
@@ -1120,7 +1120,7 @@ python -m pytest `
 
 Expected: FAIL，提示 `student.safety` 或 `VisionLabConfig.student` 不存在。
 
-- [ ] **Step 4: 实现安全网关**
+- [x] **Step 4: 实现安全网关**
 
 Create `vision_platform/student/safety.py`:
 
@@ -1244,7 +1244,7 @@ class StudentMotionGuard:
         return text
 ```
 
-- [ ] **Step 5: 扩展配置模型**
+- [x] **Step 5: 扩展配置模型**
 
 In `vision_platform/config.py`, add `student: Mapping[str, Any]` to `VisionLabConfig`, then pass:
 
@@ -1269,7 +1269,7 @@ Add to `config/vision_lab.default.json`:
 
 Place the new `student` object after `task` and before `ui`，并保持 JSON 有效。
 
-- [ ] **Step 6: 运行安全和配置测试**
+- [x] **Step 6: 运行安全和配置测试**
 
 Run:
 
@@ -1282,7 +1282,7 @@ python -m pytest `
 
 Expected: 全部 PASS。
 
-- [ ] **Step 7: 提交安全网关**
+- [x] **Step 7: 提交安全网关**
 
 ```powershell
 git add `
@@ -1300,7 +1300,7 @@ git commit -m "feat(student): enforce student motion policy"
 - Create: `vision_platform/student/evidence.py`
 - Test: `tests/test_student_programs/test_evidence.py`
 
-- [ ] **Step 1: 写证据失败测试**
+- [x] **Step 1: 写证据失败测试**
 
 Create `tests/test_student_programs/test_evidence.py`:
 
@@ -1349,7 +1349,7 @@ def test_evidence_copies_source_and_writes_summary(tmp_path):
     assert (evidence.directory / "events.jsonl").is_file()
 ```
 
-- [ ] **Step 2: 验证测试先失败**
+- [x] **Step 2: 验证测试先失败**
 
 Run:
 
@@ -1359,7 +1359,7 @@ python -m pytest tests/test_student_programs/test_evidence.py -q
 
 Expected: FAIL，提示 `evidence` 模块不存在。
 
-- [ ] **Step 3: 实现证据记录器**
+- [x] **Step 3: 实现证据记录器**
 
 Create `vision_platform/student/evidence.py`:
 
@@ -1504,7 +1504,7 @@ class StudentRunEvidence:
         return path
 ```
 
-- [ ] **Step 4: 运行证据测试**
+- [x] **Step 4: 运行证据测试**
 
 Run:
 
@@ -1514,7 +1514,7 @@ python -m pytest tests/test_student_programs/test_evidence.py -q
 
 Expected: `1 passed`。
 
-- [ ] **Step 5: 提交证据记录器**
+- [x] **Step 5: 提交证据记录器**
 
 ```powershell
 git add vision_platform/student/evidence.py tests/test_student_programs/test_evidence.py
@@ -1529,7 +1529,7 @@ git commit -m "feat(student): record reproducible run evidence"
 - Test: `tests/test_vision_platform/test_session.py`
 - Modify: `tests/test_vision_platform/test_pyqt_smoke.py`
 
-- [ ] **Step 1: 写会话失败测试**
+- [x] **Step 1: 写会话失败测试**
 
 Create `tests/test_vision_platform/test_session.py`:
 
@@ -1594,7 +1594,7 @@ def test_session_notifies_application_replacement():
     assert received == [replacement]
 ```
 
-- [ ] **Step 2: 验证会话测试先失败**
+- [x] **Step 2: 验证会话测试先失败**
 
 Run:
 
@@ -1604,7 +1604,7 @@ python -m pytest tests/test_vision_platform/test_session.py -q
 
 Expected: FAIL，提示 `vision_platform.session` 不存在。
 
-- [ ] **Step 3: 实现会话管理器**
+- [x] **Step 3: 实现会话管理器**
 
 Create `vision_platform/session.py`:
 
@@ -1661,7 +1661,7 @@ class VisionLabSession:
         self.application.close()
 ```
 
-- [ ] **Step 4: 运行会话测试**
+- [x] **Step 4: 运行会话测试**
 
 Run:
 
@@ -1671,7 +1671,7 @@ python -m pytest tests/test_vision_platform/test_session.py -q
 
 Expected: `2 passed`。
 
-- [ ] **Step 5: 让 PyQt 支持会话但保持旧构造兼容**
+- [x] **Step 5: 让 PyQt 支持会话但保持旧构造兼容**
 
 Modify `VisionLabWindow.__init__` so it accepts `session=None`。当只传 `application` 时，保留现有行为；当传 `session` 时，所有新建 worker 都读取 `session.application`。
 
@@ -1715,7 +1715,7 @@ window = VisionLabWindow(
 On window close call `session.close()` exactly once when a session exists。
 Also call `_session_unsubscribe()` before closing the session。
 
-- [ ] **Step 6: 扩展 PyQt 兼容测试**
+- [x] **Step 6: 扩展 PyQt 兼容测试**
 
 Append to `tests/test_vision_platform/test_pyqt_smoke.py`:
 
@@ -1773,7 +1773,7 @@ python -m pytest `
 
 Expected: 全部 PASS。
 
-- [ ] **Step 7: 提交会话管理**
+- [x] **Step 7: 提交会话管理**
 
 ```powershell
 git add `
@@ -1792,7 +1792,7 @@ git commit -m "feat(ui): add replaceable simulation session"
 - Test: `tests/test_student_programs/test_runner.py`
 - Test: `tests/fixtures/student_programs/infinite_loop.py`
 
-- [ ] **Step 1: 写控制器状态与动作测试**
+- [x] **Step 1: 写控制器状态与动作测试**
 
 Create `tests/test_student_programs/test_runner.py`:
 
@@ -2024,7 +2024,7 @@ def test_real_backend_is_always_rejected_in_v2_1(tmp_path):
 
 Use a test-local helper `wait_until(predicate, timeout_s=2)` that polls every 10 ms and raises `AssertionError` at timeout。Do not use fixed sleeps longer than 50 ms。
 
-- [ ] **Step 2: 验证控制器测试先失败**
+- [x] **Step 2: 验证控制器测试先失败**
 
 Run:
 
@@ -2034,7 +2034,7 @@ python -m pytest tests/test_student_programs/test_runner.py -q
 
 Expected: FAIL，提示 `runner` 不存在。
 
-- [ ] **Step 3: 实现控制器公开契约**
+- [x] **Step 3: 实现控制器公开契约**
 
 `vision_platform/student/runner.py` must expose an immutable
 `StudentRunResult(status, summary_path, evidence_dir, error)` and a
@@ -2087,7 +2087,7 @@ Implementation requirements:
 18. Run a watchdog thread so a child that never sends an SDK command still
     reaches `STUDENT_RUNTIME_TIMEOUT`。
 
-- [ ] **Step 4: 添加无限循环夹具**
+- [x] **Step 4: 添加无限循环夹具**
 
 Create `tests/fixtures/student_programs/infinite_loop.py`:
 
@@ -2097,7 +2097,7 @@ def main(ctx):
         pass
 ```
 
-- [ ] **Step 5: 运行控制器测试**
+- [x] **Step 5: 运行控制器测试**
 
 Run:
 
@@ -2107,7 +2107,7 @@ python -m pytest tests/test_student_programs/test_runner.py -q
 
 Expected: 全部 PASS，且测试结束后不存在仍存活的学生子进程。
 
-- [ ] **Step 6: 导出控制器**
+- [x] **Step 6: 导出控制器**
 
 Modify `vision_platform/student/__init__.py`:
 
@@ -2120,7 +2120,7 @@ from vision_platform.student.runner import (
 
 Add both names to `__all__`。
 
-- [ ] **Step 7: 提交控制器**
+- [x] **Step 7: 提交控制器**
 
 ```powershell
 git add `
@@ -2142,7 +2142,7 @@ git commit -m "feat(student): execute programs through guarded controller"
 - Test: `tests/test_student_programs/test_cli.py`
 - Test: `tests/test_acceptance/test_delivery_contract.py`
 
-- [ ] **Step 1: 写 CLI 失败测试**
+- [x] **Step 1: 写 CLI 失败测试**
 
 Create `tests/test_student_programs/test_cli.py`:
 
@@ -2173,7 +2173,7 @@ def test_student_run_requires_sim_backend():
     assert args.robot == "sim"
 ```
 
-- [ ] **Step 2: 验证 CLI 测试先失败**
+- [x] **Step 2: 验证 CLI 测试先失败**
 
 Run:
 
@@ -2183,7 +2183,7 @@ python -m pytest tests/test_student_programs/test_cli.py -q
 
 Expected: FAIL，提示无对应子命令。
 
-- [ ] **Step 3: 实现 CLI 子命令**
+- [x] **Step 3: 实现 CLI 子命令**
 
 Add imports:
 
@@ -2340,7 +2340,7 @@ Add parsers inside `build_parser()`:
 7. Returns 0 only for PASS；
 8. Always closes session。
 
-- [ ] **Step 4: 创建学生模板**
+- [x] **Step 4: 创建学生模板**
 
 Create `student_programs/templates/basic_motion.py`:
 
@@ -2387,7 +2387,7 @@ def main(ctx):
 
 Create `student_programs/README.md` with the SDK contract, coordinate units, safe-height rule, launch commands and the warning that RX/RY/RZ are not supported。
 
-- [ ] **Step 5: 创建 PowerShell 入口**
+- [x] **Step 5: 创建 PowerShell 入口**
 
 `tools/vision_lab/run_student_program.ps1` parameters:
 
@@ -2478,7 +2478,7 @@ launch-time `ProcessStartTimeUtcTicks`, then passes that immutable triple to
 the shared cleanup helper in `finally`; a reused teacher-owned listener is
 never stopped。
 
-- [ ] **Step 6: 扩展现有发布合同测试**
+- [x] **Step 6: 扩展现有发布合同测试**
 
 Append to `tests/test_acceptance/test_delivery_contract.py`，保留文件中已有测试：
 
@@ -2515,7 +2515,7 @@ python -m pytest `
 
 Expected: 全部 PASS，原发布合同测试继续保留。
 
-- [ ] **Step 7: 提交 CLI 和模板**
+- [x] **Step 7: 提交 CLI 和模板**
 
 ```powershell
 git add `
@@ -2538,7 +2538,7 @@ git commit -m "feat(student): add cli launcher and program templates"
 - Modify: `tests/test_student_programs/test_runner.py`
 - Modify: `docs/superpowers/plans/2026-07-30-student-program-runner-v2-plan.md`
 
-- [ ] **Step 1: 写面板失败测试**
+- [x] **Step 1: 写面板失败测试**
 
 Create `tests/test_vision_platform/test_student_program_panel.py`:
 
@@ -2743,7 +2743,7 @@ The completed Task 10 test contract must additionally cover:
 10. public `StudentRunSnapshot` rejection of NaN and positive/negative
     infinity while preserving `None` and finite tuple compatibility。
 
-- [ ] **Step 2: 验证面板测试先失败**
+- [x] **Step 2: 验证面板测试先失败**
 
 Run:
 
@@ -2754,7 +2754,7 @@ python -m pytest tests/test_vision_platform/test_student_program_panel.py -q
 
 Expected: FAIL，提示面板模块不存在。
 
-- [ ] **Step 3: 实现独立面板**
+- [x] **Step 3: 实现独立面板**
 
 Create `vision_platform/ui/student_program_panel.py`:
 
@@ -3229,7 +3229,7 @@ Button matrix:
 While a Stop or Reset operation thread exists, all editor and action controls
 are disabled regardless of the runner state。
 
-- [ ] **Step 4: 集成现有主窗口**
+- [x] **Step 4: 集成现有主窗口**
 
 In `vision_platform/ui/pyqt_app.py`, import:
 
@@ -3285,7 +3285,7 @@ Update subtitle to:
 仿真标定 · 视觉识别 · 学生编程 · 六轴机械臂分类闭环
 ```
 
-- [ ] **Step 5: 运行 PyQt 测试**
+- [x] **Step 5: 运行 PyQt 测试**
 
 Run:
 
@@ -3300,7 +3300,7 @@ python -m pytest `
 
 Expected: 全部 PASS。
 
-- [ ] **Step 6: 提交 PyQt 页面**
+- [x] **Step 6: 提交 PyQt 页面**
 
 ```powershell
 git add `
@@ -3373,7 +3373,7 @@ git commit -m "feat(ui): add student program workspace"
   `run_acceptance.ps1` 启动、记录并在 `finally` 精确回收。清理失败必须
   在 summary 写入前转成 `FAIL` 和非零退出。
 
-- [ ] **Step 1: 写在线验收测试**
+- [x] **Step 1: 写在线验收测试**
 
 Create `tests/test_acceptance/test_coppeliasim_student_program.py`:
 
@@ -3542,7 +3542,7 @@ def test_student_program_moves_live_openr6_and_records_evidence(
     assert dist(actual, expected) <= 2.0
 ```
 
-- [ ] **Step 2: 添加验收脚本步骤**
+- [x] **Step 2: 添加验收脚本步骤**
 
 In `tools/vision_lab/run_acceptance.ps1`, add an explicit step:
 
@@ -3560,7 +3560,7 @@ Invoke-CheckedPython -Name "student_program_online" -Arguments @(
 
 Do not count a skip as PASS。
 
-- [ ] **Step 3: 完成学生实验说明**
+- [x] **Step 3: 完成学生实验说明**
 
 `docs/学生自编程实验说明.md` must include:
 
@@ -3577,11 +3577,11 @@ Do not count a skip as PASS。
 - student submission checklist；
 - teacher acceptance checklist。
 
-- [ ] **Step 4: Update the main usage guide**
+- [x] **Step 4: Update the main usage guide**
 
 Add a “学生自编程” section to `docs/视觉仿真实训平台使用说明.md`，link to the new experiment guide and show the PowerShell command。
 
-- [ ] **Step 5: Run the static suite**
+- [x] **Step 5: Run the static suite**
 
 Run:
 
@@ -3591,7 +3591,7 @@ python -m pytest -q
 
 Expected: 0 failed；CoppeliaSim online tests may be skipped only in this static command。
 
-- [ ] **Step 6: Run the live student test**
+- [x] **Step 6: Run the live student test**
 
 先启动并完成 RPC、场景路径和哨兵 readiness，再运行 live test：
 
@@ -3609,7 +3609,7 @@ python -m pytest `
 
 Expected: PASS, not skip。
 
-- [ ] **Step 7: Commit online acceptance and docs**
+- [x] **Step 7: Commit online acceptance and docs**
 
 ```powershell
 git add `
@@ -3640,11 +3640,13 @@ git commit -m "test(student): verify live student program workflow"
 **Files:**
 - Modify: `README.md`
 - Modify: `RETAINED_FILES.txt`
+- Modify: `docs/superpowers/plans/2026-07-30-student-program-runner-v2-plan.md`
+- Modify: `tests/test_acceptance/test_delivery_contract.py`
 - Modify: `docs/视觉仿真实训平台使用说明.md`
 - Modify: `docs/视觉仿真实训平台自动验收报告.md`
 - Evidence: `artifacts/vision_lab/student-program-v2-final/`
 
-- [ ] **Step 1: 登记正式发布文件**
+- [x] **Step 1: 登记正式发布文件**
 
 把本计划新增的全部 Python、测试、模板、脚本和文档逐项加入 `RETAINED_FILES.txt`。列表至少包含：
 
@@ -3683,7 +3685,7 @@ tests/test_vision_platform/test_student_program_panel.py
 
 如果实施中实际文件名与计划不同，先统一设计、计划和代码命名，再登记最终真实路径。不要把 `artifacts/`、`.venv-vision/`、缓存或学生个人文件加入白名单。
 
-- [ ] **Step 2: 扩展发布合同**
+- [x] **Step 2: 扩展发布合同**
 
 Append to `tests/test_acceptance/test_delivery_contract.py`：
 
@@ -3718,7 +3720,7 @@ def test_clean_release_whitelist_excludes_generated_student_data():
     assert "__pycache__/" not in retained
 ```
 
-- [ ] **Step 3: 更新入口文档**
+- [x] **Step 3: 更新入口文档**
 
 在 `README.md` 和 `docs/视觉仿真实训平台使用说明.md` 中加入：
 
@@ -3730,7 +3732,7 @@ def test_clean_release_whitelist_excludes_generated_student_data():
 - 子进程不是恶意代码安全沙箱；
 - 真机仍为 `PENDING_HARDWARE`。
 
-- [ ] **Step 4: 运行格式与范围检查**
+- [x] **Step 4: 运行格式与范围检查**
 
 Run:
 
@@ -3742,7 +3744,7 @@ git diff --name-only origin/main...HEAD
 
 Expected: 无空白错误；只有 V2.1 范围内文件发生变化；正式机器人资产未出现在 diff 中。
 
-- [ ] **Step 5: 运行完整自动验收**
+- [x] **Step 5: 运行完整自动验收**
 
 Run:
 
@@ -3763,7 +3765,7 @@ Expected:
 - simUI 和场景运行验证 PASS；
 - hardware status 仍为 `PENDING_HARDWARE`。
 
-- [ ] **Step 6: 验证正式资产和发布白名单**
+- [x] **Step 6: 验证正式资产和发布白名单**
 
 Run:
 
@@ -3776,7 +3778,7 @@ python -m pytest `
 
 Expected: 两个测试文件全部 PASS；受保护资产匹配 `robot_assets_manifest.json` 及来源清单；白名单中的每个路径存在。
 
-- [ ] **Step 7: 检查进程和端口清理**
+- [x] **Step 7: 检查进程和端口清理**
 
 Run:
 
@@ -3792,11 +3794,11 @@ $listeners | Select-Object LocalAddress, LocalPort, OwningProcess
 
 Expected: 验收脚本拥有的进程已退出；预先存在、由用户拥有的 CoppeliaSim 进程可以保留且不得被误杀。
 
-- [ ] **Step 8: 更新验收报告**
+- [x] **Step 8: 更新验收报告**
 
 在 `docs/视觉仿真实训平台自动验收报告.md` 记录实际命令、精确测试数、在线结果、证据路径、资产验证结果和 `PENDING_HARDWARE`。不得把结构测试或仿真 PASS 写成真实教学效果或真机验收通过。
 
-- [ ] **Step 9: 自审设计、计划和 Prompt**
+- [x] **Step 9: 自审设计、计划和 Prompt**
 
 Run:
 
@@ -3820,18 +3822,19 @@ Get-Content `
   docs/superpowers/plans/2026-07-30-student-program-runner-v2-plan.md, `
   docs/视觉仿真实训平台V2-开发端执行Prompt.md `
   -Encoding UTF8 |
-  Select-String -Pattern $patterns
+  Select-String -SimpleMatch -Pattern $patterns
 git diff --check
 ```
 
 Expected: 无失效引用、无未解决占位符、无 diff 错误。
 
-- [ ] **Step 10: 提交最终发布集成**
+- [x] **Step 10: 提交最终发布集成**
 
 ```powershell
 git add `
   README.md `
   RETAINED_FILES.txt `
+  tests/test_acceptance/test_delivery_contract.py `
   docs/视觉仿真实训平台使用说明.md `
   docs/视觉仿真实训平台自动验收报告.md `
   docs/学生自编程实验说明.md `
@@ -3841,7 +3844,7 @@ git add `
 git commit -m "docs: complete student program v2 delivery"
 ```
 
-- [ ] **Step 11: 保留开发分支供教师审核**
+- [x] **Step 11: 保留开发分支供教师审核**
 
 不要自动合并或推送到 `origin/main`。最终报告必须列出：
 

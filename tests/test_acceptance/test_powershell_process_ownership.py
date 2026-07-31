@@ -10,6 +10,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 HELPER = ROOT / "tools" / "vision_lab" / "process_ownership.ps1"
 LAUNCHER = ROOT / "tools" / "vision_lab" / "launch_coppeliasim.ps1"
+ACCEPTANCE = ROOT / "tools" / "vision_lab" / "run_acceptance.ps1"
 POWERSHELL = "powershell.exe"
 
 
@@ -220,6 +221,85 @@ try {{
     return json.loads(completed.stdout.strip().splitlines()[-1])
 
 
+def _run_acceptance_environment_failure(
+    tmp_path: Path,
+    initial_value: str | None,
+) -> dict:
+    acceptance = str(ACCEPTANCE).replace("'", "''")
+    output_dir = str(
+        tmp_path
+        / (
+            "acceptance-with-caller-value"
+            if initial_value is not None
+            else "acceptance-without-caller-value"
+        )
+    ).replace("'", "''")
+    missing_root = str(tmp_path / "missing-coppeliasim").replace("'", "''")
+    if initial_value is None:
+        initialise = (
+            "Remove-Item Env:QT_QPA_PLATFORM "
+            "-ErrorAction SilentlyContinue"
+        )
+    else:
+        escaped_value = initial_value.replace("'", "''")
+        initialise = f"$env:QT_QPA_PLATFORM = '{escaped_value}'"
+    script = rf"""
+$ErrorActionPreference = 'Stop'
+$BeforeLocation = (Get-Location).Path
+{initialise}
+$Caught = $false
+$CaughtMessage = $null
+try {{
+    . '{acceptance}' `
+        -OutputDir '{output_dir}' `
+        -CoppeliaRoot '{missing_root}' `
+        -Port 23997
+}} catch {{
+    $Caught = $true
+    $CaughtMessage = $_.Exception.Message
+}}
+$VariableExists = Test-Path Env:QT_QPA_PLATFORM
+$VariableValue = if ($VariableExists) {{
+    $env:QT_QPA_PLATFORM
+}} else {{
+    $null
+}}
+$SummaryStatus = $null
+$SummaryPath = Join-Path '{output_dir}' 'acceptance-summary.json'
+if (Test-Path -LiteralPath $SummaryPath -PathType Leaf) {{
+    $SummaryStatus = (
+        Get-Content -LiteralPath $SummaryPath -Raw -Encoding UTF8 |
+        ConvertFrom-Json
+    ).status
+}}
+[pscustomobject]@{{
+    caught = $Caught
+    caught_message = $CaughtMessage
+    variable_exists = $VariableExists
+    variable_value = $VariableValue
+    location_restored = ((Get-Location).Path -eq $BeforeLocation)
+    summary_status = $SummaryStatus
+}} | ConvertTo-Json -Compress
+"""
+    completed = subprocess.run(
+        [
+            POWERSHELL,
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            script,
+        ],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+    return json.loads(completed.stdout.strip().splitlines()[-1])
+
+
 @pytest.mark.parametrize("scenario", ("already_exited", "success"))
 def test_exact_owned_cleanup_accepts_normal_terminal_states(scenario: str):
     result = _run_cleanup_scenario(scenario)
@@ -348,7 +428,9 @@ def test_all_coppeliasim_launchers_share_exact_owned_cleanup_helper():
         assert ".WaitForExit(" not in source
 
 
-def test_acceptance_cleanup_failure_precedes_and_controls_summary_status():
+def test_acceptance_cleanup_failure_precedes_and_controls_summary_status(
+    tmp_path: Path,
+):
     source = (
         ROOT / "tools" / "vision_lab" / "run_acceptance.ps1"
     ).read_text(encoding="utf-8")
@@ -362,3 +444,17 @@ def test_acceptance_cleanup_failure_precedes_and_controls_summary_status():
     assert "catch {" in cleanup_tail
     assert "$FailureMessage" in cleanup_tail
     assert "cleanup failed" in cleanup_tail.lower()
+    assert "throw $FailureMessage" in source
+    assert "exit 1" not in source
+
+    for initial_value in (None, "caller-platform"):
+        result = _run_acceptance_environment_failure(
+            tmp_path,
+            initial_value,
+        )
+        assert result["caught"] is True
+        assert result["caught_message"]
+        assert result["location_restored"] is True
+        assert result["summary_status"] == "FAIL"
+        assert result["variable_exists"] is (initial_value is not None)
+        assert result["variable_value"] == initial_value
