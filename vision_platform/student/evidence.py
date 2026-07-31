@@ -2,13 +2,15 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
+import re
 import time
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from threading import RLock
-from typing import Any
+from typing import Any, Mapping
 
 
 _WINDOWS_RESERVED_NAMES = {
@@ -36,6 +38,27 @@ _WINDOWS_RESERVED_NAMES = {
     "PRN",
 }
 _WINDOWS_INVALID_NAME_CHARACTERS = frozenset('<>:"/\\|?*')
+_RUN_METADATA_RESERVED_FIELDS = frozenset(
+    {
+        "schema_version",
+        "run_id",
+        "status",
+        "program_path",
+        "source_sha256",
+        "started_at",
+        "finished_at",
+        "elapsed_seconds",
+        "command_count",
+        "last_pose_mm",
+        "safety_violation_count",
+        "error",
+        "cleanup_errors",
+        "robot_backend",
+        "hardware_status",
+    }
+)
+_SNAPSHOT_RESERVED_FIELDS = frozenset({"snapshot_id", "path", "sha256"})
+_SNAPSHOT_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,79}\Z")
 
 
 def _now() -> str:
@@ -50,6 +73,74 @@ def _json_bytes(payload: Any, *, indent: int | None = None) -> bytes:
         indent=indent,
     )
     return (text + "\n").encode("utf-8")
+
+
+def _canonicalize_json(
+    value: Any,
+    *,
+    path: str = "$",
+    active_containers: set[int] | None = None,
+) -> Any:
+    if value is None or type(value) in {bool, str, int}:
+        return value
+    if type(value) is float:
+        if not math.isfinite(value):
+            raise ValueError(f"{path} must contain only finite floats")
+        return value
+
+    active = active_containers if active_containers is not None else set()
+    if isinstance(value, Mapping):
+        identity = id(value)
+        if identity in active:
+            raise ValueError(f"{path} must not contain cycles")
+        active.add(identity)
+        try:
+            canonical: dict[str, Any] = {}
+            for key, item in value.items():
+                if type(key) is not str:
+                    raise TypeError(f"{path} keys must be strings")
+                canonical[key] = _canonicalize_json(
+                    item,
+                    path=f"{path}.{key}",
+                    active_containers=active,
+                )
+            return canonical
+        finally:
+            active.remove(identity)
+
+    if type(value) in {list, tuple}:
+        identity = id(value)
+        if identity in active:
+            raise ValueError(f"{path} must not contain cycles")
+        active.add(identity)
+        try:
+            return [
+                _canonicalize_json(
+                    item,
+                    path=f"{path}[{index}]",
+                    active_containers=active,
+                )
+                for index, item in enumerate(value)
+            ]
+        finally:
+            active.remove(identity)
+
+    raise TypeError(
+        f"{path} must contain only JSON-native values, not "
+        f"{type(value).__name__}"
+    )
+
+
+def _canonicalize_metadata(
+    metadata: Mapping[str, Any],
+    *,
+    name: str,
+) -> dict[str, Any]:
+    if not isinstance(metadata, Mapping):
+        raise TypeError(f"{name} must be a mapping")
+    canonical = _canonicalize_json(metadata, path=name)
+    assert isinstance(canonical, dict)
+    return canonical
 
 
 class _EvidenceCleanupError(Exception):
@@ -147,6 +238,11 @@ class StudentRunEvidence:
     run_id: str
     started_at: str
     started_monotonic: float
+    run_metadata: dict[str, Any]
+    _run_metadata_snapshot: dict[str, Any] = field(
+        repr=False,
+        compare=False,
+    )
     _finalized: bool = field(
         default=False,
         init=False,
@@ -172,7 +268,22 @@ class StudentRunEvidence:
         program_path: str | Path,
         robot_backend: str,
         run_id: str | None = None,
+        run_metadata: Mapping[str, Any] | None = None,
     ) -> StudentRunEvidence:
+        metadata = _canonicalize_metadata(
+            {} if run_metadata is None else run_metadata,
+            name="run_metadata",
+        )
+        if (
+            metadata.get("hardware_status", "PENDING_HARDWARE")
+            != "PENDING_HARDWARE"
+        ):
+            raise ValueError("hardware_status must remain PENDING_HARDWARE")
+        metadata["hardware_status"] = "PENDING_HARDWARE"
+        public_metadata = _canonicalize_metadata(
+            metadata,
+            name="run_metadata",
+        )
         selected = Path(program_path).expanduser().resolve()
         source = selected.read_bytes()
         digest = hashlib.sha256(source).hexdigest()
@@ -198,6 +309,11 @@ class StudentRunEvidence:
             (digest + "\n").encode("utf-8")
         )
         manifest = {
+            **{
+                key: value
+                for key, value in metadata.items()
+                if key not in _RUN_METADATA_RESERVED_FIELDS
+            },
             "schema_version": 1,
             "run_id": selected_run_id,
             "program_path": str(selected),
@@ -218,6 +334,8 @@ class StudentRunEvidence:
             run_id=selected_run_id,
             started_at=started_at,
             started_monotonic=started_monotonic,
+            run_metadata=public_metadata,
+            _run_metadata_snapshot=metadata,
         )
 
     def _ensure_open(self) -> None:
@@ -229,7 +347,7 @@ class StudentRunEvidence:
             self._ensure_open()
             serialized = _json_bytes(payload)
             path = self.directory / name
-            existing = path.read_bytes()
+            existing = path.read_bytes() if path.exists() else b""
             _atomic_write_bytes(path, existing + serialized)
 
     def record_command(self, payload: dict[str, Any]) -> None:
@@ -253,6 +371,60 @@ class StudentRunEvidence:
             },
         )
 
+    def record_snapshot(
+        self,
+        *,
+        snapshot_id: str,
+        png_bytes: bytes,
+        metadata: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        if (
+            type(snapshot_id) is not str
+            or _SNAPSHOT_ID_PATTERN.fullmatch(snapshot_id) is None
+            or snapshot_id.upper() in _WINDOWS_RESERVED_NAMES
+        ):
+            raise ValueError(
+                "snapshot_id must be a portable ASCII name using 1-80 "
+                "letters, digits, '-' or '_'"
+            )
+        if type(png_bytes) is not bytes or not png_bytes:
+            raise ValueError("png_bytes must not be empty")
+        relative = Path("frames") / f"{snapshot_id}.png"
+        target = self.directory / relative
+        canonical_metadata = _canonicalize_metadata(
+            metadata,
+            name="snapshot metadata",
+        )
+        record = {
+            **{
+                key: value
+                for key, value in canonical_metadata.items()
+                if key not in _SNAPSHOT_RESERVED_FIELDS
+            },
+            "snapshot_id": snapshot_id,
+            "path": relative.as_posix(),
+            "sha256": hashlib.sha256(png_bytes).hexdigest(),
+        }
+        _json_bytes(record)
+        with self._lock:
+            self._ensure_open()
+            frames = self.directory / "frames"
+            frames.mkdir(parents=True, exist_ok=True)
+            if target.exists():
+                raise FileExistsError(
+                    f"snapshot_id already exists: {snapshot_id}"
+                )
+            _atomic_write_bytes(target, png_bytes)
+            try:
+                self._append("snapshots.jsonl", record)
+            except Exception as original_error:
+                try:
+                    target.unlink(missing_ok=True)
+                except Exception as cleanup_error:
+                    raise original_error from cleanup_error
+                raise
+        return record
+
     def finalize(
         self,
         *,
@@ -267,6 +439,11 @@ class StudentRunEvidence:
             self._ensure_open()
             path = self.directory / "summary.json"
             payload = {
+                **{
+                    key: value
+                    for key, value in self._run_metadata_snapshot.items()
+                    if key not in _RUN_METADATA_RESERVED_FIELDS
+                },
                 "schema_version": 1,
                 "run_id": self.run_id,
                 "status": status,

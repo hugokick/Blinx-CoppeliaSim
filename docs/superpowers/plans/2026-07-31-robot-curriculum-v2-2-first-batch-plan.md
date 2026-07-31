@@ -1434,7 +1434,7 @@ git commit -m "feat(experiments): switch isolated experiment scenes"
 - Modify: `vision_platform/student/evidence.py`
 - Create: `tests/test_student_programs/test_experiment_evidence.py`
 
-- [ ] **Step 1: 写实验证据失败测试**
+- [x] **Step 1: 写实验证据失败测试**
 
 Create `tests/test_student_programs/test_experiment_evidence.py`:
 
@@ -1526,7 +1526,7 @@ def test_snapshot_id_cannot_escape_evidence_directory(tmp_path):
         raise AssertionError("unsafe snapshot_id was accepted")
 ```
 
-- [ ] **Step 2: 运行测试并确认先失败**
+- [x] **Step 2: 运行测试并确认先失败**
 
 Run:
 
@@ -1536,7 +1536,7 @@ python -m pytest tests/test_student_programs/test_experiment_evidence.py -q
 
 Expected: FAIL，指出 `run_metadata` 或 `record_snapshot` 尚不支持。
 
-- [ ] **Step 3: 增加元数据和快照写入**
+- [x] **Step 3: 增加元数据和快照写入**
 
 在 `vision_platform/student/evidence.py` 中：
 
@@ -1613,7 +1613,7 @@ manifest.update(metadata)
         return record
 ```
 
-- [ ] **Step 4: 运行证据回归**
+- [x] **Step 4: 运行证据回归**
 
 Run:
 
@@ -1626,7 +1626,7 @@ python -m pytest `
 
 Expected: 全部 PASS，原 V2.1 证据测试不退化。
 
-- [ ] **Step 5: 提交证据扩展**
+- [x] **Step 5: 提交证据扩展**
 
 Run:
 
