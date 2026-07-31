@@ -91,7 +91,9 @@ PNG 字节仅用于父子进程传输。学生侧返回独立的 NumPy 数组；
 - Modify: `docs/superpowers/specs/2026-07-31-robot-curriculum-coppeliasim-roadmap-design.md`
 - Modify: `RETAINED_FILES.txt`
 
-- [ ] **Step 1: 确认 V2.1 不是中间提交**
+**执行记录：** 开发端执行 Prompt 覆盖本计划中的建议分支名和工作树名；实际使用分支 `codex/v2-2-first-batch-integration`、工作树 `v2-2-first-batch-integration`，并从精确基线 `4bc638f50fd590ca700615da46741a86c4146b5f` 创建。
+
+- [x] **Step 1: 确认 V2.1 不是中间提交**
 
 Run:
 
@@ -116,7 +118,7 @@ $required | ForEach-Object {
 
 Expected: 工作树干净，六个 V2.1 交付文件全部存在。任一文件缺失就停止本计划，不在 V2.1 中间接口上实施 V2.2。
 
-- [ ] **Step 2: 运行 V2.1 静态和在线完成门禁**
+- [x] **Step 2: 运行 V2.1 静态和在线完成门禁**
 
 Run:
 
@@ -132,7 +134,7 @@ Expected:
 - `test_coppeliasim_student_program.py` 在已启动 CoppeliaSim 环境中实际 PASS，不能是 skip；
 - 若在线门禁未 PASS，V2.1 仍不满足本计划前提。
 
-- [ ] **Step 3: 创建独立实施工作树**
+- [x] **Step 3: 创建独立实施工作树**
 
 Run:
 
@@ -148,7 +150,7 @@ git -C $worktree rev-parse HEAD
 
 Expected: 新工作树在 V2.1 最终提交上，分支为 `codex/robot-curriculum-v2-2-first-batch`，状态干净。
 
-- [ ] **Step 4: 固化集成基线记录**
+- [x] **Step 4: 固化集成基线记录**
 
 在总体规格的“当前开发前置”下增加实际 V2.1 最终提交：
 
@@ -162,7 +164,7 @@ Expected: 新工作树在 V2.1 最终提交上，分支为 `codex/robot-curricul
 docs/superpowers/plans/2026-07-31-robot-curriculum-v2-2-first-batch-plan.md
 ```
 
-- [ ] **Step 5: 提交基线记录**
+- [x] **Step 5: 提交基线记录**
 
 Run:
 
