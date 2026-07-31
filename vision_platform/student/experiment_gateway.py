@@ -1,13 +1,224 @@
 from __future__ import annotations
 
+import errno
+import hashlib
+import json
 from itertools import count
 from math import isfinite
+from pathlib import Path
+from threading import RLock
 from typing import Any, Mapping
 
 import cv2
 import numpy as np
 
-from vision_platform.experiments.models import ExperimentRunContext
+from vision_platform.errors import VisionPlatformError
+from vision_platform.experiments.models import (
+    ExperimentDefinition,
+    ExperimentRunContext,
+)
+from vision_platform.experiments.probes import probe_experiment
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _invalid_binding(reason: str) -> VisionPlatformError:
+    return VisionPlatformError(
+        "EXPERIMENT_CONTEXT_INVALID",
+        "实验上下文、定义与场景清单不一致",
+        details={"reason": reason},
+    )
+
+
+def _json_values_equal(left: Any, right: Any) -> bool:
+    if type(left) is not type(right):
+        return False
+    if type(left) is dict:
+        return (
+            left.keys() == right.keys()
+            and all(
+                _json_values_equal(left[key], right[key])
+                for key in left
+            )
+        )
+    if type(left) is list:
+        return len(left) == len(right) and all(
+            _json_values_equal(left_value, right_value)
+            for left_value, right_value in zip(left, right)
+        )
+    return left == right
+
+
+def _is_probe_transport_error(error: BaseException) -> bool:
+    pending: list[BaseException] = [error]
+    seen: set[int] = set()
+    eagain_values = {errno.EAGAIN, errno.EWOULDBLOCK}
+    while pending:
+        candidate = pending.pop()
+        identity = id(candidate)
+        if identity in seen:
+            continue
+        seen.add(identity)
+        if getattr(candidate, "errno", None) in eagain_values:
+            return True
+        candidate_type = type(candidate)
+        if (
+            candidate_type.__name__ == "Again"
+            and candidate_type.__module__.split(".", 1)[0] == "zmq"
+        ):
+            return True
+        for related in (
+            getattr(candidate, "__cause__", None),
+            getattr(candidate, "__context__", None),
+        ):
+            if isinstance(related, BaseException):
+                pending.append(related)
+    return False
+
+
+def validate_experiment_binding(
+    context: ExperimentRunContext | None,
+    definition: ExperimentDefinition | None,
+    scene_manifest: Mapping[str, Any] | None,
+) -> dict[str, Any] | None:
+    supplied = (
+        context is not None,
+        definition is not None,
+        scene_manifest is not None,
+    )
+    if not any(supplied):
+        return None
+    if not all(supplied):
+        raise _invalid_binding(
+            "context, definition and scene_manifest must be supplied together"
+        )
+    if not isinstance(context, ExperimentRunContext):
+        raise _invalid_binding("context has the wrong type")
+    if not isinstance(definition, ExperimentDefinition):
+        raise _invalid_binding("definition has the wrong type")
+    assert scene_manifest is not None
+
+    identity_fields = (
+        ("context.experiment_id", context.experiment_id),
+        ("definition.experiment_id", definition.experiment_id),
+        ("context.experiment_version", context.experiment_version),
+        ("definition.version", definition.version),
+        ("context.scene_sha256", context.scene_sha256),
+    )
+    for field_name, value in identity_fields:
+        if type(value) is not str or not value.strip():
+            raise _invalid_binding(
+                f"{field_name} must be a non-empty string"
+            )
+
+    try:
+        copied_manifest = _copy_json_native(
+            scene_manifest,
+            path="scene_manifest",
+        )
+        if not isinstance(copied_manifest, dict):
+            raise ValueError("scene_manifest must be a mapping")
+        file_manifest = json.loads(
+            definition.scene_manifest.read_text(encoding="utf-8"),
+            parse_constant=lambda value: (_ for _ in ()).throw(
+                ValueError(f"invalid JSON constant: {value}")
+            ),
+        )
+        copied_file_manifest = _copy_json_native(
+            file_manifest,
+            path="scene_manifest file",
+        )
+    except BaseException as error:
+        raise _invalid_binding(
+            f"scene manifest cannot be validated: {type(error).__name__}"
+        ) from error
+
+    if not _json_values_equal(copied_manifest, copied_file_manifest):
+        raise _invalid_binding("scene_manifest does not match its file")
+    schema_version = copied_manifest.get("schema_version")
+    if type(schema_version) is not int or schema_version != 1:
+        raise _invalid_binding("scene_manifest schema_version must be 1")
+    scene = copied_manifest.get("scene")
+    if not isinstance(scene, dict):
+        raise _invalid_binding("scene_manifest.scene must be a mapping")
+    if not isinstance(copied_manifest.get("task_contracts"), dict):
+        raise _invalid_binding(
+            "scene_manifest.task_contracts must be a mapping"
+        )
+    declared_path = scene.get("path")
+    declared_hash = scene.get("sha256")
+    if type(declared_path) is not str or not declared_path.strip():
+        raise _invalid_binding("scene_manifest.scene.path is invalid")
+    if (
+        type(declared_hash) is not str
+        or len(declared_hash) != 64
+        or any(character not in "0123456789abcdef" for character in declared_hash)
+    ):
+        raise _invalid_binding("scene_manifest.scene.sha256 is invalid")
+
+    definition_scene = definition.scene.expanduser().resolve()
+    declared = Path(declared_path).expanduser()
+    if declared.is_absolute():
+        path_matches = declared.resolve() == definition_scene
+    else:
+        declared_parts = declared.parts
+        path_matches = bool(
+            declared_parts
+            and not any(part in {".", ".."} for part in declared_parts)
+            and len(declared_parts) <= len(definition_scene.parts)
+            and tuple(part.casefold() for part in declared_parts)
+            == tuple(
+                part.casefold()
+                for part in definition_scene.parts[-len(declared_parts):]
+            )
+        )
+    if not path_matches:
+        raise _invalid_binding(
+            "scene_manifest.scene.path does not match definition.scene"
+        )
+
+    try:
+        actual_hash = _sha256(definition_scene)
+    except BaseException as error:
+        raise _invalid_binding(
+            f"definition.scene cannot be hashed: {type(error).__name__}"
+        ) from error
+    if not (
+        context.experiment_id == definition.experiment_id
+        and context.experiment_version == definition.version
+        and context.scene_path.expanduser().resolve() == definition_scene
+        and context.scene_manifest_path.expanduser().resolve()
+        == definition.scene_manifest.expanduser().resolve()
+        and context.scene_sha256 == declared_hash == actual_hash
+    ):
+        raise _invalid_binding("context identity or scene digest is inconsistent")
+    if (
+        context.hardware_status != "PENDING_HARDWARE"
+        or definition.hardware_status != "PENDING_HARDWARE"
+    ):
+        raise _invalid_binding("hardware_status must remain PENDING_HARDWARE")
+    try:
+        context_parameters = _copy_json_native(
+            context.public_parameters,
+            path="context.public_parameters",
+        )
+        definition_parameters = _copy_json_native(
+            definition.public_parameters,
+            path="definition.public_parameters",
+        )
+    except BaseException as error:
+        raise _invalid_binding(
+            f"public parameters cannot be validated: {type(error).__name__}"
+        ) from error
+    if not _json_values_equal(context_parameters, definition_parameters):
+        raise _invalid_binding("context public_parameters do not match definition")
+    return copied_manifest
 
 
 class StudentExperimentGateway:
@@ -17,13 +228,24 @@ class StudentExperimentGateway:
         application: Any,
         evidence: Any,
         context: ExperimentRunContext,
+        definition: ExperimentDefinition,
+        scene_manifest: Mapping[str, Any],
         capture_timeout_s: float = 2.0,
     ) -> None:
+        copied_manifest = validate_experiment_binding(
+            context,
+            definition,
+            scene_manifest,
+        )
+        assert copied_manifest is not None
         self.application = application
         self.evidence = evidence
         self.context = context
+        self._definition = definition
+        self._scene_manifest = copied_manifest
         self.capture_timeout_s = float(capture_timeout_s)
         self._snapshot_ids = count(1)
+        self._probe_lock = RLock()
 
     def dispatch(self, name: str, args: Mapping[str, Any]) -> Any:
         if args:
@@ -101,8 +323,119 @@ class StudentExperimentGateway:
             "evidence_path": record["path"],
         }
 
+    def record_probe(self, phase: str) -> dict[str, Any]:
+        report = self.collect_probe(phase)
+        return self.record_probe_report(phase, report)
 
-def _copy_json_native(value: Any, *, path: str) -> Any:
+    def collect_probe(self, phase: str) -> dict[str, Any]:
+        if type(phase) is not str or phase not in {"initial", "final"}:
+            raise ValueError("phase must be initial or final")
+        with self._probe_lock:
+            try:
+                report = probe_experiment(
+                    self.application.sim,
+                    self._definition,
+                    phase=phase,
+                    scene_manifest=self._scene_manifest,
+                )
+            except BaseException as error:
+                try:
+                    message = str(error)
+                except BaseException:
+                    message = "<unprintable>"
+                return self._probe_error_report(
+                    phase=phase,
+                    code=(
+                        "SCENE_PROBE_TRANSPORT_FAILED"
+                        if _is_probe_transport_error(error)
+                        else "SCENE_PROBE_FAILED"
+                    ),
+                    message=message,
+                    error_type=(
+                        f"{type(error).__module__}."
+                        f"{type(error).__qualname__}"
+                    ),
+                )
+            return _copy_json_native(report, path=f"scene-{phase}")
+
+    def record_probe_report(
+        self,
+        phase: str,
+        report: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        if type(phase) is not str or phase not in {"initial", "final"}:
+            raise ValueError("phase must be initial or final")
+        return self._record_probe_report(phase, report)
+
+    def record_probe_error(
+        self,
+        phase: str,
+        *,
+        code: str,
+        message: str,
+        error_type: str | None = None,
+    ) -> dict[str, Any]:
+        if type(phase) is not str or phase not in {"initial", "final"}:
+            raise ValueError("phase must be initial or final")
+        report = self._probe_error_report(
+            phase=phase,
+            code=code,
+            message=message,
+            error_type=error_type,
+        )
+        return self._record_probe_report(phase, report)
+
+    def _probe_error_report(
+        self,
+        *,
+        phase: str,
+        code: str,
+        message: str,
+        error_type: str | None,
+    ) -> dict[str, Any]:
+        error = {
+            "code": str(code)[:200],
+            "message": str(message)[:2000],
+        }
+        if error_type is not None:
+            error["type"] = str(error_type)[:200]
+        report = {
+            "schema_version": 1,
+            "experiment_id": self.context.experiment_id,
+            "phase": phase,
+            "status": "ERROR",
+            "matched": 0,
+            "expected": None,
+            "tolerance_mm": None,
+            "rows": [],
+            "error": error,
+            "hardware_status": "PENDING_HARDWARE",
+        }
+        return report
+
+    def _record_probe_report(
+        self,
+        phase: str,
+        report: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        canonical_report = _copy_json_native(
+            report,
+            path=f"scene-{phase}",
+        )
+        assert isinstance(canonical_report, dict)
+        self.evidence.record_json_artifact(
+            f"scene-{phase}.json",
+            canonical_report,
+        )
+        return canonical_report
+
+
+def _copy_json_native(
+    value: Any,
+    *,
+    path: str,
+    active_containers: set[int] | None = None,
+) -> Any:
     if value is None or type(value) in {bool, str, int}:
         return value
     if type(value) is float:
@@ -110,20 +443,41 @@ def _copy_json_native(value: Any, *, path: str) -> Any:
             raise ValueError(f"{path} must contain finite floats")
         return value
     if isinstance(value, Mapping):
+        active = active_containers if active_containers is not None else set()
+        identity = id(value)
+        if identity in active:
+            raise ValueError(f"{path} must not contain cycles")
+        active.add(identity)
         result: dict[str, Any] = {}
-        for key, nested in value.items():
-            if type(key) is not str:
-                raise TypeError(f"{path} keys must be strings")
-            result[key] = _copy_json_native(
-                nested,
-                path=f"{path}.{key}",
-            )
-        return result
+        try:
+            for key, nested in value.items():
+                if type(key) is not str:
+                    raise TypeError(f"{path} keys must be strings")
+                result[key] = _copy_json_native(
+                    nested,
+                    path=f"{path}.{key}",
+                    active_containers=active,
+                )
+            return result
+        finally:
+            active.remove(identity)
     if type(value) in {list, tuple}:
-        return [
-            _copy_json_native(nested, path=f"{path}[{index}]")
-            for index, nested in enumerate(value)
-        ]
+        active = active_containers if active_containers is not None else set()
+        identity = id(value)
+        if identity in active:
+            raise ValueError(f"{path} must not contain cycles")
+        active.add(identity)
+        try:
+            return [
+                _copy_json_native(
+                    nested,
+                    path=f"{path}[{index}]",
+                    active_containers=active,
+                )
+                for index, nested in enumerate(value)
+            ]
+        finally:
+            active.remove(identity)
     raise TypeError(
         f"{path} must contain only JSON-native values, not "
         f"{type(value).__name__}"

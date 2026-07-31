@@ -55,10 +55,14 @@ _RUN_METADATA_RESERVED_FIELDS = frozenset(
         "cleanup_errors",
         "robot_backend",
         "hardware_status",
+        "scene_probe_status",
     }
 )
 _SNAPSHOT_RESERVED_FIELDS = frozenset({"snapshot_id", "path", "sha256"})
 _SNAPSHOT_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,79}\Z")
+_JSON_ARTIFACT_PATTERN = re.compile(
+    r"[A-Za-z0-9][A-Za-z0-9_-]{0,74}\.json\Z"
+)
 
 
 def _now() -> str:
@@ -425,6 +429,32 @@ class StudentRunEvidence:
                 raise
         return record
 
+    def record_json_artifact(
+        self,
+        name: str,
+        payload: Mapping[str, Any],
+    ) -> str:
+        if (
+            type(name) is not str
+            or _JSON_ARTIFACT_PATTERN.fullmatch(name) is None
+            or name.rsplit(".", 1)[0].upper() in _WINDOWS_RESERVED_NAMES
+        ):
+            raise ValueError(
+                "artifact name must be one portable ASCII .json filename"
+            )
+        canonical = _canonicalize_metadata(
+            payload,
+            name="artifact payload",
+        )
+        serialized = _json_bytes(canonical, indent=2)
+        target = self.directory / name
+        with self._lock:
+            self._ensure_open()
+            if target.exists():
+                raise FileExistsError(f"JSON artifact already exists: {name}")
+            _atomic_write_bytes(target, serialized)
+        return name
+
     def finalize(
         self,
         *,
@@ -434,9 +464,18 @@ class StudentRunEvidence:
         safety_violation_count: int,
         error,
         cleanup_errors,
+        scene_probe_status: str | None = None,
     ) -> Path:
         with self._lock:
             self._ensure_open()
+            if scene_probe_status is not None and scene_probe_status not in {
+                "PASS",
+                "FAIL",
+                "ERROR",
+            }:
+                raise ValueError(
+                    "scene_probe_status must be PASS, FAIL, ERROR or None"
+                )
             path = self.directory / "summary.json"
             payload = {
                 **{
@@ -467,6 +506,8 @@ class StudentRunEvidence:
                 "robot_backend": self.robot_backend,
                 "hardware_status": "PENDING_HARDWARE",
             }
+            if scene_probe_status is not None:
+                payload["scene_probe_status"] = scene_probe_status
             serialized = _json_bytes(payload, indent=2)
             _atomic_write_bytes(path, serialized)
             self._finalized = True

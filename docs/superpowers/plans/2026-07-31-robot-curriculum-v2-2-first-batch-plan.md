@@ -3328,7 +3328,7 @@ git commit -m "feat(simulation): add robot basics and logistics scenes"
 - Modify: `tests/test_student_programs/test_experiment_evidence.py`
 - Modify: `tests/test_student_programs/test_experiment_gateway.py`
 
-- [ ] **Step 1: 写物流终态探针失败测试**
+- [x] **Step 1: 写物流终态探针失败测试**
 
 Create `tests/test_experiments/test_probes.py`:
 
@@ -3470,7 +3470,7 @@ def test_initial_probe_uses_manifested_reset_positions():
     assert report["matched"] == 6
 ```
 
-- [ ] **Step 2: 写 JSON 证据工件测试**
+- [x] **Step 2: 写 JSON 证据工件测试**
 
 Append to `tests/test_student_programs/test_experiment_evidence.py`:
 
@@ -3502,7 +3502,7 @@ def test_evidence_records_named_json_artifact(tmp_path):
     assert payload["phase"] == "initial"
 ```
 
-- [ ] **Step 3: 运行测试并确认先失败**
+- [x] **Step 3: 运行测试并确认先失败**
 
 Run:
 
@@ -3515,7 +3515,7 @@ python -m pytest `
 
 Expected: FAIL，指出 `probes` 或 `record_json_artifact` 不存在。
 
-- [ ] **Step 4: 实现非评分式场景探针**
+- [x] **Step 4: 实现非评分式场景探针**
 
 Create `vision_platform/experiments/probes.py`:
 
@@ -3661,7 +3661,7 @@ def probe_experiment(
     }
 ```
 
-- [ ] **Step 5: 实现 JSON 工件写入**
+- [x] **Step 5: 实现 JSON 工件写入**
 
 Add to `StudentRunEvidence`:
 
@@ -3681,7 +3681,7 @@ Add to `StudentRunEvidence`:
         return name
 ```
 
-- [ ] **Step 6: 把探针挂入实验网关和控制器生命周期**
+- [x] **Step 6: 把探针挂入实验网关和控制器生命周期**
 
 给 `StudentExperimentGateway` 构造函数增加 `definition` 和 `scene_manifest`，并增加：
 
@@ -3738,7 +3738,7 @@ final_probe = self._experiment_gateway.record_probe("final")
 
 把 `final_probe["status"]` 作为 `scene_probe_status` 写入摘要，但不改变学生程序自身的 `PASS`、`FAILED` 或 `CANCELLED`。场景终态是教师复核证据，本阶段不转换为成绩。
 
-- [ ] **Step 7: 运行探针和学生控制器回归**
+- [x] **Step 7: 运行探针和学生控制器回归**
 
 Run:
 
@@ -3753,7 +3753,7 @@ python -m pytest `
 
 Expected: 全部 PASS；证据目录包含 `scene-initial.json` 和 `scene-final.json`。
 
-- [ ] **Step 8: 提交场景探针**
+- [x] **Step 8: 提交场景探针**
 
 Run:
 

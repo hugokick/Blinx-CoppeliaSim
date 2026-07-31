@@ -14,9 +14,15 @@ from pathlib import Path
 from typing import Any, Callable
 
 from vision_platform.errors import VisionPlatformError
-from vision_platform.experiments.models import ExperimentRunContext
+from vision_platform.experiments.models import (
+    ExperimentDefinition,
+    ExperimentRunContext,
+)
 from vision_platform.student.evidence import StudentRunEvidence
-from vision_platform.student.experiment_gateway import StudentExperimentGateway
+from vision_platform.student.experiment_gateway import (
+    StudentExperimentGateway,
+    validate_experiment_binding,
+)
 from vision_platform.student.protocol import (
     CommandMessage,
     ResponseMessage,
@@ -452,11 +458,15 @@ class StudentProgramController:
         execution_policy: StudentExecutionPolicy,
         output_root: str | Path,
         experiment_context: ExperimentRunContext | None = None,
+        experiment_definition: ExperimentDefinition | None = None,
+        scene_manifest: Mapping[str, Any] | None = None,
     ) -> None:
         self._session = session
         self._policy = execution_policy
         self._output_root = Path(output_root).expanduser().resolve()
         self._experiment_context = experiment_context
+        self._experiment_definition = experiment_definition
+        self._scene_manifest = scene_manifest
         self._context = multiprocessing.get_context("spawn")
 
         self._condition = threading.Condition(threading.RLock())
@@ -498,6 +508,7 @@ class StudentProgramController:
         self._watchdog_thread: threading.Thread | None = None
         self._backend_action_thread: threading.Thread | None = None
         self._backend_action_name: str | None = None
+        self._backend_action_threads: dict[threading.Thread, str] = {}
         self._backend_quarantined = False
         self._backend_quarantine_error: dict[str, Any] | None = None
         self._client_timeout_settings: list[_TimeoutSetting] = []
@@ -612,6 +623,32 @@ class StudentProgramController:
         assert selected is not None
 
         try:
+            validated_scene_manifest = validate_experiment_binding(
+                self._experiment_context,
+                self._experiment_definition,
+                self._scene_manifest,
+            )
+        except BaseException as binding_error:
+            error = _exception_error(
+                binding_error,
+                code="EXPERIMENT_CONTEXT_INVALID",
+            )
+            with self._condition:
+                self._starting = False
+                self._state = RunState.FAILED
+                self._error = error
+                self._result = StudentRunResult(
+                    "FAILED",
+                    None,
+                    None,
+                    error,
+                )
+                self._done.set()
+                self._condition.notify_all()
+            self._emit_snapshot()
+            return
+
+        try:
             run_metadata = (
                 self._experiment_context.to_public_dict()
                 if self._experiment_context is not None
@@ -645,15 +682,33 @@ class StudentProgramController:
 
         with self._condition:
             self._prepare_run_locked(evidence)
-            self._experiment_gateway = (
+        try:
+            experiment_gateway = (
                 StudentExperimentGateway(
                     application=self._application,
                     evidence=evidence,
                     context=self._experiment_context,
+                    definition=self._experiment_definition,
+                    scene_manifest=validated_scene_manifest,
                 )
                 if self._experiment_context is not None
+                and self._experiment_definition is not None
+                and validated_scene_manifest is not None
                 else None
             )
+        except BaseException as gateway_error:
+            with self._condition:
+                self._starting = False
+            self._complete_run(
+                "FAILED",
+                _exception_error(
+                    gateway_error,
+                    code="EXPERIMENT_CONTEXT_INVALID",
+                ),
+            )
+            return
+        with self._condition:
+            self._experiment_gateway = experiment_gateway
         try:
             self._bound_client_timeout()
         except BaseException as timeout_guard_error:
@@ -723,6 +778,41 @@ class StudentProgramController:
                 self._starting = False
             self._complete_run("FAILED", invalid_error)
             return
+
+        if experiment_gateway is not None:
+            try:
+                initial_probe = self._record_probe_bounded(
+                    experiment_gateway,
+                    "initial",
+                )
+            except BaseException as probe_error:
+                initial_error = _exception_error(
+                    probe_error,
+                    code="EXPERIMENT_SCENE_INITIAL_PROBE_ERROR",
+                )
+                with self._condition:
+                    self._starting = False
+                self._complete_run("FAILED", initial_error)
+                return
+            initial_status = initial_probe.get("status")
+            if initial_status != "PASS":
+                initial_error = _error(
+                    (
+                        "EXPERIMENT_SCENE_INITIAL_INVALID"
+                        if initial_status == "FAIL"
+                        else "EXPERIMENT_SCENE_INITIAL_PROBE_ERROR"
+                    ),
+                    (
+                        "实验场景初态不符合重置合同"
+                        if initial_status == "FAIL"
+                        else "实验场景初态探针执行失败"
+                    ),
+                    details={"scene_probe": initial_probe},
+                )
+                with self._condition:
+                    self._starting = False
+                self._complete_run("FAILED", initial_error)
+                return
 
         initial_state = RunState.PAUSED if paused else RunState.RUNNING
         try:
@@ -937,10 +1027,11 @@ class StudentProgramController:
                 state = self._state
                 starting = self._starting
                 terminalizing = self._terminalizing
+                backend_actions = self._active_backend_actions_locked()
                 threads = (
                     self._command_thread,
                     self._watchdog_thread,
-                    self._backend_action_thread,
+                    *(thread for thread, _ in backend_actions),
                 )
             process_alive = self.process_is_alive
             threads_alive = tuple(
@@ -1080,6 +1171,7 @@ class StudentProgramController:
             self._watchdog_thread = None
             self._backend_action_thread = None
             self._backend_action_name = None
+            self._backend_action_threads = {}
             self._backend_quarantined = False
             self._backend_quarantine_error = None
             self._done.clear()
@@ -1090,8 +1182,40 @@ class StudentProgramController:
 
     def _backend_action_is_alive(self) -> bool:
         with self._condition:
-            thread = self._backend_action_thread
-        return bool(thread is not None and thread.is_alive())
+            return bool(self._active_backend_actions_locked())
+
+    def _active_backend_actions_locked(
+        self,
+    ) -> tuple[tuple[threading.Thread, str], ...]:
+        active: list[tuple[threading.Thread, str]] = []
+        for thread, action_name in tuple(
+            self._backend_action_threads.items()
+        ):
+            if thread.is_alive():
+                active.append((thread, action_name))
+            else:
+                self._backend_action_threads.pop(thread, None)
+        if active:
+            active_threads = {thread for thread, _ in active}
+            if self._backend_action_thread not in active_threads:
+                (
+                    self._backend_action_thread,
+                    self._backend_action_name,
+                ) = active[-1]
+        else:
+            self._backend_action_thread = None
+            self._backend_action_name = None
+        return tuple(active)
+
+    def _register_backend_action_locked(
+        self,
+        thread: threading.Thread,
+        action_name: str,
+    ) -> None:
+        self._active_backend_actions_locked()
+        self._backend_action_threads[thread] = action_name
+        self._backend_action_thread = thread
+        self._backend_action_name = action_name
 
     def _join_run_threads(self) -> bool:
         current = threading.current_thread()
@@ -1357,6 +1481,7 @@ class StudentProgramController:
         self._requested_error = None
         self._backend_action_thread = None
         self._backend_action_name = None
+        self._backend_action_threads = {}
         self._backend_quarantined = False
         self._backend_quarantine_error = None
         self._done.clear()
@@ -1859,6 +1984,8 @@ class StudentProgramController:
                 result["error"] = action_error
             finally:
                 completed.set()
+                with self._condition:
+                    self._condition.notify_all()
 
         action_thread = threading.Thread(
             target=invoke,
@@ -1866,9 +1993,11 @@ class StudentProgramController:
             daemon=True,
         )
         with self._condition:
-            self._backend_action_thread = action_thread
-            self._backend_action_name = command.name
-        action_thread.start()
+            self._register_backend_action_locked(
+                action_thread,
+                command.name,
+            )
+            action_thread.start()
 
         stop_seen_at: float | None = None
         while not completed.wait(_POLL_SECONDS):
@@ -1906,6 +2035,33 @@ class StudentProgramController:
         stage: str,
         action: Callable[[], Any],
     ) -> Any:
+        return self._dispatch_backend_action_bounded(
+            stage=stage,
+            action=action,
+            thread_name=f"StudentCleanupAction-{stage}",
+            action_name=f"cleanup:{stage}",
+        )
+
+    def _dispatch_probe_bounded(
+        self,
+        phase: str,
+        action: Callable[[], Any],
+    ) -> Any:
+        return self._dispatch_backend_action_bounded(
+            stage=f"scene_probe.{phase}",
+            action=action,
+            thread_name=f"StudentProbeAction-{phase}",
+            action_name=f"probe:{phase}",
+        )
+
+    def _dispatch_backend_action_bounded(
+        self,
+        *,
+        stage: str,
+        action: Callable[[], Any],
+        thread_name: str,
+        action_name: str,
+    ) -> Any:
         completed = threading.Event()
         result: dict[str, Any] = {}
 
@@ -1916,16 +2072,20 @@ class StudentProgramController:
                 result["error"] = action_error
             finally:
                 completed.set()
+                with self._condition:
+                    self._condition.notify_all()
 
         action_thread = threading.Thread(
             target=invoke,
-            name=f"StudentCleanupAction-{stage}",
+            name=thread_name,
             daemon=True,
         )
         with self._condition:
-            self._backend_action_thread = action_thread
-            self._backend_action_name = f"cleanup:{stage}"
-        action_thread.start()
+            self._register_backend_action_locked(
+                action_thread,
+                action_name,
+            )
+            action_thread.start()
 
         deadline = (
             time.monotonic()
@@ -1944,6 +2104,92 @@ class StudentProgramController:
         if "error" in result:
             raise result["error"]
         return result.get("value")
+
+    def _record_probe_bounded(
+        self,
+        gateway: StudentExperimentGateway,
+        phase: str,
+    ) -> dict[str, Any]:
+        try:
+            report = self._dispatch_probe_bounded(
+                phase,
+                lambda: gateway.collect_probe(phase),
+            )
+        except _BackendActionStuck:
+            message = (
+                "场景探针超过受控执行时限，CoppeliaSim 连接已隔离"
+            )
+            try:
+                timeout_report = gateway.record_probe_error(
+                    phase,
+                    code="SCENE_PROBE_EXECUTION_TIMEOUT",
+                    message=message,
+                )
+            finally:
+                self._quarantine_backend(
+                    _error(
+                        "EXPERIMENT_SCENE_PROBE_EXECUTION_TIMEOUT",
+                        message,
+                        details={
+                            "phase": phase,
+                            "command_timeout_s": (
+                                self._policy.command_timeout_s
+                            ),
+                            "cleanup_grace_s": (
+                                _CLEANUP_ACTION_GRACE_SECONDS
+                            ),
+                        },
+                    )
+                )
+            return timeout_report
+        except BaseException as probe_error:
+            if not _is_transport_timeout(probe_error):
+                raise
+            diagnostic = _exception_error(
+                probe_error,
+                code="SCENE_PROBE_TRANSPORT_FAILED",
+            )
+            try:
+                transport_report = gateway.record_probe_error(
+                    phase,
+                    code="SCENE_PROBE_TRANSPORT_FAILED",
+                    message=diagnostic["message"],
+                    error_type=diagnostic.get("type"),
+                )
+            finally:
+                self._quarantine_backend(
+                    _error(
+                        "EXPERIMENT_SCENE_PROBE_TRANSPORT_FAILED",
+                        "场景探针访问 CoppeliaSim 时传输失败",
+                        details={
+                            "phase": phase,
+                            "cause": diagnostic,
+                        },
+                    )
+                )
+            return transport_report
+
+        transport_failed = bool(
+            isinstance(report, Mapping)
+            and isinstance(report.get("error"), Mapping)
+            and report["error"].get("code")
+            == "SCENE_PROBE_TRANSPORT_FAILED"
+        )
+        try:
+            recorded_report = gateway.record_probe_report(phase, report)
+        finally:
+            if transport_failed:
+                self._quarantine_backend(
+                    _error(
+                        "EXPERIMENT_SCENE_PROBE_TRANSPORT_FAILED",
+                        "场景探针访问 CoppeliaSim 时传输失败",
+                        details={
+                            "phase": phase,
+                            "scene_probe": report,
+                        },
+                    )
+                )
+        return recorded_report
 
     def _dispatch(self, command: CommandMessage) -> Any:
         if command.name in {"camera.capture", "experiment.info"}:
@@ -2258,14 +2504,22 @@ class StudentProgramController:
 
             cleanup_errors: list[dict[str, Any]] = []
             with self._condition:
-                action_thread = self._backend_action_thread
-                action_name = self._backend_action_name
+                active_backend_actions = (
+                    self._active_backend_actions_locked()
+                )
                 backend_quarantined = self._backend_quarantined
                 quarantine_error = self._backend_quarantine_error
-            action_stuck = bool(
-                action_thread is not None and action_thread.is_alive()
+            action_stuck = bool(active_backend_actions)
+            non_probe_actions = tuple(
+                (thread, action_name)
+                for thread, action_name in active_backend_actions
+                if not action_name.startswith("probe:")
             )
-            if action_stuck:
+            probe_action_stuck = bool(
+                action_stuck and not non_probe_actions
+            )
+            if action_stuck and not probe_action_stuck:
+                action_name = non_probe_actions[-1][1]
                 stuck_error = _error_with_quarantine_details(
                     _error(
                         "STUDENT_BACKEND_COMMAND_STUCK",
@@ -2324,8 +2578,18 @@ class StudentProgramController:
                     cleanup_errors,
                     quarantined=True,
                 )
-            elif final_status != "PASS" and child_stopped:
+            elif child_stopped and (
+                final_status != "PASS"
+                or self._experiment_gateway is not None
+            ):
                 cleanup_errors = self._cleanup()
+                if final_status == "PASS" and cleanup_errors:
+                    final_status = "FAILED"
+                    final_error = _error(
+                        "STUDENT_CLEANUP_FAILED",
+                        "学生程序结束后的安全收尾失败",
+                        details={"cleanup_errors": cleanup_errors},
+                    )
             with self._condition:
                 post_cleanup_quarantined = self._backend_quarantined
                 post_cleanup_error = self._backend_quarantine_error
@@ -2380,7 +2644,170 @@ class StudentProgramController:
                     cleanup_errors,
                     quarantined=True,
                 )
-            timeout_restore_error = self._restore_client_timeout()
+            scene_probe_status: str | None = None
+            experiment_gateway = self._experiment_gateway
+            timeout_restore_error: dict[str, Any] | None = None
+            try:
+                if experiment_gateway is not None:
+                    try:
+                        if backend_quarantined:
+                            final_probe = (
+                                experiment_gateway.record_probe_error(
+                                    "final",
+                                    code=(
+                                        "SCENE_PROBE_BACKEND_UNAVAILABLE"
+                                    ),
+                                    message=(
+                                        "场景探针未访问已隔离的 "
+                                        "CoppeliaSim 连接"
+                                    ),
+                                )
+                            )
+                        else:
+                            final_probe = self._record_probe_bounded(
+                                experiment_gateway,
+                                "final",
+                            )
+                        reported_status = final_probe.get("status")
+                        scene_probe_status = (
+                            reported_status
+                            if reported_status
+                            in {"PASS", "FAIL", "ERROR"}
+                            else "ERROR"
+                        )
+                        if scene_probe_status == "ERROR":
+                            cleanup_errors.append(
+                                {
+                                    "stage": "scene_probe.final",
+                                    "error": _error(
+                                        (
+                                            "EXPERIMENT_SCENE_FINAL_"
+                                            "PROBE_ERROR"
+                                        ),
+                                        "实验场景终态探针未能完成",
+                                        details={
+                                            "scene_probe": final_probe
+                                        },
+                                    ),
+                                }
+                            )
+                    except BaseException as probe_error:
+                        scene_probe_status = "ERROR"
+                        diagnostic = _exception_error(
+                            probe_error,
+                            code="EXPERIMENT_SCENE_FINAL_PROBE_ERROR",
+                        )
+                        cleanup_errors.append(
+                            {
+                                "stage": "scene_probe.final",
+                                "error": diagnostic,
+                            }
+                        )
+                        try:
+                            experiment_gateway.record_probe_error(
+                                "final",
+                                code=(
+                                    "EXPERIMENT_SCENE_FINAL_PROBE_ERROR"
+                                ),
+                                message=diagnostic["message"],
+                                error_type=diagnostic.get("type"),
+                            )
+                        except BaseException as evidence_error:
+                            cleanup_errors.append(
+                                {
+                                    "stage": (
+                                        "scene_probe.final.evidence"
+                                    ),
+                                    "error": _exception_error(
+                                        evidence_error,
+                                        code="STUDENT_EVIDENCE_FAILED",
+                                    ),
+                                }
+                            )
+
+                    with self._condition:
+                        final_probe_quarantined = (
+                            self._backend_quarantined
+                        )
+                        final_probe_quarantine_error = (
+                            self._backend_quarantine_error
+                        )
+                    if final_probe_quarantined:
+                        backend_quarantined = True
+                        quarantine_error = final_probe_quarantine_error
+                        if quarantine_error is None:
+                            quarantine_error = (
+                                _error_with_quarantine_details(
+                                    _error(
+                                        (
+                                            "STUDENT_BACKEND_CONNECTION_"
+                                            "QUARANTINED"
+                                        ),
+                                        "CoppeliaSim backend connection "
+                                        "is unusable",
+                                    )
+                                )
+                            )
+                        if not any(
+                            item.get("stage") == "backend.connection"
+                            for item in cleanup_errors
+                        ):
+                            cleanup_errors.append(
+                                {
+                                    "stage": "backend.connection",
+                                    "error": quarantine_error,
+                                }
+                            )
+
+                    if isinstance(final_error, Mapping):
+                        error_details = final_error.get("details")
+                        if isinstance(
+                            error_details,
+                            Mapping,
+                        ) and isinstance(
+                            error_details.get("cleanup_errors"),
+                            list,
+                        ):
+                            final_error = _error_with_cleanup_details(
+                                final_error,
+                                cleanup_errors,
+                                quarantined=backend_quarantined,
+                            )
+            finally:
+                with self._condition:
+                    final_backend_actions = (
+                        self._active_backend_actions_locked()
+                    )
+                    current_quarantine_error = (
+                        self._backend_quarantine_error
+                    )
+                probe_action_alive = any(
+                    action_name.startswith("probe:")
+                    for _, action_name in final_backend_actions
+                )
+                probe_connection_unusable = bool(
+                    probe_action_alive
+                    or (
+                        isinstance(current_quarantine_error, Mapping)
+                        and current_quarantine_error.get("code")
+                        in {
+                            (
+                                "EXPERIMENT_SCENE_PROBE_"
+                                "EXECUTION_TIMEOUT"
+                            ),
+                            (
+                                "EXPERIMENT_SCENE_PROBE_"
+                                "TRANSPORT_FAILED"
+                            ),
+                        }
+                    )
+                )
+                if probe_connection_unusable:
+                    backend_quarantined = True
+                    self._discard_client_timeout_state()
+                else:
+                    timeout_restore_error = self._restore_client_timeout()
+
             if timeout_restore_error is not None:
                 restore_quarantine_error = (
                     self._record_timeout_restore_failure(
@@ -2427,13 +2854,23 @@ class StudentProgramController:
                         ),
                         error=final_error,
                         cleanup_errors=cleanup_errors,
+                        scene_probe_status=scene_probe_status,
                     )
                 except BaseException as finalize_error:
                     prior_status = final_status
                     prior_error = final_error
                     final_status = "FAILED"
                     summary_path = None
-                    if prior_status == "PASS" and child_stopped:
+                    with self._condition:
+                        finalize_backend_unsafe = bool(
+                            self._backend_quarantined
+                            or self._active_backend_actions_locked()
+                        )
+                    if (
+                        prior_status == "PASS"
+                        and child_stopped
+                        and not finalize_backend_unsafe
+                    ):
                         try:
                             self._bound_client_timeout()
                         except BaseException as rebind_error:

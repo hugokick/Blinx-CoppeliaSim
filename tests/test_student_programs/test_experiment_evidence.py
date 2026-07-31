@@ -4,6 +4,7 @@ import hashlib
 import json
 import queue
 import threading
+from pathlib import Path
 
 import pytest
 
@@ -577,3 +578,254 @@ def test_concurrent_duplicate_snapshot_id_has_exactly_one_winner(tmp_path):
         .read_text(encoding="utf-8")
         .splitlines()
     ) == 1
+
+
+def test_evidence_records_named_json_artifact(tmp_path):
+    evidence = StudentRunEvidence.create(
+        output_root=tmp_path / "runs",
+        program_path=_program(tmp_path),
+        robot_backend="sim",
+        run_id="run-probe",
+        run_metadata={"hardware_status": "PENDING_HARDWARE"},
+    )
+
+    relative = evidence.record_json_artifact(
+        "scene-initial.json",
+        {
+            "status": "PASS",
+            "phase": "initial",
+            "hardware_status": "PENDING_HARDWARE",
+        },
+    )
+
+    assert relative == "scene-initial.json"
+    payload = json.loads(
+        (evidence.directory / relative).read_text(encoding="utf-8")
+    )
+    assert payload == {
+        "status": "PASS",
+        "phase": "initial",
+        "hardware_status": "PENDING_HARDWARE",
+    }
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "../scene.json",
+        "subdir/scene.json",
+        "scene.JSON",
+        "场景.json",
+        "-scene.json",
+        "CON.json",
+        "nul.json",
+        "a" * 77 + ".json",
+    ],
+)
+def test_json_artifact_name_is_one_portable_ascii_json_filename(
+    tmp_path,
+    name,
+):
+    evidence = StudentRunEvidence.create(
+        output_root=tmp_path / "runs",
+        program_path=_program(tmp_path),
+        robot_backend="sim",
+        run_id="portable-json-artifact",
+    )
+
+    with pytest.raises(ValueError, match="artifact name"):
+        evidence.record_json_artifact(name, {"status": "PASS"})
+
+    assert not any(
+        path.name == Path(name).name
+        for path in evidence.directory.rglob("*.json")
+        if path.name not in {"manifest.json"}
+    )
+
+
+def test_json_artifact_rejects_duplicate_without_overwriting(tmp_path):
+    evidence = StudentRunEvidence.create(
+        output_root=tmp_path / "runs",
+        program_path=_program(tmp_path),
+        robot_backend="sim",
+        run_id="duplicate-json-artifact",
+    )
+    evidence.record_json_artifact("scene-final.json", {"status": "PASS"})
+
+    with pytest.raises(FileExistsError):
+        evidence.record_json_artifact(
+            "scene-final.json",
+            {"status": "FAIL"},
+        )
+
+    persisted = json.loads(
+        (evidence.directory / "scene-final.json").read_text(encoding="utf-8")
+    )
+    assert persisted["status"] == "PASS"
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"payload": b"binary"},
+        {"confidence": float("nan")},
+        {1: "non-string-key"},
+        ["not-a-mapping"],
+    ],
+)
+def test_invalid_json_artifact_payload_leaves_no_file(tmp_path, payload):
+    evidence = StudentRunEvidence.create(
+        output_root=tmp_path / "runs",
+        program_path=_program(tmp_path),
+        robot_backend="sim",
+        run_id="invalid-json-artifact",
+    )
+
+    with pytest.raises((TypeError, ValueError)):
+        evidence.record_json_artifact("scene-final.json", payload)
+
+    assert not (evidence.directory / "scene-final.json").exists()
+
+
+def test_cyclic_json_artifact_payload_leaves_no_file(tmp_path):
+    evidence = StudentRunEvidence.create(
+        output_root=tmp_path / "runs",
+        program_path=_program(tmp_path),
+        robot_backend="sim",
+        run_id="cyclic-json-artifact",
+    )
+    cyclic = {}
+    cyclic["self"] = cyclic
+
+    with pytest.raises(ValueError, match="cycles"):
+        evidence.record_json_artifact("scene-final.json", cyclic)
+
+    assert not (evidence.directory / "scene-final.json").exists()
+
+
+def test_json_artifact_atomic_failure_leaves_no_partial_file(
+    tmp_path,
+    monkeypatch,
+):
+    evidence = StudentRunEvidence.create(
+        output_root=tmp_path / "runs",
+        program_path=_program(tmp_path),
+        robot_backend="sim",
+        run_id="atomic-json-artifact",
+    )
+    target = evidence.directory / "scene-final.json"
+    real_atomic_write = evidence_module._atomic_write_bytes
+
+    def fail_target(path, payload):
+        if path == target:
+            raise OSError("injected artifact write failure")
+        real_atomic_write(path, payload)
+
+    monkeypatch.setattr(evidence_module, "_atomic_write_bytes", fail_target)
+
+    with pytest.raises(OSError, match="artifact write"):
+        evidence.record_json_artifact(
+            "scene-final.json",
+            {"status": "PASS"},
+        )
+
+    assert not target.exists()
+    assert not list(evidence.directory.glob(".*.tmp"))
+
+
+def test_finalized_evidence_rejects_json_artifact(tmp_path):
+    evidence = StudentRunEvidence.create(
+        output_root=tmp_path / "runs",
+        program_path=_program(tmp_path),
+        robot_backend="sim",
+        run_id="sealed-json-artifact",
+    )
+    _finalize(evidence)
+
+    with pytest.raises(RuntimeError, match="finalized"):
+        evidence.record_json_artifact(
+            "scene-final.json",
+            {"status": "PASS"},
+        )
+
+    assert not (evidence.directory / "scene-final.json").exists()
+
+
+def test_scene_probe_status_is_authoritative_and_cannot_be_forged_by_metadata(
+    tmp_path,
+):
+    evidence = StudentRunEvidence.create(
+        output_root=tmp_path / "runs",
+        program_path=_program(tmp_path),
+        robot_backend="sim",
+        run_id="scene-probe-summary",
+        run_metadata={
+            "scene_probe_status": "PASS",
+            "hardware_status": "PENDING_HARDWARE",
+        },
+    )
+
+    summary_path = evidence.finalize(
+        status="FAILED",
+        command_count=0,
+        last_pose_mm=None,
+        safety_violation_count=0,
+        error={"code": "STUDENT_PROGRAM_FAILED", "message": "failed"},
+        cleanup_errors=[],
+        scene_probe_status="ERROR",
+    )
+
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    manifest = json.loads(
+        (evidence.directory / "manifest.json").read_text(encoding="utf-8")
+    )
+    assert summary["status"] == "FAILED"
+    assert summary["scene_probe_status"] == "ERROR"
+    assert "scene_probe_status" not in manifest
+    assert summary["hardware_status"] == "PENDING_HARDWARE"
+
+
+def test_concurrent_duplicate_json_artifact_has_exactly_one_winner(tmp_path):
+    evidence = StudentRunEvidence.create(
+        output_root=tmp_path / "runs",
+        program_path=_program(tmp_path),
+        robot_backend="sim",
+        run_id="concurrent-json-artifact",
+    )
+    barrier = threading.Barrier(2)
+    outcomes: queue.Queue = queue.Queue()
+
+    def record(status):
+        barrier.wait(timeout=2)
+        try:
+            outcomes.put(
+                (
+                    "ok",
+                    evidence.record_json_artifact(
+                        "scene-final.json",
+                        {"status": status},
+                    ),
+                )
+            )
+        except Exception as error:
+            outcomes.put(("error", error))
+
+    threads = [
+        threading.Thread(target=record, args=(status,))
+        for status in ("PASS", "FAIL")
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(5)
+
+    assert all(not thread.is_alive() for thread in threads)
+    results = [outcomes.get_nowait(), outcomes.get_nowait()]
+    assert len([item for item in results if item[0] == "ok"]) == 1
+    errors = [item[1] for item in results if item[0] == "error"]
+    assert len(errors) == 1
+    assert isinstance(errors[0], FileExistsError)
+    payload = json.loads(
+        (evidence.directory / "scene-final.json").read_text(encoding="utf-8")
+    )
+    assert payload["status"] in {"PASS", "FAIL"}

@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import errno
+import hashlib
 import json
 import multiprocessing
 import threading
 import time
-from dataclasses import FrozenInstanceError
+from dataclasses import FrozenInstanceError, replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -13,7 +14,11 @@ import numpy as np
 import pytest
 
 import vision_platform.student.runner as runner_module
-from vision_platform.experiments.models import ExperimentRunContext
+from vision_platform.experiments.models import (
+    ExperimentAcceptance,
+    ExperimentDefinition,
+    ExperimentRunContext,
+)
 from vision_platform.models import Frame
 from vision_platform.robot.safety import WorkspacePolicy
 from vision_platform.student.protocol import RunState
@@ -151,13 +156,30 @@ class ProtocolSocket:
         self.fail_on_first_restore = fail_on_first_restore
         self._restore_failed = False
         self.set_history: list[tuple[str, int, str]] = []
+        self.access_history: list[tuple[str, str, int, str]] = []
 
     @property
     def RCVTIMEO(self) -> int:
+        self.access_history.append(
+            (
+                "get",
+                "RCVTIMEO",
+                self._rcvtimeo,
+                threading.current_thread().name,
+            )
+        )
         return self._rcvtimeo
 
     @RCVTIMEO.setter
     def RCVTIMEO(self, value: int) -> None:
+        self.access_history.append(
+            (
+                "set",
+                "RCVTIMEO",
+                value,
+                threading.current_thread().name,
+            )
+        )
         self.set_history.append(
             ("RCVTIMEO", value, threading.current_thread().name)
         )
@@ -176,10 +198,26 @@ class ProtocolSocket:
 
     @property
     def SNDTIMEO(self) -> int:
+        self.access_history.append(
+            (
+                "get",
+                "SNDTIMEO",
+                self._sndtimeo,
+                threading.current_thread().name,
+            )
+        )
         return self._sndtimeo
 
     @SNDTIMEO.setter
     def SNDTIMEO(self, value: int) -> None:
+        self.access_history.append(
+            (
+                "set",
+                "SNDTIMEO",
+                value,
+                threading.current_thread().name,
+            )
+        )
         self.set_history.append(
             ("SNDTIMEO", value, threading.current_thread().name)
         )
@@ -341,6 +379,8 @@ def make_controller(
     execution_policy: StudentExecutionPolicy | None = None,
     session: FakeSession | None = None,
     experiment_context: ExperimentRunContext | None = None,
+    experiment_definition: ExperimentDefinition | None = None,
+    scene_manifest=None,
 ):
     selected_session = session or FakeSession(backend=backend)
     controller = StudentProgramController(
@@ -348,21 +388,138 @@ def make_controller(
         execution_policy=execution_policy or policy(),
         output_root=tmp_path / "runs",
         experiment_context=experiment_context,
+        experiment_definition=experiment_definition,
+        scene_manifest=scene_manifest,
     )
     program = write_program(tmp_path, source)
     controller.load(program)
     return controller, selected_session, program
 
 
-def experiment_context(tmp_path: Path) -> ExperimentRunContext:
-    return ExperimentRunContext(
-        experiment_id="R1-05",
-        experiment_version="2.2.0",
-        scene_path=tmp_path / "scene.ttt",
-        scene_sha256="a" * 64,
-        scene_manifest_path=tmp_path / "scene_manifest.json",
-        public_parameters={"safe_z_mm": 100},
+def experiment_bundle(
+    tmp_path: Path,
+    *,
+    experiment_id="R1-01",
+    probe_kind="motion_observation",
+    public_parameters=None,
+    task_contracts=None,
+):
+    scene = tmp_path / "scene.ttt"
+    scene.write_bytes(b"runner-test-scene")
+    scene_sha256 = hashlib.sha256(scene.read_bytes()).hexdigest()
+    manifest_path = tmp_path / "scene_manifest.json"
+    manifest = {
+        "schema_version": 1,
+        "scene": {"path": str(scene), "sha256": scene_sha256},
+        "task_contracts": dict(task_contracts or {}),
+    }
+    manifest_path.write_text(
+        json.dumps(manifest, ensure_ascii=False),
+        encoding="utf-8",
     )
+    parameters = dict(public_parameters or {})
+    definition = ExperimentDefinition(
+        experiment_id=experiment_id,
+        pack_id="R1",
+        title="Runner experiment",
+        version="2.2.0",
+        scene=scene,
+        scene_manifest=manifest_path,
+        student_template=tmp_path / "template.py",
+        guide=tmp_path / "guide.md",
+        capabilities=("scene.probe",),
+        workspace={
+            "x_mm": (20, 140),
+            "y_mm": (-90, 90),
+            "z_mm": (10, 140),
+            "safe_z_mm": 100,
+        },
+        public_parameters=parameters,
+        acceptance=ExperimentAcceptance(
+            probe_kind=probe_kind,
+            automated_checks=("scene_probe",),
+            human_checks=("teacher_review",),
+        ),
+        hardware_status="PENDING_HARDWARE",
+    )
+    context = ExperimentRunContext(
+        experiment_id=experiment_id,
+        experiment_version="2.2.0",
+        scene_path=scene,
+        scene_sha256=scene_sha256,
+        scene_manifest_path=manifest_path,
+        public_parameters=parameters,
+    )
+    return context, definition, manifest
+
+
+class ProbeSim:
+    handle_world = -1
+
+    def __init__(
+        self,
+        positions=None,
+        *,
+        actions=None,
+        fail_after=None,
+        probe_error_after=None,
+        probe_error=None,
+        block_after=None,
+        block_entered=None,
+        block_release=None,
+        timeout_probe=None,
+    ):
+        self.positions = dict(positions or {})
+        self.actions = actions if actions is not None else []
+        self.fail_after = fail_after
+        self.probe_error_after = probe_error_after
+        self.probe_error = probe_error
+        self.block_after = block_after
+        self.block_entered = block_entered
+        self.block_release = block_release
+        self.timeout_probe = timeout_probe
+        self.timeout_observations: list[tuple] = []
+        self.get_calls = 0
+
+    @classmethod
+    def motion(cls, *, actions=None, fail_after=None, **kwargs):
+        paths = [f"/BLX_joint{index}" for index in range(1, 7)]
+        paths.append("/BLX_tool_suction")
+        return cls(
+            {path: None for path in paths},
+            actions=actions,
+            fail_after=fail_after,
+            **kwargs,
+        )
+
+    def getObject(self, path):
+        self.get_calls += 1
+        self.actions.append(("probe.get", path))
+        if self.timeout_probe is not None:
+            self.timeout_observations.append(self.timeout_probe())
+        if (
+            self.block_after is not None
+            and self.get_calls > self.block_after
+        ):
+            if self.block_entered is not None:
+                self.block_entered.set()
+            if self.block_release is None or not self.block_release.wait(10):
+                raise TimeoutError("test probe block was not released")
+        if (
+            self.probe_error_after is not None
+            and self.get_calls > self.probe_error_after
+        ):
+            raise self.probe_error or ProtocolAgain()
+        if self.fail_after is not None and self.get_calls > self.fail_after:
+            raise RuntimeError("injected-probe-failure")
+        if path not in self.positions:
+            raise RuntimeError(f"missing: {path}")
+        return path
+
+    def getObjectPosition(self, handle, relative_to):
+        assert relative_to == self.handle_world
+        self.actions.append(("probe.position", handle))
+        return self.positions[handle]
 
 
 @pytest.mark.parametrize(
@@ -392,6 +549,8 @@ def test_controller_dispatches_experiment_commands_and_records_metadata(
 ):
     session = FakeSession()
     session.application.camera = FakeCamera()
+    session.application.sim = ProbeSim.motion(actions=session.actions)
+    context, definition, scene_manifest = experiment_bundle(tmp_path)
     controller, _, _ = make_controller(
         tmp_path,
         (
@@ -402,7 +561,9 @@ def test_controller_dispatches_experiment_commands_and_records_metadata(
             "    ctx.log(frame.snapshot_id)\n"
         ),
         session=session,
-        experiment_context=experiment_context(tmp_path),
+        experiment_context=context,
+        experiment_definition=definition,
+        scene_manifest=scene_manifest,
     )
     assert controller.validate().ok is True
 
@@ -420,9 +581,9 @@ def test_controller_dispatches_experiment_commands_and_records_metadata(
         .read_text(encoding="utf-8")
         .splitlines()
     ]
-    assert manifest["experiment_id"] == "R1-05"
+    assert manifest["experiment_id"] == "R1-01"
     assert manifest["experiment_version"] == "2.2.0"
-    assert manifest["scene_sha256"] == "a" * 64
+    assert manifest["scene_sha256"] == context.scene_sha256
     assert manifest["hardware_status"] == "PENDING_HARDWARE"
     assert "scene_path" not in manifest
     assert snapshots[0]["source"] == "coppeliasim"
@@ -430,6 +591,958 @@ def test_controller_dispatches_experiment_commands_and_records_metadata(
     assert (result.evidence_dir / snapshots[0]["path"]).read_bytes().startswith(
         b"\x89PNG\r\n\x1a\n"
     )
+    summary = json.loads(
+        result.summary_path.read_text(encoding="utf-8")
+    )
+    assert summary["scene_probe_status"] == "PASS"
+    assert (result.evidence_dir / "scene-initial.json").is_file()
+    assert (result.evidence_dir / "scene-final.json").is_file()
+
+
+def stack_experiment_bundle(tmp_path):
+    objects = [
+        {
+            "alias": f"stack_{index:02d}",
+            "position_mm": [40 + index * 10, -60, 20],
+        }
+        for index in range(1, 7)
+    ]
+    parameters = {
+        "scene_group_path": "/LogisticsLab/Tasks/Stack",
+        "stack_slots_mm": [
+            [118, -45, 20],
+            [118, 45, 20],
+            [118, -45, 38],
+            [118, 45, 38],
+            [118, -45, 56],
+            [118, 45, 56],
+        ],
+    }
+    context, definition, manifest = experiment_bundle(
+        tmp_path,
+        experiment_id="R1-05",
+        probe_kind="stack_2x3",
+        public_parameters=parameters,
+        task_contracts={"Stack": {"objects": objects}},
+    )
+    positions = {
+        f"/LogisticsLab/Tasks/Stack/Pickables/{item['alias']}": [
+            value / 1000 for value in item["position_mm"]
+        ]
+        for item in objects
+    }
+    return context, definition, manifest, positions
+
+
+def test_final_probe_runs_after_safe_cleanup_and_does_not_fail_student_pass(
+    tmp_path,
+):
+    session = FakeSession()
+    context, definition, manifest, positions = stack_experiment_bundle(
+        tmp_path
+    )
+    session.application.sim = ProbeSim(positions, actions=session.actions)
+    controller, _, _ = make_controller(
+        tmp_path,
+        "def main(ctx):\n    pass\n",
+        session=session,
+        experiment_context=context,
+        experiment_definition=definition,
+        scene_manifest=manifest,
+    )
+    assert controller.validate().ok is True
+
+    controller.start()
+    result = controller.wait(timeout_s=5)
+
+    assert result.status == "PASS", result.error
+    summary = json.loads(result.summary_path.read_text(encoding="utf-8"))
+    final_probe = json.loads(
+        (result.evidence_dir / "scene-final.json").read_text(encoding="utf-8")
+    )
+    assert final_probe["status"] == "FAIL"
+    assert summary["status"] == "PASS"
+    assert summary["scene_probe_status"] == "FAIL"
+    home_index = session.actions.index(("home",))
+    final_probe_index = next(
+        index
+        for index in range(home_index + 1, len(session.actions))
+        if session.actions[index][0] == "probe.get"
+    )
+    assert session.actions[home_index - 1] == ("tool.off",)
+    assert final_probe_index > home_index
+
+
+def test_initial_probe_failure_records_evidence_and_never_attempts_spawn(
+    tmp_path,
+):
+    session = FakeSession()
+    context, definition, manifest, positions = stack_experiment_bundle(
+        tmp_path
+    )
+    positions = {path: [0.0, 0.0, 0.0] for path in positions}
+    session.application.sim = ProbeSim(positions, actions=session.actions)
+    controller, _, _ = make_controller(
+        tmp_path,
+        "def main(ctx):\n    pass\n",
+        session=session,
+        experiment_context=context,
+        experiment_definition=definition,
+        scene_manifest=manifest,
+    )
+
+    class NoSpawnContext:
+        def Pipe(self, *args, **kwargs):
+            raise AssertionError("student spawn was attempted")
+
+    controller._context = NoSpawnContext()
+    assert controller.validate().ok is True
+
+    controller.start()
+    result = controller.wait(timeout_s=5)
+
+    assert result.status == "FAILED"
+    assert result.error["code"] == "EXPERIMENT_SCENE_INITIAL_INVALID"
+    initial = json.loads(
+        (result.evidence_dir / "scene-initial.json").read_text(encoding="utf-8")
+    )
+    summary = json.loads(result.summary_path.read_text(encoding="utf-8"))
+    assert initial["status"] == "FAIL"
+    assert summary["error"]["code"] == "EXPERIMENT_SCENE_INITIAL_INVALID"
+    assert (result.evidence_dir / "events.jsonl").read_text(encoding="utf-8") == ""
+
+
+def test_initial_probe_exception_records_error_and_never_attempts_spawn(
+    tmp_path,
+):
+    session = FakeSession()
+    session.application.sim = ProbeSim.motion(
+        actions=session.actions,
+        fail_after=0,
+    )
+    context, definition, manifest = experiment_bundle(tmp_path)
+    controller, _, _ = make_controller(
+        tmp_path,
+        "def main(ctx):\n    pass\n",
+        session=session,
+        experiment_context=context,
+        experiment_definition=definition,
+        scene_manifest=manifest,
+    )
+
+    class NoSpawnContext:
+        def Pipe(self, *args, **kwargs):
+            raise AssertionError("student spawn was attempted")
+
+    controller._context = NoSpawnContext()
+    assert controller.validate().ok is True
+
+    controller.start()
+    result = controller.wait(timeout_s=5)
+
+    initial = json.loads(
+        (result.evidence_dir / "scene-initial.json").read_text(encoding="utf-8")
+    )
+    summary = json.loads(result.summary_path.read_text(encoding="utf-8"))
+    assert result.status == "FAILED"
+    assert result.error["code"] == "EXPERIMENT_SCENE_INITIAL_PROBE_ERROR"
+    assert initial["status"] == "ERROR"
+    assert summary["error"]["code"] == "EXPERIMENT_SCENE_INITIAL_PROBE_ERROR"
+    assert (result.evidence_dir / "events.jsonl").read_text(encoding="utf-8") == ""
+
+
+def test_final_probe_exception_is_diagnostic_and_preserves_student_pass(
+    tmp_path,
+):
+    session = FakeSession()
+    session.application.sim = ProbeSim.motion(
+        actions=session.actions,
+        fail_after=7,
+    )
+    context, definition, manifest = experiment_bundle(tmp_path)
+    controller, _, _ = make_controller(
+        tmp_path,
+        "def main(ctx):\n    pass\n",
+        session=session,
+        experiment_context=context,
+        experiment_definition=definition,
+        scene_manifest=manifest,
+    )
+    assert controller.validate().ok is True
+
+    controller.start()
+    result = controller.wait(timeout_s=5)
+
+    assert result.status == "PASS", result.error
+    summary = json.loads(result.summary_path.read_text(encoding="utf-8"))
+    final_probe = json.loads(
+        (result.evidence_dir / "scene-final.json").read_text(encoding="utf-8")
+    )
+    assert summary["status"] == "PASS"
+    assert summary["scene_probe_status"] == "ERROR"
+    assert final_probe["status"] == "ERROR"
+    assert any(
+        item["stage"] == "scene_probe.final"
+        for item in summary["cleanup_errors"]
+    )
+
+
+def test_final_probe_exception_does_not_replace_student_failure(tmp_path):
+    session = FakeSession()
+    session.application.sim = ProbeSim.motion(
+        actions=session.actions,
+        fail_after=7,
+    )
+    context, definition, manifest = experiment_bundle(tmp_path)
+    controller, _, _ = make_controller(
+        tmp_path,
+        "def main(ctx):\n    raise ValueError('primary-student-failure')\n",
+        session=session,
+        experiment_context=context,
+        experiment_definition=definition,
+        scene_manifest=manifest,
+    )
+    assert controller.validate().ok is True
+
+    controller.start()
+    result = controller.wait(timeout_s=5)
+
+    summary = json.loads(result.summary_path.read_text(encoding="utf-8"))
+    assert result.status == "FAILED"
+    assert result.error["code"] == "STUDENT_PROGRAM_FAILED"
+    assert "primary-student-failure" in result.error["message"]
+    assert summary["scene_probe_status"] == "ERROR"
+    assert summary["error"]["code"] == "STUDENT_PROGRAM_FAILED"
+    assert any(
+        item["stage"] == "scene_probe.final"
+        for item in summary["cleanup_errors"]
+    )
+
+
+def test_failed_student_status_is_not_changed_by_final_probe_failure(tmp_path):
+    session = FakeSession()
+    context, definition, manifest, positions = stack_experiment_bundle(
+        tmp_path
+    )
+    session.application.sim = ProbeSim(positions, actions=session.actions)
+    controller, _, _ = make_controller(
+        tmp_path,
+        "def main(ctx):\n    raise ValueError('student-failed')\n",
+        session=session,
+        experiment_context=context,
+        experiment_definition=definition,
+        scene_manifest=manifest,
+    )
+    assert controller.validate().ok is True
+
+    controller.start()
+    result = controller.wait(timeout_s=5)
+
+    summary = json.loads(result.summary_path.read_text(encoding="utf-8"))
+    assert result.status == "FAILED"
+    assert result.error["code"] == "STUDENT_PROGRAM_FAILED"
+    assert summary["scene_probe_status"] == "FAIL"
+
+
+def test_cancelled_student_status_is_not_changed_by_final_probe(tmp_path):
+    session = FakeSession()
+    session.application.sim = ProbeSim.motion(actions=session.actions)
+    context, definition, manifest = experiment_bundle(tmp_path)
+    controller, _, _ = make_controller(
+        tmp_path,
+        "def main(ctx):\n    while True:\n        pass\n",
+        session=session,
+        experiment_context=context,
+        experiment_definition=definition,
+        scene_manifest=manifest,
+    )
+    assert controller.validate().ok is True
+    controller.start()
+    wait_until(lambda: controller.process_is_alive)
+
+    controller.cancel()
+    result = controller.wait(timeout_s=5)
+
+    summary = json.loads(result.summary_path.read_text(encoding="utf-8"))
+    assert result.status == "CANCELLED"
+    assert summary["status"] == "CANCELLED"
+    assert summary["scene_probe_status"] == "PASS"
+
+
+@pytest.mark.parametrize(
+    "mismatch",
+    [
+        "missing_definition",
+        "context_missing",
+        "experiment_id",
+        "experiment_version",
+        "scene_path",
+        "scene_sha256",
+        "scene_manifest_path",
+        "manifest_payload",
+    ],
+)
+def test_experiment_binding_mismatch_fails_before_student_spawn(
+    tmp_path,
+    mismatch,
+):
+    session = FakeSession()
+    session.application.sim = ProbeSim.motion(actions=session.actions)
+    context, definition, manifest = experiment_bundle(tmp_path)
+    if mismatch == "missing_definition":
+        definition = None
+    elif mismatch == "context_missing":
+        context = None
+    elif mismatch == "experiment_id":
+        context = replace(context, experiment_id="R1-99")
+    elif mismatch == "experiment_version":
+        context = replace(context, experiment_version="9.9.9")
+    elif mismatch == "scene_path":
+        other = tmp_path / "other.ttt"
+        other.write_bytes(b"other")
+        context = replace(context, scene_path=other)
+    elif mismatch == "scene_sha256":
+        context = replace(context, scene_sha256="0" * 64)
+    elif mismatch == "scene_manifest_path":
+        other = tmp_path / "other-manifest.json"
+        other.write_text("{}", encoding="utf-8")
+        context = replace(context, scene_manifest_path=other)
+    elif mismatch == "manifest_payload":
+        manifest = json.loads(json.dumps(manifest))
+        manifest["scene"]["sha256"] = "0" * 64
+
+    controller, _, _ = make_controller(
+        tmp_path,
+        "def main(ctx):\n    pass\n",
+        session=session,
+        experiment_context=context,
+        experiment_definition=definition,
+        scene_manifest=manifest,
+    )
+
+    class NoSpawnContext:
+        def Pipe(self, *args, **kwargs):
+            raise AssertionError("student spawn was attempted")
+
+    controller._context = NoSpawnContext()
+    assert controller.validate().ok is True
+
+    controller.start()
+    result = controller.wait(timeout_s=5)
+
+    assert result.status == "FAILED"
+    assert result.error["code"] == "EXPERIMENT_CONTEXT_INVALID"
+    assert controller.process_is_alive is False
+
+
+def test_reset_builds_new_gateway_bound_to_current_application(tmp_path):
+    session = FakeSession()
+    first_sim = ProbeSim.motion(actions=session.actions)
+    session.application.sim = first_sim
+    context, definition, manifest = experiment_bundle(tmp_path)
+    controller, _, _ = make_controller(
+        tmp_path,
+        "def main(ctx):\n    pass\n",
+        session=session,
+        experiment_context=context,
+        experiment_definition=definition,
+        scene_manifest=manifest,
+    )
+    assert controller.validate().ok is True
+    controller.start()
+    assert controller.wait(timeout_s=5).status == "PASS"
+    first_call_count = first_sim.get_calls
+
+    replacement = controller.reset()
+    second_sim = ProbeSim.motion(actions=session.actions)
+    replacement.sim = second_sim
+    first_sim.fail_after = first_sim.get_calls
+    controller.start()
+    second_result = controller.wait(timeout_s=5)
+
+    assert second_result.status == "PASS", second_result.error
+    assert first_sim.get_calls == first_call_count
+    assert second_sim.get_calls == 14
+
+
+def test_final_probe_runs_while_client_timeouts_are_still_bounded(tmp_path):
+    socket = ProtocolSocket(rcvtimeo=5000, sndtimeo=7000)
+    client = ProtocolFaithfulClient(timeout=600.0, socket=socket)
+    session = FakeSession(client=client)
+    timeout_probe = lambda: (
+        client.timeout,
+        socket.RCVTIMEO,
+        socket.SNDTIMEO,
+    )
+    sim = ProbeSim.motion(
+        actions=session.actions,
+        timeout_probe=timeout_probe,
+    )
+    session.application.sim = sim
+    context, definition, manifest = experiment_bundle(tmp_path)
+    controller, _, _ = make_controller(
+        tmp_path,
+        "def main(ctx):\n    pass\n",
+        session=session,
+        execution_policy=policy(command_timeout_s=0.1),
+        experiment_context=context,
+        experiment_definition=definition,
+        scene_manifest=manifest,
+    )
+    assert controller.validate().ok is True
+
+    controller.start()
+    result = controller.wait(timeout_s=5)
+
+    assert result.status == "PASS", result.error
+    assert sim.get_calls == 14
+    assert sim.timeout_observations == [(0.1, 100, 100)] * 14
+    assert client.timeout == 600.0
+    assert socket.RCVTIMEO == 5000
+    assert socket.SNDTIMEO == 7000
+    assert controller._backend_action_threads == {}
+
+
+def test_initial_probe_stuck_is_bounded_quarantined_and_never_spawns(
+    tmp_path,
+):
+    entered = threading.Event()
+    release = threading.Event()
+    socket = ProtocolSocket(rcvtimeo=5000, sndtimeo=7000)
+    client = ProtocolFaithfulClient(timeout=600.0, socket=socket)
+    session = FakeSession(client=client)
+    session.application.sim = ProbeSim.motion(
+        actions=session.actions,
+        block_after=0,
+        block_entered=entered,
+        block_release=release,
+    )
+    context, definition, manifest = experiment_bundle(tmp_path)
+    controller, _, _ = make_controller(
+        tmp_path,
+        "def main(ctx):\n    pass\n",
+        session=session,
+        execution_policy=policy(command_timeout_s=0.05),
+        experiment_context=context,
+        experiment_definition=definition,
+        scene_manifest=manifest,
+    )
+
+    class NoSpawnContext:
+        def Pipe(self, *args, **kwargs):
+            raise AssertionError("student spawn was attempted")
+
+    controller._context = NoSpawnContext()
+    assert controller.validate().ok is True
+    starter = threading.Thread(target=controller.start)
+    starter.start()
+    assert entered.wait(2)
+    completed_while_blocked = controller._done.wait(0.5)
+    if not completed_while_blocked:
+        release.set()
+        starter.join(5)
+    assert completed_while_blocked, "initial probe was not execution-bounded"
+
+    result = controller.wait(timeout_s=1)
+    initial = json.loads(
+        (result.evidence_dir / "scene-initial.json").read_text(encoding="utf-8")
+    )
+    assert result.status == "FAILED"
+    assert result.error["code"] == "EXPERIMENT_SCENE_INITIAL_PROBE_ERROR"
+    assert initial["status"] == "ERROR"
+    assert initial["error"]["code"] == "SCENE_PROBE_EXECUTION_TIMEOUT"
+    summary = json.loads(result.summary_path.read_text(encoding="utf-8"))
+    assert not any(
+        item["stage"] == "backend.command"
+        for item in summary["cleanup_errors"]
+    )
+    assert controller._backend_quarantined is True
+    assert client.timeout == 0.05
+    assert socket.RCVTIMEO == 50
+    assert socket.SNDTIMEO == 50
+    with pytest.raises(RuntimeError, match="STUDENT_BACKEND_COMMAND_STUCK"):
+        controller.reset()
+
+    release.set()
+    starter.join(5)
+    assert controller.wait_for_quiescence(2) is True
+    old_application = session.application
+    replacement = controller.reset()
+    assert replacement is not old_application
+    assert session.quarantined_reset_calls == 1
+
+
+def test_final_probe_stuck_is_bounded_and_preserves_student_pass(tmp_path):
+    entered = threading.Event()
+    release = threading.Event()
+    socket = ProtocolSocket(rcvtimeo=5000, sndtimeo=7000)
+    client = ProtocolFaithfulClient(timeout=600.0, socket=socket)
+    session = FakeSession(client=client)
+    session.application.sim = ProbeSim.motion(
+        actions=session.actions,
+        block_after=7,
+        block_entered=entered,
+        block_release=release,
+    )
+    context, definition, manifest = experiment_bundle(tmp_path)
+    controller, _, _ = make_controller(
+        tmp_path,
+        "def main(ctx):\n    pass\n",
+        session=session,
+        execution_policy=policy(command_timeout_s=0.05),
+        experiment_context=context,
+        experiment_definition=definition,
+        scene_manifest=manifest,
+    )
+    assert controller.validate().ok is True
+    controller.start()
+    assert entered.wait(3)
+    completed_while_blocked = controller._done.wait(0.5)
+    if not completed_while_blocked:
+        release.set()
+        controller.wait(timeout_s=5)
+    assert completed_while_blocked, "final probe was not execution-bounded"
+
+    result = controller.wait(timeout_s=1)
+    summary = json.loads(result.summary_path.read_text(encoding="utf-8"))
+    final_probe = json.loads(
+        (result.evidence_dir / "scene-final.json").read_text(encoding="utf-8")
+    )
+    assert result.status == "PASS"
+    assert result.error is None
+    assert summary["status"] == "PASS"
+    assert summary["error"] is None
+    assert summary["scene_probe_status"] == "ERROR"
+    assert final_probe["error"]["code"] == "SCENE_PROBE_EXECUTION_TIMEOUT"
+    assert controller._backend_quarantined is True
+    assert client.timeout == 0.05
+    assert socket.RCVTIMEO == 50
+    assert socket.SNDTIMEO == 50
+    with pytest.raises(RuntimeError, match="STUDENT_BACKEND_COMMAND_STUCK"):
+        controller.reset()
+
+    final_probe_bytes = (result.evidence_dir / "scene-final.json").read_bytes()
+    release.set()
+    assert controller.wait_for_quiescence(2) is True
+    assert (
+        result.evidence_dir / "scene-final.json"
+    ).read_bytes() == final_probe_bytes
+    assert list(result.evidence_dir.glob("scene-final*.json")) == [
+        result.evidence_dir / "scene-final.json"
+    ]
+    old_application = session.application
+    replacement = controller.reset()
+    assert replacement is not old_application
+    assert session.quarantined_reset_calls == 1
+
+
+def test_initial_probe_transport_error_is_evidenced_and_quarantined(
+    tmp_path,
+):
+    socket = ProtocolSocket(rcvtimeo=5000, sndtimeo=7000)
+    client = ProtocolFaithfulClient(timeout=600.0, socket=socket)
+    session = FakeSession(client=client)
+    session.application.sim = ProbeSim.motion(
+        actions=session.actions,
+        probe_error_after=0,
+        probe_error=ProtocolAgain(),
+    )
+    context, definition, manifest = experiment_bundle(tmp_path)
+    controller, _, _ = make_controller(
+        tmp_path,
+        "def main(ctx):\n    pass\n",
+        session=session,
+        execution_policy=policy(command_timeout_s=0.05),
+        experiment_context=context,
+        experiment_definition=definition,
+        scene_manifest=manifest,
+    )
+
+    class NoSpawnContext:
+        def Pipe(self, *args, **kwargs):
+            raise AssertionError("student spawn was attempted")
+
+    controller._context = NoSpawnContext()
+    assert controller.validate().ok is True
+
+    controller.start()
+    result = controller.wait(timeout_s=2)
+
+    initial = json.loads(
+        (result.evidence_dir / "scene-initial.json").read_text(encoding="utf-8")
+    )
+    assert result.status == "FAILED"
+    assert initial["status"] == "ERROR"
+    assert initial["error"]["code"] == "SCENE_PROBE_TRANSPORT_FAILED"
+    assert controller._backend_quarantined is True
+    assert client.timeout == 0.05
+    assert socket.RCVTIMEO == 50
+    assert socket.SNDTIMEO == 50
+    old_application = session.application
+    replacement = controller.reset()
+    assert replacement is not old_application
+    assert session.quarantined_reset_calls == 1
+
+
+def test_final_probe_timeout_finalize_failure_never_reuses_old_backend(
+    tmp_path,
+    monkeypatch,
+):
+    entered = threading.Event()
+    release = threading.Event()
+    socket = ProtocolSocket(rcvtimeo=5000, sndtimeo=7000)
+    client = ProtocolFaithfulClient(timeout=600.0, socket=socket)
+    replacement_client = ProtocolFaithfulClient()
+    actions: list[tuple] = []
+    robot = FakeRobot(actions)
+    tool = FakeTool(actions)
+    session = RebuildingFakeSession(
+        robot=robot,
+        tool=tool,
+        client=client,
+        replacement_client=replacement_client,
+    )
+    session.application.sim = ProbeSim.motion(
+        actions=session.actions,
+        block_after=7,
+        block_entered=entered,
+        block_release=release,
+    )
+    context, definition, manifest = experiment_bundle(tmp_path)
+    controller, _, _ = make_controller(
+        tmp_path,
+        "def main(ctx):\n    pass\n",
+        session=session,
+        execution_policy=policy(command_timeout_s=0.05),
+        experiment_context=context,
+        experiment_definition=definition,
+        scene_manifest=manifest,
+    )
+    assert controller.validate().ok is True
+    at_finalize: dict[str, object] = {}
+
+    def fail_finalize(*args, **kwargs):
+        at_finalize.update(
+            tool_off_calls=tool.off_calls,
+            robot_pose_calls=robot.pose_calls,
+            robot_home_calls=robot.home_calls,
+            socket_accesses=tuple(socket.access_history),
+            probe_thread=controller._backend_action_thread,
+        )
+        raise OSError("summary-write-failed")
+
+    monkeypatch.setattr(
+        runner_module.StudentRunEvidence,
+        "finalize",
+        fail_finalize,
+    )
+    controller.start()
+    assert entered.wait(3)
+    result = controller.wait(timeout_s=2)
+    probe_thread = at_finalize["probe_thread"]
+
+    try:
+        assert result.status == "FAILED"
+        assert result.error["code"] == "STUDENT_EVIDENCE_FAILED"
+        assert result.error["details"]["original_status"] == "PASS"
+        assert result.error["details"]["original_error"] is None
+        assert result.summary_path is None
+        assert tool.off_calls == at_finalize["tool_off_calls"]
+        assert robot.pose_calls == at_finalize["robot_pose_calls"]
+        assert robot.home_calls == at_finalize["robot_home_calls"]
+        assert tuple(socket.access_history) == at_finalize[
+            "socket_accesses"
+        ]
+        assert probe_thread.is_alive() is True
+        assert controller._backend_action_is_alive() is True
+        assert controller._backend_action_threads.get(probe_thread) == (
+            "probe:final"
+        )
+        final_path = result.evidence_dir / "scene-final.json"
+        final_bytes = final_path.read_bytes()
+        with pytest.raises(RuntimeError, match="STUDENT_BACKEND_COMMAND_STUCK"):
+            controller.reset()
+    finally:
+        release.set()
+
+    probe_thread.join(timeout=2)
+    assert probe_thread.is_alive() is False
+    assert controller.wait_for_quiescence(2) is True
+    assert controller._backend_action_threads == {}
+    assert final_path.read_bytes() == final_bytes
+    assert list(result.evidence_dir.glob("scene-final*.json")) == [
+        final_path
+    ]
+    old_application = session.application
+    replacement = controller.reset()
+    assert replacement is not old_application
+    assert session.quarantined_reset_calls == 1
+    assert session.reset_calls == 0
+    assert socket.RCVTIMEO == 50
+    assert socket.SNDTIMEO == 50
+    assert session.application.client is replacement_client
+    assert controller._backend_action_threads == {}
+
+
+def test_final_probe_transport_finalize_failure_never_reuses_old_backend(
+    tmp_path,
+    monkeypatch,
+):
+    socket = ProtocolSocket(rcvtimeo=5000, sndtimeo=7000)
+    client = ProtocolFaithfulClient(timeout=600.0, socket=socket)
+    replacement_client = ProtocolFaithfulClient()
+    actions: list[tuple] = []
+    robot = FakeRobot(actions)
+    tool = FakeTool(actions)
+    session = RebuildingFakeSession(
+        robot=robot,
+        tool=tool,
+        client=client,
+        replacement_client=replacement_client,
+    )
+    session.application.sim = ProbeSim.motion(
+        actions=session.actions,
+        probe_error_after=7,
+        probe_error=ProtocolAgain(),
+    )
+    context, definition, manifest = experiment_bundle(tmp_path)
+    controller, _, _ = make_controller(
+        tmp_path,
+        "def main(ctx):\n    pass\n",
+        session=session,
+        execution_policy=policy(command_timeout_s=0.05),
+        experiment_context=context,
+        experiment_definition=definition,
+        scene_manifest=manifest,
+    )
+    assert controller.validate().ok is True
+    at_finalize: dict[str, object] = {}
+
+    def fail_finalize(*args, **kwargs):
+        at_finalize.update(
+            tool_off_calls=tool.off_calls,
+            robot_pose_calls=robot.pose_calls,
+            robot_home_calls=robot.home_calls,
+            socket_accesses=tuple(socket.access_history),
+        )
+        raise OSError("summary-write-failed")
+
+    monkeypatch.setattr(
+        runner_module.StudentRunEvidence,
+        "finalize",
+        fail_finalize,
+    )
+    controller.start()
+    result = controller.wait(timeout_s=2)
+
+    assert result.status == "FAILED"
+    assert result.error["code"] == "STUDENT_EVIDENCE_FAILED"
+    assert result.error["details"]["original_status"] == "PASS"
+    assert result.error["details"]["original_error"] is None
+    assert result.summary_path is None
+    assert tool.off_calls == at_finalize["tool_off_calls"]
+    assert robot.pose_calls == at_finalize["robot_pose_calls"]
+    assert robot.home_calls == at_finalize["robot_home_calls"]
+    assert tuple(socket.access_history) == at_finalize["socket_accesses"]
+    assert controller._backend_quarantined is True
+    assert controller._backend_action_is_alive() is False
+    assert controller._backend_action_threads == {}
+    final_path = result.evidence_dir / "scene-final.json"
+    final_bytes = final_path.read_bytes()
+    final_probe = json.loads(final_bytes)
+    assert final_probe["error"]["code"] == (
+        "SCENE_PROBE_TRANSPORT_FAILED"
+    )
+    assert list(result.evidence_dir.glob("scene-final*.json")) == [
+        final_path
+    ]
+    old_application = session.application
+    replacement = controller.reset()
+    assert replacement is not old_application
+    assert session.quarantined_reset_calls == 1
+    assert session.reset_calls == 0
+    assert final_path.read_bytes() == final_bytes
+    assert socket.RCVTIMEO == 50
+    assert socket.SNDTIMEO == 50
+    assert session.application.client is replacement_client
+    assert controller._backend_action_threads == {}
+
+
+_TYPE_SENSITIVE_PAIRS = [
+    (True, 1),
+    (False, 0),
+    (1, 1.0),
+    (True, 1.0),
+    (False, 0.0),
+]
+
+_INVALID_IDENTITY_EQUAL_PAIRS = [
+    *_TYPE_SENSITIVE_PAIRS,
+    ("", ""),
+    ("   ", "   "),
+]
+
+
+@pytest.mark.parametrize(
+    "context_value,definition_value",
+    _INVALID_IDENTITY_EQUAL_PAIRS,
+)
+@pytest.mark.parametrize(
+    "identity_field",
+    ["experiment_id", "experiment_version"],
+)
+def test_experiment_identity_requires_exact_nonempty_strings_before_spawn(
+    tmp_path,
+    identity_field,
+    context_value,
+    definition_value,
+):
+    session = FakeSession()
+    session.application.sim = ProbeSim.motion(actions=session.actions)
+    context, definition, manifest = experiment_bundle(tmp_path)
+    if identity_field == "experiment_id":
+        context = replace(context, experiment_id=context_value)
+        definition = replace(
+            definition,
+            experiment_id=definition_value,
+        )
+    else:
+        context = replace(
+            context,
+            experiment_version=context_value,
+        )
+        definition = replace(definition, version=definition_value)
+    controller, _, _ = make_controller(
+        tmp_path,
+        "def main(ctx):\n    pass\n",
+        session=session,
+        experiment_context=context,
+        experiment_definition=definition,
+        scene_manifest=manifest,
+    )
+
+    class NoSpawnContext:
+        def Pipe(self, *args, **kwargs):
+            raise AssertionError("student spawn was attempted")
+
+    controller._context = NoSpawnContext()
+    assert controller.validate().ok is True
+    controller.start()
+    result = controller.wait(timeout_s=2)
+
+    assert result.status == "FAILED"
+    assert result.error["code"] == "EXPERIMENT_CONTEXT_INVALID"
+
+
+@pytest.mark.parametrize("context_value,definition_value", _TYPE_SENSITIVE_PAIRS)
+def test_context_definition_binding_is_type_sensitive_before_spawn(
+    tmp_path,
+    context_value,
+    definition_value,
+):
+    session = FakeSession()
+    session.application.sim = ProbeSim.motion(actions=session.actions)
+    context, definition, manifest = experiment_bundle(
+        tmp_path,
+        public_parameters={"typed_value": context_value},
+    )
+    definition = replace(
+        definition,
+        public_parameters={"typed_value": definition_value},
+    )
+    controller, _, _ = make_controller(
+        tmp_path,
+        "def main(ctx):\n    pass\n",
+        session=session,
+        experiment_context=context,
+        experiment_definition=definition,
+        scene_manifest=manifest,
+    )
+
+    class NoSpawnContext:
+        def Pipe(self, *args, **kwargs):
+            raise AssertionError("student spawn was attempted")
+
+    controller._context = NoSpawnContext()
+    assert controller.validate().ok is True
+    controller.start()
+    result = controller.wait(timeout_s=2)
+
+    assert result.status == "FAILED"
+    assert result.error["code"] == "EXPERIMENT_CONTEXT_INVALID"
+
+
+@pytest.mark.parametrize("passed_value,file_value", _TYPE_SENSITIVE_PAIRS)
+def test_passed_and_file_manifest_binding_is_type_sensitive_before_spawn(
+    tmp_path,
+    passed_value,
+    file_value,
+):
+    session = FakeSession()
+    session.application.sim = ProbeSim.motion(actions=session.actions)
+    context, definition, manifest = experiment_bundle(tmp_path)
+    manifest["typed_value"] = passed_value
+    file_manifest = json.loads(json.dumps(manifest))
+    file_manifest["typed_value"] = file_value
+    definition.scene_manifest.write_text(
+        json.dumps(file_manifest),
+        encoding="utf-8",
+    )
+    controller, _, _ = make_controller(
+        tmp_path,
+        "def main(ctx):\n    pass\n",
+        session=session,
+        experiment_context=context,
+        experiment_definition=definition,
+        scene_manifest=manifest,
+    )
+
+    class NoSpawnContext:
+        def Pipe(self, *args, **kwargs):
+            raise AssertionError("student spawn was attempted")
+
+    controller._context = NoSpawnContext()
+    assert controller.validate().ok is True
+    controller.start()
+    result = controller.wait(timeout_s=2)
+
+    assert result.status == "FAILED"
+    assert result.error["code"] == "EXPERIMENT_CONTEXT_INVALID"
+
+
+@pytest.mark.parametrize("schema_version", [True, 1.0])
+def test_manifest_schema_version_requires_exact_integer_one_before_spawn(
+    tmp_path,
+    schema_version,
+):
+    session = FakeSession()
+    session.application.sim = ProbeSim.motion(actions=session.actions)
+    context, definition, manifest = experiment_bundle(tmp_path)
+    manifest["schema_version"] = schema_version
+    definition.scene_manifest.write_text(
+        json.dumps(manifest),
+        encoding="utf-8",
+    )
+    controller, _, _ = make_controller(
+        tmp_path,
+        "def main(ctx):\n    pass\n",
+        session=session,
+        experiment_context=context,
+        experiment_definition=definition,
+        scene_manifest=manifest,
+    )
+
+    class NoSpawnContext:
+        def Pipe(self, *args, **kwargs):
+            raise AssertionError("student spawn was attempted")
+
+    controller._context = NoSpawnContext()
+    assert controller.validate().ok is True
+    controller.start()
+    result = controller.wait(timeout_s=2)
+
+    assert result.status == "FAILED"
+    assert result.error["code"] == "EXPERIMENT_CONTEXT_INVALID"
 
 
 def student_processes():
