@@ -142,6 +142,7 @@ tests/test_simulation/test_runtime_verification_report.py
 tests/test_simulation/test_scene_manifest.py
 tests/test_student_programs/test_cli.py
 tests/test_student_programs/test_evidence.py
+tests/test_student_programs/test_experiment_gateway.py
 tests/test_student_programs/test_protocol.py
 tests/test_student_programs/test_runner.py
 tests/test_student_programs/test_sdk.py
@@ -218,6 +219,7 @@ vision_platform/robot/tool.py
 vision_platform/session.py
 vision_platform/student/__init__.py
 vision_platform/student/evidence.py
+vision_platform/student/experiment_gateway.py
 vision_platform/student/protocol.py
 vision_platform/student/runner.py
 vision_platform/student/safety.py

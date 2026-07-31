@@ -1649,7 +1649,7 @@ git commit -m "feat(student): record experiment camera evidence"
 - Modify: `tests/test_student_programs/test_sdk.py`
 - Modify: `tests/test_student_programs/test_runner.py`
 
-- [ ] **Step 1: 写协议和 SDK 失败测试**
+- [x] **Step 1: 写协议和 SDK 失败测试**
 
 Append to `tests/test_student_programs/test_protocol.py`:
 
@@ -1724,7 +1724,7 @@ def test_student_experiment_returns_detached_public_info():
     assert connection.sent[0]["name"] == "experiment.info"
 ```
 
-- [ ] **Step 2: 写主进程网关失败测试**
+- [x] **Step 2: 写主进程网关失败测试**
 
 Create `tests/test_student_programs/test_experiment_gateway.py`:
 
@@ -1806,7 +1806,7 @@ def test_gateway_returns_public_experiment_data_only(tmp_path):
     assert "scene_manifest_path" not in value
 ```
 
-- [ ] **Step 3: 运行新增测试并确认先失败**
+- [x] **Step 3: 运行新增测试并确认先失败**
 
 Run:
 
@@ -1820,7 +1820,7 @@ python -m pytest `
 
 Expected: FAIL，指出新命令、SDK 属性和网关不存在。
 
-- [ ] **Step 4: 扩展白名单和学生 SDK**
+- [x] **Step 4: 扩展白名单和学生 SDK**
 
 在 `vision_platform/student/protocol.py` 的 `ALLOWED_COMMANDS` 中增加：
 
@@ -1901,7 +1901,7 @@ class StudentExperiment:
         self.experiment = StudentExperiment(self._rpc)
 ```
 
-- [ ] **Step 5: 实现主进程只读网关**
+- [x] **Step 5: 实现主进程只读网关**
 
 Create `vision_platform/student/experiment_gateway.py`:
 
@@ -1967,7 +1967,7 @@ class StudentExperimentGateway:
         }
 ```
 
-- [ ] **Step 6: 接入唯一控制器命令分派**
+- [x] **Step 6: 接入唯一控制器命令分派**
 
 给 `StudentProgramController` 构造函数增加必选的 V2.2 上下文参数：
 
@@ -2013,7 +2013,7 @@ if command.name in {"camera.capture", "experiment.info"}:
 
 不得使用 `getattr` 动态调用。`robot.*` 和 `tool.*` 仍进入 V2.1 `StudentMotionGuard`，不经过实验网关。
 
-- [ ] **Step 7: 增加控制器集成断言**
+- [x] **Step 7: 增加控制器集成断言**
 
 Append to `tests/test_student_programs/test_runner.py`:
 
@@ -2035,7 +2035,7 @@ def test_camera_command_without_experiment_context_fails_closed(tmp_path):
 
 同时给既有 `make_controller()` 辅助函数增加 `experiment_context=None` 参数，并原样传给 `StudentProgramController`。
 
-- [ ] **Step 8: 运行学生程序完整回归**
+- [x] **Step 8: 运行学生程序完整回归**
 
 Run:
 
@@ -2045,7 +2045,7 @@ python -m pytest tests/test_student_programs -q
 
 Expected: 全部 PASS，V2.1 的运动、暂停、单步、停止、超时和证据测试均不退化。
 
-- [ ] **Step 9: 提交 SDK 扩展**
+- [x] **Step 9: 提交 SDK 扩展**
 
 Run:
 

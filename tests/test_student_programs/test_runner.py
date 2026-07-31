@@ -9,9 +9,12 @@ from dataclasses import FrozenInstanceError
 from pathlib import Path
 from types import SimpleNamespace
 
+import numpy as np
 import pytest
 
 import vision_platform.student.runner as runner_module
+from vision_platform.experiments.models import ExperimentRunContext
+from vision_platform.models import Frame
 from vision_platform.robot.safety import WorkspacePolicy
 from vision_platform.student.protocol import RunState
 from vision_platform.student.runner import (
@@ -273,6 +276,19 @@ class FakeSession:
         return self.application
 
 
+class FakeCamera:
+    def read(self, timeout_s):
+        assert timeout_s == 2.0
+        return Frame(
+            image_bgr=np.full((3, 4, 3), 80, dtype=np.uint8),
+            width=4,
+            height=3,
+            timestamp_s=1.25,
+            source="coppeliasim",
+            sequence_id=7,
+        )
+
+
 class RebuildingFakeSession(FakeSession):
     def __init__(self, *, replacement_client, **kwargs):
         super().__init__(**kwargs)
@@ -324,16 +340,96 @@ def make_controller(
     backend: str = "sim",
     execution_policy: StudentExecutionPolicy | None = None,
     session: FakeSession | None = None,
+    experiment_context: ExperimentRunContext | None = None,
 ):
     selected_session = session or FakeSession(backend=backend)
     controller = StudentProgramController(
         session=selected_session,
         execution_policy=execution_policy or policy(),
         output_root=tmp_path / "runs",
+        experiment_context=experiment_context,
     )
     program = write_program(tmp_path, source)
     controller.load(program)
     return controller, selected_session, program
+
+
+def experiment_context(tmp_path: Path) -> ExperimentRunContext:
+    return ExperimentRunContext(
+        experiment_id="R1-05",
+        experiment_version="2.2.0",
+        scene_path=tmp_path / "scene.ttt",
+        scene_sha256="a" * 64,
+        scene_manifest_path=tmp_path / "scene_manifest.json",
+        public_parameters={"safe_z_mm": 100},
+    )
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "def main(ctx):\n    ctx.camera.capture()\n",
+        "def main(ctx):\n    ctx.experiment.info()\n",
+    ],
+)
+def test_experiment_command_without_context_fails_closed(tmp_path, source):
+    controller, _, _ = make_controller(
+        tmp_path,
+        source,
+        experiment_context=None,
+    )
+    assert controller.validate().ok is True
+
+    controller.start()
+    result = controller.wait(timeout_s=3)
+
+    assert result.status == "FAILED"
+    assert result.error["code"] == "EXPERIMENT_CONTEXT_REQUIRED"
+
+
+def test_controller_dispatches_experiment_commands_and_records_metadata(
+    tmp_path,
+):
+    session = FakeSession()
+    session.application.camera = FakeCamera()
+    controller, _, _ = make_controller(
+        tmp_path,
+        (
+            "def main(ctx):\n"
+            "    info = ctx.experiment.info()\n"
+            "    frame = ctx.camera.capture()\n"
+            "    ctx.log(info['experiment_id'])\n"
+            "    ctx.log(frame.snapshot_id)\n"
+        ),
+        session=session,
+        experiment_context=experiment_context(tmp_path),
+    )
+    assert controller.validate().ok is True
+
+    controller.start()
+    result = controller.wait(timeout_s=3)
+
+    assert result.status == "PASS", result.error
+    assert result.evidence_dir is not None
+    manifest = json.loads(
+        (result.evidence_dir / "manifest.json").read_text(encoding="utf-8")
+    )
+    snapshots = [
+        json.loads(line)
+        for line in (result.evidence_dir / "snapshots.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+    ]
+    assert manifest["experiment_id"] == "R1-05"
+    assert manifest["experiment_version"] == "2.2.0"
+    assert manifest["scene_sha256"] == "a" * 64
+    assert manifest["hardware_status"] == "PENDING_HARDWARE"
+    assert "scene_path" not in manifest
+    assert snapshots[0]["source"] == "coppeliasim"
+    assert snapshots[0]["sequence_id"] == 7
+    assert (result.evidence_dir / snapshots[0]["path"]).read_bytes().startswith(
+        b"\x89PNG\r\n\x1a\n"
+    )
 
 
 def student_processes():

@@ -8,9 +8,11 @@ from typing import Any, Mapping
 SCHEMA_VERSION = 1
 ALLOWED_COMMANDS = frozenset(
     {
+        "camera.capture",
         "context.log",
         "context.sleep",
         "context.checkpoint",
+        "experiment.info",
         "robot.home",
         "robot.move_world",
         "robot.pose",

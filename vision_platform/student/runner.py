@@ -14,7 +14,9 @@ from pathlib import Path
 from typing import Any, Callable
 
 from vision_platform.errors import VisionPlatformError
+from vision_platform.experiments.models import ExperimentRunContext
 from vision_platform.student.evidence import StudentRunEvidence
+from vision_platform.student.experiment_gateway import StudentExperimentGateway
 from vision_platform.student.protocol import (
     CommandMessage,
     ResponseMessage,
@@ -449,10 +451,12 @@ class StudentProgramController:
         session: Any,
         execution_policy: StudentExecutionPolicy,
         output_root: str | Path,
+        experiment_context: ExperimentRunContext | None = None,
     ) -> None:
         self._session = session
         self._policy = execution_policy
         self._output_root = Path(output_root).expanduser().resolve()
+        self._experiment_context = experiment_context
         self._context = multiprocessing.get_context("spawn")
 
         self._condition = threading.Condition(threading.RLock())
@@ -469,6 +473,7 @@ class StudentProgramController:
         self._guard = self._new_guard(self._application)
 
         self._evidence: StudentRunEvidence | None = None
+        self._experiment_gateway: StudentExperimentGateway | None = None
         self._result: StudentRunResult | None = None
         self._error: dict[str, Any] | None = None
         self._cleanup_errors: list[dict[str, Any]] = []
@@ -607,10 +612,16 @@ class StudentProgramController:
         assert selected is not None
 
         try:
+            run_metadata = (
+                self._experiment_context.to_public_dict()
+                if self._experiment_context is not None
+                else {"hardware_status": "PENDING_HARDWARE"}
+            )
             evidence = StudentRunEvidence.create(
                 output_root=self._output_root,
                 program_path=selected,
                 robot_backend="sim",
+                run_metadata=run_metadata,
             )
         except BaseException as create_error:
             error = _exception_error(
@@ -634,6 +645,15 @@ class StudentProgramController:
 
         with self._condition:
             self._prepare_run_locked(evidence)
+            self._experiment_gateway = (
+                StudentExperimentGateway(
+                    application=self._application,
+                    evidence=evidence,
+                    context=self._experiment_context,
+                )
+                if self._experiment_context is not None
+                else None
+            )
         try:
             self._bound_client_timeout()
         except BaseException as timeout_guard_error:
@@ -1039,6 +1059,7 @@ class StudentProgramController:
             self._application = application
             self._guard = guard
             self._evidence = None
+            self._experiment_gateway = None
             self._result = None
             self._error = None
             self._cleanup_errors = []
@@ -1764,11 +1785,16 @@ class StudentProgramController:
         if requested is not None:
             return requested
         try:
+            response_value = (
+                value
+                if command.name == "camera.capture"
+                else _json_safe(value)
+            )
             self._send_response(
                 ResponseMessage(
                     command_id=command.command_id,
                     status="PASS",
-                    value=_json_safe(value),
+                    value=response_value,
                     error=None,
                 )
             )
@@ -1920,6 +1946,14 @@ class StudentProgramController:
         return result.get("value")
 
     def _dispatch(self, command: CommandMessage) -> Any:
+        if command.name in {"camera.capture", "experiment.info"}:
+            gateway = self._experiment_gateway
+            if gateway is None:
+                raise VisionPlatformError(
+                    "EXPERIMENT_CONTEXT_REQUIRED",
+                    "当前运行没有选择 V2.2 实验",
+                )
+            return gateway.dispatch(command.name, command.args)
         dispatch: dict[str, Callable[[Mapping[str, Any]], Any]] = {
             "context.log": self._command_log,
             "context.sleep": self._command_sleep,

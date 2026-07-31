@@ -120,9 +120,11 @@ def test_run_state_values_are_stable_and_ordered():
 def test_allowed_commands_are_exactly_the_public_student_api():
     assert ALLOWED_COMMANDS == frozenset(
         {
+            "camera.capture",
             "context.log",
             "context.sleep",
             "context.checkpoint",
+            "experiment.info",
             "robot.home",
             "robot.move_world",
             "robot.pose",
@@ -130,3 +132,8 @@ def test_allowed_commands_are_exactly_the_public_student_api():
             "tool.off",
         }
     )
+
+
+def test_v2_2_read_only_commands_are_whitelisted():
+    assert "camera.capture" in ALLOWED_COMMANDS
+    assert "experiment.info" in ALLOWED_COMMANDS

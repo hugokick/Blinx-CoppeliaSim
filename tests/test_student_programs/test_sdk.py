@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import cv2
+import numpy as np
 import pytest
 
 from vision_platform.errors import VisionPlatformError
@@ -41,6 +43,23 @@ class PoseResponseConnection(FakeConnection):
             command_id=self.sent[-1]["command_id"],
             status="PASS",
             value=self.value,
+            error=None,
+        ).to_dict()
+
+
+class ScriptedConnection:
+    def __init__(self, values: list[object]) -> None:
+        self.values = list(values)
+        self.sent: list[dict] = []
+
+    def send(self, payload: dict) -> None:
+        self.sent.append(payload)
+
+    def recv(self) -> dict:
+        return ResponseMessage(
+            command_id=self.sent[-1]["command_id"],
+            status="PASS",
+            value=self.values.pop(0),
             error=None,
         ).to_dict()
 
@@ -238,3 +257,108 @@ def test_pose_rejects_malformed_or_non_finite_response(value: object) -> None:
 
     with pytest.raises(RuntimeError, match="PROTOCOL_RESPONSE_INVALID"):
         StudentContext(connection).robot.pose()
+
+
+def _png_value(**overrides):
+    image = np.zeros((3, 4, 3), dtype=np.uint8)
+    image[:, :, 1] = 200
+    ok, encoded = cv2.imencode(".png", image)
+    assert ok
+    value = {
+        "snapshot_id": "frame-000001",
+        "png_bytes": encoded.tobytes(),
+        "width": 4,
+        "height": 3,
+        "source": "coppeliasim",
+        "sequence_id": 9,
+    }
+    value.update(overrides)
+    return value
+
+
+def test_student_camera_decodes_png_into_irreversibly_read_only_bgr():
+    connection = ScriptedConnection([_png_value()])
+
+    frame = StudentContext(connection).camera.capture()
+
+    assert frame.snapshot_id == "frame-000001"
+    assert frame.image_bgr.shape == (3, 4, 3)
+    assert frame.image_bgr.dtype == np.uint8
+    assert frame.image_bgr.flags.writeable is False
+    with pytest.raises(ValueError):
+        frame.image_bgr.setflags(write=True)
+    with pytest.raises(ValueError):
+        frame.image_bgr[0, 0, 0] = 255
+    assert connection.sent[0]["name"] == "camera.capture"
+
+
+@pytest.mark.parametrize(
+    ("overrides", "message"),
+    [
+        ({"png_bytes": b"not-png"}, "camera.capture"),
+        ({"png_bytes": bytearray(b"not-png")}, "camera.capture"),
+        ({"width": True}, "camera dimensions"),
+        ({"width": 5}, "camera dimensions"),
+        ({"height": 0}, "camera dimensions"),
+        ({"source": "hikvision"}, "camera source"),
+        ({"source": 3}, "camera source"),
+        ({"sequence_id": True}, "camera sequence"),
+        ({"sequence_id": -1}, "camera sequence"),
+        ({"snapshot_id": "../escape"}, "snapshot_id"),
+    ],
+)
+def test_student_camera_strictly_rejects_invalid_snapshot_metadata(
+    overrides, message
+):
+    connection = ScriptedConnection([_png_value(**overrides)])
+
+    with pytest.raises(RuntimeError, match=message):
+        StudentContext(connection).camera.capture()
+
+
+def test_student_experiment_returns_detached_public_json_info():
+    value = {
+        "experiment_id": "R1-05",
+        "experiment_version": "2.2.0",
+        "scene_sha256": "a" * 64,
+        "public_parameters": {"safe_z_mm": 100, "labels": ["A", "B"]},
+        "hardware_status": "PENDING_HARDWARE",
+    }
+    connection = ScriptedConnection([value])
+
+    info = StudentContext(connection).experiment.info()
+    info["public_parameters"]["labels"].append("student-change")
+
+    assert info["experiment_id"] == "R1-05"
+    assert info["hardware_status"] == "PENDING_HARDWARE"
+    assert value["public_parameters"]["labels"] == ["A", "B"]
+    assert connection.sent[0]["name"] == "experiment.info"
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        [],
+        {"hardware_status": "PASS"},
+        {
+            "experiment_id": "R1-05",
+            "hardware_status": "PENDING_HARDWARE",
+            "scene_path": "secret.ttt",
+        },
+        {
+            "experiment_id": "R1-05",
+            "hardware_status": "PENDING_HARDWARE",
+            "public_parameters": {"bad": object()},
+        },
+        {
+            "experiment_id": "R1-05",
+            "hardware_status": "PENDING_HARDWARE",
+            "public_parameters": {"bad": float("nan")},
+        },
+    ],
+)
+def test_student_experiment_rejects_non_public_or_non_json_info(value):
+    connection = ScriptedConnection([value])
+
+    with pytest.raises(RuntimeError, match="PROTOCOL_RESPONSE_INVALID"):
+        StudentContext(connection).experiment.info()
