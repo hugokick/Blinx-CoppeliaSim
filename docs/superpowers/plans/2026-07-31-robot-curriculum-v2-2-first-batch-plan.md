@@ -896,7 +896,7 @@ Expected: 提交只包含正式目录 JSON 和目录合同测试；引用的场�
 - Create: `vision_platform/experiments/capabilities.py`
 - Create: `tests/test_experiments/test_capabilities.py`
 
-- [ ] **Step 1: 写能力检查失败测试**
+- [x] **Step 1: 写能力检查失败测试**
 
 Create `tests/test_experiments/test_capabilities.py`:
 
@@ -962,7 +962,7 @@ def test_unknown_capability_is_not_silently_accepted():
     assert "未注册能力" in report.reasons["robot.fly"]
 ```
 
-- [ ] **Step 2: 运行测试并确认先失败**
+- [x] **Step 2: 运行测试并确认先失败**
 
 Run:
 
@@ -972,7 +972,7 @@ python -m pytest tests/test_experiments/test_capabilities.py -q
 
 Expected: FAIL with `ModuleNotFoundError: vision_platform.experiments.capabilities`。
 
-- [ ] **Step 3: 实现固定能力注册表**
+- [x] **Step 3: 实现固定能力注册表**
 
 Create `vision_platform/experiments/capabilities.py`:
 
@@ -1034,7 +1034,7 @@ def check_capabilities(
     )
 ```
 
-- [ ] **Step 4: 运行测试并提交**
+- [x] **Step 4: 运行测试并提交**
 
 Run:
 
