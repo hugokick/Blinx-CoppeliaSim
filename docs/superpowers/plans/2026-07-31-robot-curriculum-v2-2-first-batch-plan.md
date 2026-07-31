@@ -2284,7 +2284,19 @@ Expected: 全部 PASS，提交成功。
 - Create: `tests/test_simulation/test_training_labels.py`
 - Create: `tests/test_simulation/test_training_scene_contract.py`
 
-- [ ] **Step 1: 写原创标签生成失败测试**
+> **集成候选审计（2026-07-31）：** `91f95c2` 已带入本 Task 的生成器、
+> 三张标签、清单、场景合同和四项基础测试；本集成树首次新鲜运行结果为
+> `4 passed`，因此没有重现下文预期的 `ModuleNotFoundError`，也不把它记作
+> 本轮 RED。针对候选缺口新增严格合同测试后，真实 RED 为
+> `33 failed, 14 passed`；补充空 `required_paths` 边界时，该组真实 RED 为
+> `6 failed`。最小加固后，标签、合同及两个正式场景合同的新鲜回归为
+> `57 passed`。质量复审补充 hardlink、PNG staging 部分写失败和发布替换
+> 失败三项边界时，三条选择器分别真实得到 `1 failed, 52 deselected`、
+> `1 failed, 4 deselected` 和 `1 failed, 4 deselected`；原子发布加固后的
+> 更新目标回归为 `61 passed`。两个独立临时目录生成的 PNG 和
+> `manifest.json` 与正式素材逐文件字节及 SHA256 一致。
+
+- [x] **Step 1: 写原创标签生成失败测试**
 
 Create `tests/test_simulation/test_training_labels.py`:
 
@@ -2326,7 +2338,7 @@ def test_digit_labels_are_deterministic_and_manifested(tmp_path):
         assert image.max() == 255
 ```
 
-- [ ] **Step 2: 写场景合同失败测试**
+- [x] **Step 2: 写场景合同失败测试**
 
 Create `tests/test_simulation/test_training_scene_contract.py`:
 
@@ -2400,7 +2412,7 @@ def test_scene_contract_rejects_modified_template(tmp_path):
         validate_scene_contract(spec, manifest, project_root=tmp_path)
 ```
 
-- [ ] **Step 3: 运行测试并确认先失败**
+- [x] **Step 3: 运行测试并确认先失败**
 
 Run:
 
@@ -2413,7 +2425,7 @@ python -m pytest `
 
 Expected: FAIL with `ModuleNotFoundError: simulation.training_scenes`。
 
-- [ ] **Step 4: 实现确定性原创数字参考图**
+- [x] **Step 4: 实现确定性原创数字参考图**
 
 Create `simulation/training_scenes/generate_labels.py`:
 
@@ -2499,7 +2511,7 @@ if __name__ == "__main__":
     raise SystemExit(main())
 ```
 
-- [ ] **Step 5: 实现场景规格、清单和哈希合同**
+- [x] **Step 5: 实现场景规格、清单和哈希合同**
 
 Create `simulation/training_scenes/scene_contract.py`:
 
@@ -2573,7 +2585,7 @@ Create `simulation/training_scenes/__init__.py`:
 """Shared builders and contracts for modular training scenes."""
 ```
 
-- [ ] **Step 6: 运行测试并生成正式数字素材**
+- [x] **Step 6: 运行测试并生成正式数字素材**
 
 Run:
 
@@ -2588,7 +2600,7 @@ python -m simulation.training_scenes.generate_labels `
 
 Expected: `3 passed`；生成 `1.png`、`2.png`、`3.png` 和 `manifest.json`，清单标记 `project-original-generated`。
 
-- [ ] **Step 7: 提交素材和合同**
+- [x] **Step 7: 提交素材和合同**
 
 Run:
 

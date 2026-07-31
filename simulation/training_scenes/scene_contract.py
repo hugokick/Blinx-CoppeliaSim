@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +22,80 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _schema_one(payload: dict[str, Any]) -> None:
+    value = payload.get("schema_version")
+    if type(value) is not int or value != 1:
+        raise ValueError("scene schema_version must be integer 1")
+
+
+def _scene_id(payload: dict[str, Any]) -> str:
+    value = payload.get("scene_id")
+    if (
+        not isinstance(value, str)
+        or not value.strip()
+        or value != value.strip()
+    ):
+        raise ValueError("scene_id must be a non-empty string")
+    return value
+
+
+def _project_relative_path(value: Any, *, label: str) -> str:
+    if (
+        not isinstance(value, str)
+        or not value.strip()
+        or value != value.strip()
+    ):
+        raise ValueError(
+            f"{label} must be a non-empty project-relative path"
+        )
+    path = Path(value)
+    if path.is_absolute() or bool(path.anchor):
+        raise ValueError(
+            f"{label} must be a non-empty project-relative path"
+        )
+    return value
+
+
+def _manifest_file(
+    manifest: dict[str, Any],
+    field: str,
+) -> tuple[str, str]:
+    payload = manifest.get(field)
+    if not isinstance(payload, dict):
+        raise ValueError(f"manifest {field} must be an object")
+    path = _project_relative_path(
+        payload.get("path"),
+        label=f"manifest {field} path",
+    )
+    sha256 = payload.get("sha256")
+    if not isinstance(sha256, str) or re.fullmatch(
+        r"[0-9a-f]{64}", sha256
+    ) is None:
+        raise ValueError(
+            f"manifest {field} sha256 must be 64 lowercase hexadecimal "
+            "characters"
+        )
+    return path, sha256
+
+
+def _required_paths(payload: dict[str, Any], *, label: str) -> list[str]:
+    paths = payload.get("required_paths")
+    if not isinstance(paths, list) or not paths:
+        raise ValueError(f"{label} required_paths must be a non-empty list")
+    if any(
+        not isinstance(path, str)
+        or path != path.strip()
+        or not path.startswith("/")
+        for path in paths
+    ):
+        raise ValueError(
+            f"{label} required_paths must contain absolute object paths"
+        )
+    if len(paths) != len(set(paths)):
+        raise ValueError(f"{label} required_paths must be unique")
+    return paths
+
+
 def _inside(root: Path, raw: str) -> Path:
     path = (root / raw).resolve()
     if path != root and root not in path.parents:
@@ -28,6 +103,15 @@ def _inside(root: Path, raw: str) -> Path:
     if not path.is_file():
         raise ValueError(f"file does not exist: {raw}")
     return path
+
+
+def _same_file(first: Path, second: Path) -> bool:
+    try:
+        return first.samefile(second)
+    except OSError as exc:
+        raise ValueError(
+            "could not verify training scene file identity"
+        ) from exc
 
 
 def validate_scene_contract(
@@ -39,29 +123,48 @@ def validate_scene_contract(
     root = Path(project_root).expanduser().resolve()
     spec = _load(Path(spec_path).expanduser().resolve())
     manifest = _load(Path(manifest_path).expanduser().resolve())
-    if spec.get("schema_version") != 1 or manifest.get("schema_version") != 1:
-        raise ValueError("scene schema_version must be 1")
-    if spec["scene_id"] != manifest["scene_id"]:
+    _schema_one(spec)
+    _schema_one(manifest)
+    spec_scene_id = _scene_id(spec)
+    manifest_scene_id = _scene_id(manifest)
+    if spec_scene_id != manifest_scene_id:
         raise ValueError("scene_id mismatch")
-    if spec["template"] == spec["output"]:
+    spec_template = _project_relative_path(
+        spec.get("template"),
+        label="spec template",
+    )
+    spec_output = _project_relative_path(
+        spec.get("output"),
+        label="spec output",
+    )
+    if spec_template == spec_output:
         raise ValueError("training scene output must not overwrite template")
-    if manifest["template"]["path"] != spec["template"]:
+    manifest_template, template_sha256 = _manifest_file(
+        manifest,
+        "template",
+    )
+    manifest_scene, scene_sha256 = _manifest_file(manifest, "scene")
+    if manifest_template != spec_template:
         raise ValueError("template path mismatch")
-    if manifest["scene"]["path"] != spec["output"]:
+    if manifest_scene != spec_output:
         raise ValueError("scene path mismatch")
-    template = _inside(root, manifest["template"]["path"])
-    scene = _inside(root, manifest["scene"]["path"])
-    if _sha256(template) != manifest["template"]["sha256"]:
-        raise ValueError("template sha256 mismatch")
-    if _sha256(scene) != manifest["scene"]["sha256"]:
-        raise ValueError("scene sha256 mismatch")
+    spec_required_paths = _required_paths(spec, label="spec")
+    manifest_required_paths = _required_paths(manifest, label="manifest")
+    if spec_required_paths != manifest_required_paths:
+        raise ValueError("required_paths mismatch")
     if manifest.get("protected_assets_unchanged") is not True:
         raise ValueError("protected assets were not verified")
-    if spec["required_paths"] != manifest["required_paths"]:
-        raise ValueError("required_paths mismatch")
+    template = _inside(root, manifest_template)
+    scene = _inside(root, manifest_scene)
+    if _same_file(template, scene):
+        raise ValueError("training scene output must not overwrite template")
+    if _sha256(template) != template_sha256:
+        raise ValueError("template sha256 mismatch")
+    if _sha256(scene) != scene_sha256:
+        raise ValueError("scene sha256 mismatch")
     return {
         "status": "PASS",
-        "scene_id": spec["scene_id"],
-        "scene_sha256": manifest["scene"]["sha256"],
-        "required_path_count": len(spec["required_paths"]),
+        "scene_id": spec_scene_id,
+        "scene_sha256": scene_sha256,
+        "required_path_count": len(spec_required_paths),
     }
