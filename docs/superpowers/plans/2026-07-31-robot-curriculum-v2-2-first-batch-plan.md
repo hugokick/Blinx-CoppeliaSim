@@ -187,7 +187,7 @@ Expected: 提交只包含已确认规格、实施方案和发布白名单记录�
 - Create: `tests/test_experiments/__init__.py`
 - Create: `tests/test_experiments/test_catalog.py`
 
-- [ ] **Step 1: 写目录装载失败测试**
+- [x] **Step 1: 写目录装载失败测试**
 
 Create `tests/test_experiments/test_catalog.py`:
 
@@ -311,7 +311,7 @@ def test_catalog_rejects_paths_outside_project(tmp_path):
         )
 ```
 
-- [ ] **Step 2: 运行测试并确认先失败**
+- [x] **Step 2: 运行测试并确认先失败**
 
 Run:
 
@@ -321,7 +321,7 @@ python -m pytest tests/test_experiments/test_catalog.py -q
 
 Expected: FAIL with `ModuleNotFoundError: vision_platform.experiments`。
 
-- [ ] **Step 3: 实现不可变模型**
+- [x] **Step 3: 实现不可变模型**
 
 Create `vision_platform/experiments/models.py`:
 
@@ -388,7 +388,7 @@ class ExperimentRunContext:
         }
 ```
 
-- [ ] **Step 4: 实现严格目录装载**
+- [x] **Step 4: 实现严格目录装载**
 
 Create `vision_platform/experiments/catalog.py`:
 
@@ -551,7 +551,7 @@ from vision_platform.experiments.models import ExperimentDefinition
 __all__ = ["ExperimentCatalog", "ExperimentDefinition"]
 ```
 
-- [ ] **Step 5: 运行测试并确认通过**
+- [x] **Step 5: 运行测试并确认通过**
 
 Run:
 
@@ -561,7 +561,7 @@ python -m pytest tests/test_experiments/test_catalog.py -q
 
 Expected: `5 passed`。
 
-- [ ] **Step 6: 提交实验模型**
+- [x] **Step 6: 提交实验模型**
 
 Run:
 
