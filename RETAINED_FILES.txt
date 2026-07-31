@@ -15,6 +15,7 @@ docs/superpowers/plans/2026-07-30-coppeliasim-vision-sim-to-real-mvp-plan.md
 docs/superpowers/plans/2026-07-30-student-program-runner-v2-plan.md
 docs/superpowers/specs/2026-07-30-coppeliasim-vision-sim-to-real-mvp-design.md
 docs/superpowers/specs/2026-07-30-student-program-runner-v2-design.md
+docs/superpowers/specs/2026-07-31-vision2d-algorithm-kernel-design.md
 docs/学生自编程实验说明.md
 docs/仿真转真机验证清单.md
 docs/实验三-CoppeliaSim视觉标定.md
