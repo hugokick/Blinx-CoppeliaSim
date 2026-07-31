@@ -76,6 +76,28 @@ def test_missing_runtime_component_is_not_silently_accepted(
     assert report.reasons[capability] == reason
 
 
+def test_suction_readiness_failure_has_stable_missing_reason():
+    class UnreadySuction:
+        def __init__(self):
+            self.validate_calls = 0
+
+        def validate(self):
+            self.validate_calls += 1
+            raise KeyError("/missing/Pickables")
+
+    tool = UnreadySuction()
+    application = _application()
+    application.tool = tool
+
+    report = check_capabilities(application, ("tool.suction",))
+
+    assert tool.validate_calls == 1
+    assert report.missing == ("tool.suction",)
+    assert report.reasons["tool.suction"] == (
+        "吸盘 TCP 或可抓取集合不可用"
+    )
+
+
 def test_unknown_capability_is_not_silently_accepted():
     report = check_capabilities(_application(), ("robot.fly",))
 

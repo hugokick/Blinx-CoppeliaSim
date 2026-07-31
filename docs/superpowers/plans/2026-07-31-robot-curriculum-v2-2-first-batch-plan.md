@@ -2069,7 +2069,7 @@ git commit -m "feat(student): expose controlled camera snapshots"
 - Modify: `tests/test_experiments/test_session.py`
 - Modify: `tests/test_vision_platform/test_coppeliasim_suction.py`
 
-- [ ] **Step 1: 写任务组激活失败测试**
+- [x] **Step 1: 写任务组激活失败测试**
 
 Create `tests/test_experiments/test_scene_setup.py`:
 
@@ -2121,7 +2121,7 @@ def test_scene_without_group_needs_no_activation():
     assert sim.positions == []
 ```
 
-- [ ] **Step 2: 写吸盘路径配置失败测试**
+- [x] **Step 2: 写吸盘路径配置失败测试**
 
 Append to `tests/test_vision_platform/test_coppeliasim_suction.py`:
 
@@ -2145,7 +2145,7 @@ def test_suction_accepts_experiment_pickables_path():
 
 该测试 fixture 的 R1-01 不声明 `pickables_path`，因此保持 V2.1 默认值。
 
-- [ ] **Step 3: 运行测试并确认先失败**
+- [x] **Step 3: 运行测试并确认先失败**
 
 Run:
 
@@ -2159,7 +2159,7 @@ python -m pytest `
 
 Expected: FAIL，指出 `scene_setup` 不存在；既有吸盘构造测试继续通过。
 
-- [ ] **Step 4: 实现固定物流任务组激活**
+- [x] **Step 4: 实现固定物流任务组激活**
 
 Create `vision_platform/experiments/scene_setup.py`:
 
@@ -2211,7 +2211,7 @@ _PARKED_Z = {
             else [0.0, 0.0, _PARKED_Z[path]]
 ```
 
-- [ ] **Step 5: 在实验切换完成后激活任务组**
+- [x] **Step 5: 在实验切换完成后激活任务组**
 
 在 `vision_platform/experiments/session.py` 导入：
 
@@ -2230,7 +2230,7 @@ from vision_platform.experiments.scene_setup import activate_scene_group
 
 若激活失败，执行 `application.close()` 后重新抛出异常；不允许在任务组状态未知时启动学生程序。
 
-- [ ] **Step 6: 让应用按实验配置构造吸盘**
+- [x] **Step 6: 让应用按实验配置构造吸盘**
 
 在 `vision_platform/application.py` 中把：
 
@@ -2254,7 +2254,7 @@ from vision_platform.experiments.scene_setup import activate_scene_group
 
 该修改只改变可抓取集合路径，不改变吸盘 TCP、最大附着距离、父子关系或安全策略。
 
-- [ ] **Step 7: 运行测试并提交**
+- [x] **Step 7: 运行测试并提交**
 
 Run:
 

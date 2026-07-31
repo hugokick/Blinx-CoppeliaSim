@@ -1,5 +1,12 @@
+import json
+from dataclasses import replace
+
 import pytest
 
+import robot_backends.coppeliasim_robot as coppeliasim_robot_module
+from vision_platform import application as application_module
+from vision_platform.application import VisionLabApplication
+from vision_platform.config import load_config
 from vision_platform.errors import SuctionError
 from vision_platform.robot.coppeliasim_suction import CoppeliaSimSuction
 
@@ -21,11 +28,13 @@ class FakeScene:
         self.pickables = list(pickables if pickables is not None else objects)
         self.parents = {handle: 20 for handle in objects}
         self.static = {handle: 0 for handle in objects}
+        self.object_requests = []
         self.parent_calls = []
         self.static_calls = []
         self.reset_calls = []
 
     def getObject(self, path):
+        self.object_requests.append(path)
         return self.handles[path]
 
     def getObjectsInTree(self, root, object_type, options):
@@ -140,3 +149,96 @@ def test_objects_outside_pickables_tree_are_never_attached():
     evidence = tool.on()
 
     assert evidence.object_handle == 102
+
+
+def test_validate_resolves_scene_handles_without_attaching_an_object():
+    sim = FakeScene(
+        tcp=(0.08, 0.00, 0.03),
+        objects={101: (0.081, 0.002, 0.02)},
+    )
+    parents_before = dict(sim.parents)
+    static_before = dict(sim.static)
+    tool = CoppeliaSimSuction(sim)
+
+    tool.validate()
+
+    assert sim.object_requests == [
+        "/BLX_tool_suction",
+        "/VisionLab/Pickables",
+    ]
+    assert sim.parents == parents_before
+    assert sim.static == static_before
+    assert sim.parent_calls == []
+    assert sim.static_calls == []
+    assert tool.is_attached() is False
+
+
+def test_suction_accepts_experiment_pickables_path():
+    tool = CoppeliaSimSuction(
+        sim=object(),
+        pickables_path="/LogisticsLab/Tasks/Stack/Pickables",
+    )
+
+    assert tool.pickables_path == "/LogisticsLab/Tasks/Stack/Pickables"
+
+
+def test_application_passes_only_configured_pickables_override_to_suction(
+    tmp_path,
+    monkeypatch,
+):
+    scene_spec = tmp_path / "simulation" / "vision_lab" / "scene_spec.json"
+    scene_spec.parent.mkdir(parents=True)
+    scene_spec.write_text(
+        json.dumps({"zones": {}, "robot_visuals": {}}),
+        encoding="utf-8",
+    )
+    selected = replace(
+        load_config(environ={}),
+        project_root=tmp_path.resolve(),
+        camera_backend="sim",
+        robot_backend="sim",
+        task={
+            "pickables_path": "/LogisticsLab/Tasks/Digits/Pickables",
+        },
+    )
+    received: list[tuple[object, dict[str, object]]] = []
+
+    class FakeRobotBackend:
+        def __init__(self, *, settings, sim_client):
+            self.settings = settings
+            self.sim_client = sim_client
+
+    class RecordingSuction:
+        def __init__(self, *, sim, **options):
+            received.append((sim, options))
+
+    sim = object()
+    monkeypatch.setattr(
+        application_module,
+        "create_camera",
+        lambda *_args, **_kwargs: object(),
+    )
+    monkeypatch.setattr(
+        coppeliasim_robot_module,
+        "CoppeliaSimRobotBackend",
+        FakeRobotBackend,
+    )
+    monkeypatch.setattr(
+        application_module,
+        "CoppeliaSimSuction",
+        RecordingSuction,
+    )
+
+    application = VisionLabApplication.from_config(selected, sim=sim)
+
+    assert application.config is selected
+    assert received == [
+        (
+            sim,
+            {
+                "pickables_path": (
+                    "/LogisticsLab/Tasks/Digits/Pickables"
+                ),
+            },
+        )
+    ]

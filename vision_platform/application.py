@@ -13,6 +13,7 @@ from vision_platform.cameras.factory import create_camera
 from vision_platform.config import VisionLabConfig, load_config
 from vision_platform.coppelia_scene import stage_scene_for_coppeliasim
 from vision_platform.events import EventBus
+from vision_platform.experiments.scene_setup import activate_scene_group
 from vision_platform.models import Detection
 from vision_platform.recognition.color_shape import ColorShapeRecognizer
 from vision_platform.robot.adapter import RobotAdapter
@@ -185,6 +186,8 @@ class VisionLabApplication:
         self.recognizer: Any = base_recognizer
         self._opened = False
         self._closed = False
+        self._scene_group_activation_complete = False
+        self._activated_scene_group_path: str | None = None
         if calibration is not None:
             self.set_calibration(calibration)
 
@@ -293,7 +296,15 @@ class VisionLabApplication:
                 settings=backend_settings,
                 sim_client=client,
             )
-            tool = CoppeliaSimSuction(sim=sim)
+            tool = CoppeliaSimSuction(
+                sim=sim,
+                pickables_path=str(
+                    selected.task.get(
+                        "pickables_path",
+                        "/VisionLab/Pickables",
+                    )
+                ),
+            )
             verifier = CoppeliaSimPlacementVerifier(
                 sim=sim,
                 zone_paths={
@@ -433,6 +444,8 @@ class VisionLabApplication:
     def load_and_start_scene(self, scene_path: str | Path | None = None) -> None:
         if self.sim is None:
             raise RuntimeError("CoppeliaSim is not connected")
+        self._scene_group_activation_complete = False
+        self._activated_scene_group_path = None
         selected = Path(scene_path or self.config.coppelia_scene).resolve()
         if int(self.sim.getSimulationState()) != int(self.sim.simulation_stopped):
             self.sim.stopSimulation()
@@ -457,7 +470,19 @@ class VisionLabApplication:
             time.sleep(0.05)
         if int(self.sim.getSimulationState()) == int(self.sim.simulation_stopped):
             raise RuntimeError("CoppeliaSim scene did not start")
+        self.activate_configured_scene_group()
         time.sleep(0.2)
+
+    def activate_configured_scene_group(self) -> None:
+        """Apply the selected experiment group once for the current scene load."""
+        active_path = self.config.task.get("scene_group_path")
+        if self._scene_group_activation_complete and (
+            self._activated_scene_group_path == active_path
+        ):
+            return
+        activate_scene_group(self.sim, active_path=active_path)
+        self._scene_group_activation_complete = True
+        self._activated_scene_group_path = active_path
 
     def close(self) -> None:
         if self._closed:

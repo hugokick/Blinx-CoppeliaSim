@@ -10,9 +10,13 @@ from typing import Callable
 
 import pytest
 
+from vision_platform import application as application_module
+from vision_platform.application import VisionLabApplication
 from vision_platform.config import VisionLabConfig, load_config
 from vision_platform.experiments.catalog import ExperimentCatalog
+from vision_platform.experiments import session as experiment_session_module
 from vision_platform.experiments.session import ExperimentSession
+from vision_platform.robot.coppeliasim_suction import CoppeliaSimSuction
 from vision_platform.session import VisionLabSession
 
 
@@ -25,13 +29,14 @@ class FakeApplication:
         camera_available: bool = True,
         fail_load: Exception | None = None,
         fail_open: Exception | None = None,
+        sim: object | None = None,
     ) -> None:
         self.config = config
         self.operations = operations if operations is not None else []
         self.camera = object() if camera_available else None
         self.robot = object()
         self.tool = object()
-        self.sim = object()
+        self.sim = sim if sim is not None else object()
         self.loaded: list[Path] = []
         self.open_calls = 0
         self.close_calls = 0
@@ -64,6 +69,89 @@ class OldApplication:
     def close(self) -> None:
         self.close_calls += 1
         self.operations.append("old.close")
+
+
+class FakeLogisticsSim:
+    handle_world = -1
+
+    def __init__(self, operations: list[str]) -> None:
+        self.operations = operations
+        self.handles = {
+            "/LogisticsLab/Tasks/Stack": 1,
+            "/LogisticsLab/Tasks/Digits": 2,
+            "/LogisticsLab/Tasks/Classes": 3,
+        }
+        self.positions: list[tuple[int, list[float], int]] = []
+
+    def getObject(self, path: str) -> int:
+        self.operations.append(f"activate.get-{path.rsplit('/', 1)[-1]}")
+        return self.handles[path]
+
+    def setObjectPosition(
+        self,
+        handle: int,
+        position: list[float],
+        relative_to: int,
+    ) -> None:
+        self.positions.append((handle, list(position), relative_to))
+        self.operations.append(f"activate.set-{handle}")
+
+
+class ReloadingLogisticsSim(FakeLogisticsSim):
+    simulation_stopped = 0
+
+    def __init__(self, operations: list[str]) -> None:
+        super().__init__(operations)
+        self.state = self.simulation_stopped
+        self.world_positions: dict[int, list[float]] = {}
+        self._restore_saved_stack_layout()
+
+    def getSimulationState(self) -> int:
+        return self.state
+
+    def stopSimulation(self) -> None:
+        self.state = self.simulation_stopped
+
+    def loadScene(self, _path: str) -> None:
+        self.operations.append("replacement.load")
+        self._restore_saved_stack_layout()
+
+    def startSimulation(self) -> None:
+        self.state = 1
+
+    def setObjectPosition(
+        self,
+        handle: int,
+        position: list[float],
+        relative_to: int,
+    ) -> None:
+        super().setObjectPosition(handle, position, relative_to)
+        self.world_positions[handle] = list(position)
+
+    def _restore_saved_stack_layout(self) -> None:
+        self.world_positions = {
+            1: [0.0, 0.0, 0.0],
+            2: [0.0, 0.0, -3.0],
+            3: [0.0, 0.0, -4.0],
+        }
+
+
+class ReloadingApplication(FakeApplication):
+    load_and_start_scene = VisionLabApplication.load_and_start_scene
+    activate_configured_scene_group = (
+        VisionLabApplication.activate_configured_scene_group
+    )
+
+
+class MissingPickablesSim:
+    def __init__(self) -> None:
+        self.requested_paths: list[str] = []
+
+    def getObject(self, path: str) -> int:
+        self.requested_paths.append(path)
+        if path == "/BLX_tool_suction":
+            return 10
+        raise KeyError(path)
 
 
 class InterruptBeforePublicationSession(VisionLabSession):
@@ -129,6 +217,8 @@ def _catalog(
     *,
     declared_hash: str | None = None,
     include_pickables: bool = True,
+    scene_group_path: str | None = None,
+    require_suction: bool = False,
 ) -> ExperimentCatalog:
     scene = tmp_path / "scene.ttt"
     scene.write_bytes(b"formal-scene")
@@ -156,6 +246,8 @@ def _catalog(
     }
     if include_pickables:
         public_parameters["pickables_path"] = "/RobotBasics/Pickables"
+    if scene_group_path is not None:
+        public_parameters["scene_group_path"] = scene_group_path
     definition = {
         "schema_version": 1,
         "experiment_id": "R1-01",
@@ -170,7 +262,8 @@ def _catalog(
             "robot.home",
             "camera.rgb",
             "scene.probe",
-        ],
+        ]
+        + (["tool.suction"] if require_suction else []),
         "workspace": {
             "x_mm": [20, 140],
             "y_mm": [-90, 90],
@@ -339,6 +432,163 @@ def test_select_replaces_application_only_after_validation_and_returns_context(
         context.public_parameters["camera_path"] = "/unsafe"  # type: ignore[index]
     with pytest.raises(FrozenInstanceError):
         context.hardware_status = "PASS"  # type: ignore[misc]
+
+
+def test_select_activates_group_before_capability_hash_and_publication(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    operations: list[str] = []
+    config = _base_config(tmp_path)
+    initial = OldApplication(config, operations)
+    vision_session = VisionLabSession(application=initial, factory=lambda: initial)
+    sim = FakeLogisticsSim(operations)
+    created: list[FakeApplication] = []
+
+    def factory(selected: VisionLabConfig) -> FakeApplication:
+        operations.append("replacement.construct")
+        application = FakeApplication(
+            selected,
+            operations=operations,
+            sim=sim,
+        )
+        created.append(application)
+        return application
+
+    real_check = experiment_session_module.check_capabilities
+    real_sha256 = experiment_session_module._sha256
+
+    def tracked_check(application, required):
+        operations.append("capabilities")
+        return real_check(application, required)
+
+    def tracked_sha256(path):
+        operations.append("hash")
+        return real_sha256(path)
+
+    monkeypatch.setattr(
+        experiment_session_module,
+        "check_capabilities",
+        tracked_check,
+    )
+    monkeypatch.setattr(experiment_session_module, "_sha256", tracked_sha256)
+    session = ExperimentSession(
+        catalog=_catalog(
+            tmp_path,
+            scene_group_path="/LogisticsLab/Tasks/Digits",
+        ),
+        vision_session=vision_session,
+        base_config=config,
+        application_factory=factory,
+        student_is_idle=lambda: True,
+    )
+    vision_session.subscribe(lambda _application: operations.append("published"))
+
+    session.select("R1-01")
+
+    assert sim.positions == [
+        (1, [0.0, 0.0, -2.0], -1),
+        (2, [0.0, 0.0, 0.0], -1),
+        (3, [0.0, 0.0, -4.0], -1),
+    ]
+    assert operations.index("activate.set-3") < operations.index("capabilities")
+    assert operations.index("capabilities") < operations.index("hash")
+    assert operations.index("hash") < operations.index("published")
+    assert vision_session.application is created[0]
+
+
+def test_unknown_scene_group_is_rejected_before_replacement(
+    tmp_path: Path,
+) -> None:
+    operations: list[str] = []
+    config = _base_config(tmp_path)
+    initial = OldApplication(config, operations)
+    vision_session = VisionLabSession(application=initial, factory=lambda: initial)
+    candidate_sim = FakeLogisticsSim(operations)
+    created: list[FakeApplication] = []
+
+    def factory(selected: VisionLabConfig) -> FakeApplication:
+        application = FakeApplication(
+            selected,
+            operations=operations,
+            sim=candidate_sim,
+        )
+        created.append(application)
+        return application
+
+    session = ExperimentSession(
+        catalog=_catalog(
+            tmp_path,
+            scene_group_path="/LogisticsLab/Tasks/Unknown",
+        ),
+        vision_session=vision_session,
+        base_config=config,
+        application_factory=factory,
+        student_is_idle=lambda: True,
+    )
+    previous_context = object()
+    session.current = previous_context  # type: ignore[assignment]
+    published: list[FakeApplication] = []
+    vision_session.subscribe(published.append)
+
+    with pytest.raises(ValueError, match="Unknown logistics task group"):
+        session.select("R1-01")
+
+    assert created == []
+    assert initial.close_calls == 0
+    assert published == []
+    assert vision_session.application is initial
+    assert session.current is previous_context
+    assert candidate_sim.positions == []
+
+
+def test_missing_pickables_fails_capability_before_publication(
+    tmp_path: Path,
+) -> None:
+    operations: list[str] = []
+    config = _base_config(tmp_path)
+    initial = OldApplication(config, operations)
+    vision_session = VisionLabSession(application=initial, factory=lambda: initial)
+    sim = MissingPickablesSim()
+    created: list[FakeApplication] = []
+
+    def factory(selected: VisionLabConfig) -> FakeApplication:
+        application = FakeApplication(
+            selected,
+            operations=operations,
+            sim=sim,
+        )
+        application.tool = CoppeliaSimSuction(
+            sim,
+            pickables_path=str(selected.task["pickables_path"]),
+        )
+        created.append(application)
+        return application
+
+    session = ExperimentSession(
+        catalog=_catalog(tmp_path, require_suction=True),
+        vision_session=vision_session,
+        base_config=config,
+        application_factory=factory,
+        student_is_idle=lambda: True,
+    )
+    published: list[FakeApplication] = []
+    vision_session.subscribe(published.append)
+
+    with pytest.raises(
+        RuntimeError,
+        match="tool.suction: 吸盘 TCP 或可抓取集合不可用",
+    ):
+        session.select("R1-01")
+
+    assert sim.requested_paths == [
+        "/BLX_tool_suction",
+        "/RobotBasics/Pickables",
+    ]
+    assert created[0].close_calls == 1
+    assert published == []
+    assert vision_session.application is initial
+    assert session.current is None
 
 
 def test_select_preserves_default_pickables_when_experiment_omits_it(
@@ -672,6 +922,56 @@ def test_shared_reset_reuses_selected_experiment_factory_and_context(
     assert replacement.loaded == [None]
     assert vision_session.application is replacement
     assert session.current is context
+
+
+def test_shared_reset_reactivates_selected_nondefault_scene_group(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(application_module.time, "sleep", lambda _seconds: None)
+    operations: list[str] = []
+    config = _base_config(tmp_path)
+    initial = OldApplication(config, operations)
+    vision_session = VisionLabSession(application=initial, factory=lambda: initial)
+    created: list[ReloadingApplication] = []
+
+    def factory(selected: VisionLabConfig) -> ReloadingApplication:
+        application = ReloadingApplication(
+            selected,
+            operations=operations,
+            sim=ReloadingLogisticsSim(operations),
+        )
+        created.append(application)
+        return application
+
+    session = ExperimentSession(
+        catalog=_catalog(
+            tmp_path,
+            scene_group_path="/LogisticsLab/Tasks/Digits",
+        ),
+        vision_session=vision_session,
+        base_config=config,
+        application_factory=factory,
+        student_is_idle=lambda: True,
+    )
+    context = session.select("R1-01")
+
+    assert len(created[0].sim.positions) == 3
+
+    replacement = vision_session.reset_simulation()
+
+    assert replacement is created[1]
+    assert replacement.config.task["scene_group_path"] == (
+        "/LogisticsLab/Tasks/Digits"
+    )
+    assert replacement.sim.world_positions == {
+        1: [0.0, 0.0, -2.0],
+        2: [0.0, 0.0, 0.0],
+        3: [0.0, 0.0, -4.0],
+    }
+    assert len(replacement.sim.positions) == 3
+    assert session.current is context
+    assert vision_session.application is replacement
 
 
 def _rewrite_manifest(catalog: ExperimentCatalog, **scene_updates) -> None:

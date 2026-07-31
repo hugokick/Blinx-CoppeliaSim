@@ -15,6 +15,10 @@ from vision_platform.experiments.models import (
     ExperimentDefinition,
     ExperimentRunContext,
 )
+from vision_platform.experiments.scene_setup import (
+    activate_scene_group,
+    validate_scene_group_path,
+)
 from vision_platform.session import VisionLabSession
 
 
@@ -108,6 +112,20 @@ class ExperimentSession:
 
         def validate(application: Any) -> None:
             nonlocal validated_application, validated_context
+            activate_configured_group = getattr(
+                application,
+                "activate_configured_scene_group",
+                None,
+            )
+            if callable(activate_configured_group):
+                activate_configured_group()
+            else:
+                activate_scene_group(
+                    application.sim,
+                    active_path=definition.public_parameters.get(
+                        "scene_group_path"
+                    ),
+                )
             report = check_capabilities(application, definition.capabilities)
             if not report.ready:
                 reasons = "; ".join(
@@ -175,6 +193,13 @@ class ExperimentSession:
             task_options["pickables_path"] = _required_public_path(
                 definition,
                 "pickables_path",
+            )
+        if "scene_group_path" in definition.public_parameters:
+            task_options["scene_group_path"] = validate_scene_group_path(
+                _required_public_path(
+                    definition,
+                    "scene_group_path",
+                )
             )
 
         return replace(

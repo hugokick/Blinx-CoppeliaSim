@@ -36,9 +36,21 @@ def check_capabilities(
         elif capability in _ROBOT and getattr(application, "robot", None) is None:
             missing.append(capability)
             reasons[capability] = "当前应用没有可用机械臂"
-        elif capability == "tool.suction" and getattr(application, "tool", None) is None:
-            missing.append(capability)
-            reasons[capability] = "当前应用没有可用吸盘"
+        elif capability == "tool.suction":
+            tool = getattr(application, "tool", None)
+            if tool is None:
+                missing.append(capability)
+                reasons[capability] = "当前应用没有可用吸盘"
+            else:
+                validate = getattr(tool, "validate", None)
+                try:
+                    if callable(validate):
+                        validate()
+                except Exception:
+                    missing.append(capability)
+                    reasons[capability] = "吸盘 TCP 或可抓取集合不可用"
+                else:
+                    available.append(capability)
         elif capability == "camera.rgb" and getattr(application, "camera", None) is None:
             missing.append(capability)
             reasons[capability] = "当前应用没有可用相机"

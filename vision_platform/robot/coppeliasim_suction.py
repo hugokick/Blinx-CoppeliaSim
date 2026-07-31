@@ -37,10 +37,14 @@ class CoppeliaSimSuction:
         self._pickables_handle: int | None = None
         self._attachment: _Attachment | None = None
 
+    def validate(self) -> None:
+        """Resolve required scene handles without attaching an object."""
+        self._resolve_handles()
+
     def on(self) -> AttachmentEvidence:
         if self._attachment is not None:
             return self._attachment.evidence
-        self._resolve_handles()
+        self.validate()
         assert self._tcp_handle is not None
         assert self._pickables_handle is not None
 

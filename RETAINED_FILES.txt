@@ -130,6 +130,7 @@ tests/test_acceptance/test_fake_closed_loop.py
 tests/test_acceptance/test_powershell_process_ownership.py
 tests/test_blx_integration.py
 tests/test_experiments/test_formal_catalog.py
+tests/test_experiments/test_scene_setup.py
 tests/test_experiments/test_student_templates.py
 tests/test_robot_backends/__init__.py
 tests/test_robot_backends/test_coppeliasim_robot.py
@@ -207,6 +208,7 @@ vision_platform/coppeliasim_readiness.py
 vision_platform/coppelia_scene.py
 vision_platform/errors.py
 vision_platform/events.py
+vision_platform/experiments/scene_setup.py
 vision_platform/image_io.py
 vision_platform/models.py
 vision_platform/recognition/__init__.py
