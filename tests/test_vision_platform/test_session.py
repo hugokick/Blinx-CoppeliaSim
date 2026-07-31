@@ -39,9 +39,10 @@ class FakeApplication:
         if self.fail_close is not None:
             raise self.fail_close
 
-    def load_and_start_scene(self) -> None:
+    def load_and_start_scene(self, scene_path: object | None = None) -> None:
         self.load_calls += 1
-        self.operations.append(f"{self.number}.load")
+        suffix = "" if scene_path is None else f":{scene_path}"
+        self.operations.append(f"{self.number}.load{suffix}")
         if self.fail_load is not None:
             raise self.fail_load
 
@@ -69,6 +70,109 @@ def test_session_reset_closes_old_and_opens_fresh_application() -> None:
     assert operations == ["1.close", "2.load", "2.open"]
     assert replacement is created[1]
     assert session.application is replacement
+
+
+def test_session_replace_closes_old_then_loads_opens_validates_and_publishes(
+) -> None:
+    operations: list[str] = []
+    old = FakeApplication(1, operations=operations)
+    replacement = FakeApplication(2, operations=operations)
+    session = VisionLabSession(application=old, factory=lambda: old)
+    published: list[FakeApplication] = []
+    def publish(application: FakeApplication) -> None:
+        operations.append(f"{application.number}.publish")
+        published.append(application)
+
+    session.subscribe(publish)
+
+    result = session.replace_application(
+        lambda: replacement,
+        scene_path="new-scene.ttt",
+        validate=lambda application: operations.append(
+            f"{application.number}.validate"
+        ),
+    )
+
+    assert result is replacement
+    assert session.application is replacement
+    assert published == [replacement]
+    assert operations == [
+        "1.close",
+        "2.load:new-scene.ttt",
+        "2.open",
+        "2.validate",
+        "2.publish",
+    ]
+
+
+@pytest.mark.parametrize("stage", ["factory", "load", "open", "validate"])
+def test_session_replace_failure_keeps_old_reference_cleans_new_and_does_not_publish(
+    stage: str,
+) -> None:
+    old = FakeApplication(1)
+    replacement = FakeApplication(
+        2,
+        fail_load=RuntimeError("load failed") if stage == "load" else None,
+        fail_open=RuntimeError("open failed") if stage == "open" else None,
+    )
+
+    def factory() -> FakeApplication:
+        if stage == "factory":
+            raise RuntimeError("factory failed")
+        return replacement
+
+    session = VisionLabSession(application=old, factory=lambda: old)
+    published: list[FakeApplication] = []
+    session.subscribe(published.append)
+
+    def validate(_application: FakeApplication) -> None:
+        if stage == "validate":
+            raise RuntimeError("validate failed")
+
+    with pytest.raises(RuntimeError, match=f"{stage} failed"):
+        session.replace_application(
+            factory,
+            scene_path="new-scene.ttt",
+            validate=validate,
+        )
+
+    assert session.application is old
+    assert old.close_calls == 1
+    assert replacement.close_calls == (0 if stage == "factory" else 1)
+    assert published == []
+
+
+def test_failed_replace_preserves_previous_active_factory_for_reset() -> None:
+    old = FakeApplication(1)
+    active_replacements = [FakeApplication(2), FakeApplication(3)]
+    active_factory_calls = 0
+
+    def initial_factory() -> FakeApplication:
+        raise AssertionError("initial factory must not be reused")
+
+    def active_factory() -> FakeApplication:
+        nonlocal active_factory_calls
+        application = active_replacements[active_factory_calls]
+        active_factory_calls += 1
+        return application
+
+    def failing_factory() -> FakeApplication:
+        raise RuntimeError("replacement factory failed")
+
+    session = VisionLabSession(application=old, factory=initial_factory)
+    session.replace_application(active_factory, scene_path="active-scene.ttt")
+
+    with pytest.raises(RuntimeError, match="replacement factory failed"):
+        session.replace_application(
+            failing_factory,
+            scene_path="failed-scene.ttt",
+        )
+
+    replacement = session.reset_simulation()
+
+    assert replacement is active_replacements[1]
+    assert session.application is active_replacements[1]
+    assert active_factory_calls == 2
 
 
 def test_quarantined_reset_never_calls_old_normal_close_or_backend_rpc() -> None:

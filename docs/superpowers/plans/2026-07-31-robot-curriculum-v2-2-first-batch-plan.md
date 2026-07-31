@@ -1054,7 +1054,7 @@ Expected: `4 passed`，提交成功。
 - Create: `tests/test_experiments/test_session.py`
 - Modify: `tests/test_vision_platform/test_session.py`
 
-- [ ] **Step 1: 写应用替换和运行中拒绝测试**
+- [x] **Step 1: 写应用替换和运行中拒绝测试**
 
 Create `tests/test_experiments/test_session.py`:
 
@@ -1223,7 +1223,7 @@ def test_select_refuses_to_switch_while_student_is_active(tmp_path):
     assert first.close_calls == 0
 ```
 
-- [ ] **Step 2: 扩展 V2.1 会话替换测试**
+- [x] **Step 2: 扩展 V2.1 会话替换测试**
 
 Append to `tests/test_vision_platform/test_session.py`:
 
@@ -1262,7 +1262,7 @@ def test_session_replace_closes_old_then_loads_and_opens_new():
     ]
 ```
 
-- [ ] **Step 3: 运行测试并确认先失败**
+- [x] **Step 3: 运行测试并确认先失败**
 
 Run:
 
@@ -1272,7 +1272,7 @@ python -m pytest tests/test_experiments/test_session.py tests/test_vision_platfo
 
 Expected: FAIL，指出 `ExperimentSession` 或 `replace_application` 不存在。
 
-- [ ] **Step 4: 给 V2.1 会话增加有界替换操作**
+- [x] **Step 4: 给 V2.1 会话增加有界替换操作**
 
 Add this method to `VisionLabSession` in `vision_platform/session.py`:
 
@@ -1300,7 +1300,7 @@ Add this method to `VisionLabSession` in `vision_platform/session.py`:
 
 该实现直接复用 V2.1 已定义的 `_lock`、`_application` 和 `_handlers`，顺序固定为“旧应用关闭 → 新场景加载 → 新应用打开 → 发布替换事件”。
 
-- [ ] **Step 5: 实现实验会话**
+- [x] **Step 5: 实现实验会话**
 
 Create `vision_platform/experiments/session.py`:
 
@@ -1405,7 +1405,7 @@ class ExperimentSession:
         return context
 ```
 
-- [ ] **Step 6: 运行会话测试**
+- [x] **Step 6: 运行会话测试**
 
 Run:
 
@@ -1415,7 +1415,7 @@ python -m pytest tests/test_experiments/test_session.py tests/test_vision_platfo
 
 Expected: 全部 PASS。
 
-- [ ] **Step 7: 提交实验会话**
+- [x] **Step 7: 提交实验会话**
 
 Run:
 

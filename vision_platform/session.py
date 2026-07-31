@@ -54,6 +54,57 @@ class VisionLabSession:
         """Replace an unusable backend without issuing RPCs on the old app."""
         return self._reset_simulation(quarantined=True)
 
+    def replace_application(
+        self,
+        factory: Callable[[], Any],
+        *,
+        scene_path: Any,
+        validate: Callable[[Any], None] | None = None,
+    ) -> Any:
+        """Replace the application after the new scene passes validation."""
+        self._reject_lifecycle_reentry()
+        with self._operation_lock:
+            with self._state_lock:
+                self._require_open()
+                previous = self._application
+
+            try:
+                self._close_application_once(previous)
+            except BaseException:
+                with self._state_lock:
+                    self._closed = True
+                    self._handlers.clear()
+                raise
+
+            replacement = None
+            try:
+                replacement = factory()
+                replacement.load_and_start_scene(scene_path)
+                replacement.open()
+                if validate is not None:
+                    validate(replacement)
+            except BaseException as primary_error:
+                cleanup_error: BaseException | None = None
+                if replacement is not None:
+                    try:
+                        self._close_application_once(replacement)
+                    except BaseException as error:
+                        cleanup_error = error
+                if cleanup_error is not None:
+                    with self._state_lock:
+                        self._closed = True
+                        self._handlers.clear()
+                    raise primary_error from cleanup_error
+                raise
+
+            with self._state_lock:
+                self._application = replacement
+                self._factory = factory
+                handlers = tuple(self._handlers)
+
+            self._notify_handlers(replacement, handlers)
+            return replacement
+
     def _reset_simulation(self, *, quarantined: bool) -> Any:
         self._reject_lifecycle_reentry()
         with self._operation_lock:
