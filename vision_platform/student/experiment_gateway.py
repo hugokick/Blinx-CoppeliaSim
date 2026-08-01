@@ -19,6 +19,12 @@ from vision_platform.experiments.models import (
     ExperimentRunContext,
 )
 from vision_platform.experiments.probes import probe_experiment
+from vision_platform.vision2d import (
+    analyze_image,
+    mask_to_curriculum_roi,
+    parse_curriculum_config,
+    result_to_dict,
+)
 from vision_platform.vision_quality.controller import controller_for_experiment
 from vision_platform.vision_quality.evidence import record_vision_bundle
 from vision_platform.vision_quality.models import (
@@ -31,6 +37,22 @@ _PROFILE_CONTROLLER_UNSET = object()
 _PROFILE_CAPABILITIES = frozenset(
     {"camera.profile", "lighting.profile"}
 )
+_VISION2D_CAPABILITIES = frozenset(
+    {
+        "camera.rgb",
+        "camera.profile",
+        "lighting.profile",
+        "vision2d.analysis",
+    }
+)
+
+
+@dataclass(frozen=True)
+class _RecordedCapture:
+    image_bgr: np.ndarray
+    value: dict[str, Any]
+    record: Mapping[str, Any]
+    profile: Mapping[str, Any] | None
 
 
 @dataclass(frozen=True)
@@ -394,6 +416,9 @@ class StudentExperimentGateway:
                 self._profiles_required().reset(),
                 path=name,
             )
+        if name == "vision2d.analyze":
+            self._require_exact_args(name, args, ())
+            return self._analyze_vision2d()
         raise ValueError(f"COMMAND_NOT_ALLOWED: {name}")
 
     @staticmethod
@@ -455,14 +480,14 @@ class StudentExperimentGateway:
         }
         return _copy_json_native(value, path="experiment.info")
 
-    def _capture(self) -> dict[str, Any]:
+    def _capture_profile(self) -> dict[str, Any] | None:
         profile_controller = (
             self._profile_controller
             if _PROFILE_CAPABILITIES
             <= set(self._definition.capabilities)
             else None
         )
-        profile = (
+        return (
             self._profile_public(
                 profile_controller.current(),
                 path="camera.capture.vision_profile",
@@ -470,6 +495,38 @@ class StudentExperimentGateway:
             if profile_controller is not None
             else None
         )
+
+    def _capture(self) -> dict[str, Any]:
+        recorded = self._capture_raw(self._capture_profile())
+        value = recorded.value
+        profile = recorded.profile
+        if profile is not None:
+            bundle = VisionResultBundle(
+                schema_version=1,
+                bundle_id=(
+                    f"{self.context.experiment_id}-{value['snapshot_id']}"
+                ),
+                experiment_id=self.context.experiment_id,
+                source_snapshot_id=value["snapshot_id"],
+                status="PASS",
+                layers=(
+                    VisionImageLayer("raw", "原图", recorded.image_bgr),
+                ),
+                result={"snapshot_id": value["snapshot_id"]},
+                profile=profile,
+                hardware_status="PENDING_HARDWARE",
+            )
+            value["vision_bundle_path"] = record_vision_bundle(
+                self.evidence,
+                bundle,
+                existing_layer_records={"raw": recorded.record},
+            )
+        return value
+
+    def _capture_raw(
+        self,
+        profile: Mapping[str, Any] | None,
+    ) -> _RecordedCapture:
         frame = self.application.camera.read(
             timeout_s=self.capture_timeout_s
         )
@@ -535,29 +592,114 @@ class StudentExperimentGateway:
             **metadata,
             "evidence_path": record["path"],
         }
-        if profile is not None:
-            bundle = VisionResultBundle(
-                schema_version=1,
-                bundle_id=(
-                    f"{self.context.experiment_id}-{snapshot_id}"
-                ),
-                experiment_id=self.context.experiment_id,
-                source_snapshot_id=snapshot_id,
-                status="PASS",
-                layers=(
-                    VisionImageLayer("raw", "原图", image),
-                ),
-                result={"snapshot_id": snapshot_id},
-                profile=profile,
-                hardware_status="PENDING_HARDWARE",
+        return _RecordedCapture(
+            image_bgr=image,
+            value=value,
+            record=record,
+            profile=profile,
+        )
+
+    def _vision2d_profiles_required(self) -> Any:
+        if not _VISION2D_CAPABILITIES <= set(self._definition.capabilities):
+            raise VisionPlatformError(
+                "VISION2D_CONTEXT_REQUIRED",
+                "当前实验没有受控二维视觉分析能力",
             )
-            bundle_path = record_vision_bundle(
-                self.evidence,
-                bundle,
-                existing_layer_records={"raw": record},
+        return self._profiles_required()
+
+    def _analyze_vision2d(self) -> dict[str, Any]:
+        profile = self._profile_public(
+            self._vision2d_profiles_required().current(),
+            path="vision2d.analyze.profile",
+        )
+        resolution = profile.get("resolution")
+        if (
+            type(resolution) is not list
+            or len(resolution) != 2
+            or any(type(component) is not int for component in resolution)
+        ):
+            raise VisionPlatformError(
+                "VISION2D_PROFILE_MISMATCH",
+                "当前视觉配置没有有效分辨率",
             )
-            value["vision_bundle_path"] = bundle_path
-        return value
+        config = parse_curriculum_config(
+            self.context.public_parameters,
+            image_size=(resolution[0], resolution[1]),
+        )
+        if profile.get("profile_id") != config.profile_id:
+            raise VisionPlatformError(
+                "VISION2D_PROFILE_MISMATCH",
+                "当前视觉配置档与实验发布配置不一致",
+            )
+
+        recorded = self._capture_raw(profile)
+        roi_input = mask_to_curriculum_roi(recorded.image_bgr, config)
+        try:
+            analysis = analyze_image(roi_input, config.vision2d_config)
+            result = result_to_dict(analysis.result)
+        except Exception as error:
+            raise VisionPlatformError(
+                "VISION2D_ANALYSIS_FAILED",
+                "二维视觉分析执行失败",
+                details={"error_type": type(error).__name__},
+            ) from error
+
+        try:
+            foreground = cv2.cvtColor(
+                analysis.intermediate_images["foreground_mask"],
+                cv2.COLOR_GRAY2BGR,
+            )
+            cleaned = cv2.cvtColor(
+                analysis.intermediate_images["cleaned_mask"],
+                cv2.COLOR_GRAY2BGR,
+            )
+            annotated = analysis.intermediate_images["annotated"]
+        except (KeyError, TypeError, cv2.error) as error:
+            raise VisionPlatformError(
+                "VISION2D_ANALYSIS_FAILED",
+                "二维视觉分析没有产生完整中间图",
+                details={"error_type": type(error).__name__},
+            ) from error
+
+        snapshot_id = recorded.value["snapshot_id"]
+        bundle_profile = {
+            **profile,
+            "vision2d": config.to_public_dict(),
+        }
+        bundle = VisionResultBundle(
+            schema_version=1,
+            bundle_id=f"{self.context.experiment_id}-{snapshot_id}",
+            experiment_id=self.context.experiment_id,
+            source_snapshot_id=snapshot_id,
+            status=analysis.result.status,
+            layers=(
+                VisionImageLayer("raw", "原图", recorded.image_bgr),
+                VisionImageLayer("roi-input", "分析区域", roi_input),
+                VisionImageLayer("foreground-mask", "前景掩膜", foreground),
+                VisionImageLayer("cleaned-mask", "清理后掩膜", cleaned),
+                VisionImageLayer("annotated", "检测标注", annotated),
+            ),
+            result=result,
+            profile=bundle_profile,
+            hardware_status="PENDING_HARDWARE",
+        )
+        bundle_path = record_vision_bundle(
+            self.evidence,
+            bundle,
+            existing_layer_records={"raw": recorded.record},
+        )
+        response = {
+            "snapshot_id": snapshot_id,
+            "vision_bundle_path": bundle_path,
+            "profile_id": config.profile_id,
+            "status": result["status"],
+            "image_size": result["image_size"],
+            "targets": result["targets"],
+            "rejected_targets": result["rejected_targets"],
+        }
+        public = _copy_json_native(response, path="vision2d.analyze")
+        assert isinstance(public, dict)
+        return public
 
     def reset_environment(self) -> dict[str, Any] | None:
         profile_controller = (

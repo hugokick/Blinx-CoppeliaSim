@@ -8,6 +8,9 @@ from vision_platform.experiments.models import CapabilityReport
 
 _ROBOT = frozenset({"robot.home", "robot.pose", "robot.move_world"})
 _PROFILE_PAIR = frozenset({"camera.profile", "lighting.profile"})
+_VISION2D_DEPENDENCIES = frozenset(
+    {"camera.rgb", "camera.profile", "lighting.profile"}
+)
 _PROFILE_PAIR_REASON = (
     "视觉配置能力必须同时声明 camera.profile 和 lighting.profile"
 )
@@ -19,6 +22,7 @@ _KNOWN = _ROBOT | frozenset(
         "lighting.profile",
         "experiment.info",
         "scene.probe",
+        "vision2d.analysis",
     }
 )
 
@@ -65,6 +69,27 @@ def check_capabilities(
         elif capability == "camera.rgb" and getattr(application, "camera", None) is None:
             missing.append(capability)
             reasons[capability] = "当前应用没有可用相机"
+        elif capability == "vision2d.analysis":
+            if not _VISION2D_DEPENDENCIES <= requested_set:
+                missing.append(capability)
+                reasons[capability] = (
+                    "二维视觉分析必须同时声明相机与成对视觉配置能力"
+                )
+            elif str(
+                getattr(application.config, "camera_backend", "")
+            ) != "sim":
+                missing.append(capability)
+                reasons[capability] = (
+                    "二维视觉分析仅支持 CoppeliaSim 相机后端"
+                )
+            elif getattr(application, "sim", None) is None:
+                missing.append(capability)
+                reasons[capability] = "当前应用没有 CoppeliaSim 场景连接"
+            elif getattr(application, "camera", None) is None:
+                missing.append(capability)
+                reasons[capability] = "当前应用没有可用相机"
+            else:
+                available.append(capability)
         elif capability in _PROFILE_PAIR and profile_pair_incomplete:
             missing.append(capability)
             reasons[capability] = _PROFILE_PAIR_REASON

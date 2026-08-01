@@ -40,6 +40,32 @@ class FakeCamera:
         )
 
 
+class FakeVision2DCamera:
+    def __init__(self):
+        self.read_calls = 0
+        self.image = np.zeros((512, 512, 3), dtype=np.uint8)
+        cv2.circle(self.image, (150, 160), 22, (0, 0, 255), -1)
+        cv2.rectangle(self.image, (220, 140), (285, 180), (0, 255, 0), -1)
+        cv2.fillConvexPoly(
+            self.image,
+            np.array([[315, 185], [340, 135], [365, 185]], dtype=np.int32),
+            (255, 0, 0),
+        )
+        cv2.circle(self.image, (470, 470), 25, (0, 255, 255), -1)
+
+    def read(self, timeout_s):
+        assert timeout_s == 2.0
+        self.read_calls += 1
+        return Frame(
+            image_bgr=self.image.copy(),
+            width=512,
+            height=512,
+            timestamp_s=13.5,
+            source="coppeliasim",
+            sequence_id=8,
+        )
+
+
 class FakeEvidence:
     def __init__(self, directory):
         self.directory = Path(directory)
@@ -221,6 +247,63 @@ def _profile_gateway(
         profile_controller=selected_controller,
     )
     return gateway, selected_controller, selected_evidence
+
+
+def _vision2d_parameters(**vision_overrides):
+    vision = {
+        "profile_id": "standard",
+        "roi_px": [100, 100, 400, 220],
+        "min_area_ratio": 0.002,
+        "max_area_ratio": 0.05,
+        "saturation_min": 60,
+        "value_min": 40,
+        "pixel_scale_mm": [1.4, 1.4],
+    }
+    vision.update(vision_overrides)
+    return {"vision2d": vision, "analysis_focus": "size"}
+
+
+def _vision2d_gateway(
+    tmp_path,
+    *,
+    parameters=None,
+    capabilities=None,
+    controller=None,
+    camera=None,
+    evidence=None,
+):
+    context, definition, manifest = _bundle(
+        tmp_path,
+        experiment_id="V1-02",
+        public_parameters=parameters or _vision2d_parameters(),
+    )
+    definition = replace(
+        definition,
+        capabilities=(
+            capabilities
+            or (
+                "camera.rgb",
+                "camera.profile",
+                "lighting.profile",
+                "vision2d.analysis",
+                "scene.probe",
+            )
+        ),
+    )
+    selected_camera = camera or FakeVision2DCamera()
+    selected_controller = controller or FakeProfileController(
+        resolution=(512, 512)
+    )
+    selected_evidence = evidence or FakeEvidence(tmp_path / "evidence")
+    gateway = StudentExperimentGateway(
+        application=SimpleNamespace(camera=selected_camera),
+        evidence=selected_evidence,
+        context=context,
+        definition=definition,
+        scene_manifest=manifest,
+        profile_controller=selected_controller,
+    )
+    return gateway, selected_camera, selected_controller, selected_evidence
 
 
 def _profile_catalog_payload():
@@ -461,6 +544,100 @@ def test_gateway_dispatches_profile_commands_and_reuses_raw_capture(tmp_path):
             "height": 6,
         }
     ]
+
+
+def test_gateway_runs_controlled_vision2d_analysis_and_records_five_layers(
+    tmp_path,
+):
+    gateway, camera, _, evidence = _vision2d_gateway(tmp_path)
+
+    value = gateway.dispatch("vision2d.analyze", {})
+
+    assert set(value) == {
+        "snapshot_id",
+        "vision_bundle_path",
+        "profile_id",
+        "status",
+        "image_size",
+        "targets",
+        "rejected_targets",
+    }
+    assert value["snapshot_id"] == "frame-000001"
+    assert value["profile_id"] == "standard"
+    assert value["status"] == "PASS"
+    assert value["image_size"] == [512, 512]
+    assert len(value["targets"]) == 3
+    assert max(target["center_px"][0] for target in value["targets"]) < 400
+    assert camera.read_calls == 1
+
+    assert len(evidence.calls) == 5
+    assert len(evidence.json_calls) == 1
+    artifact_name, bundle = evidence.json_calls[0]
+    assert artifact_name == value["vision_bundle_path"]
+    assert bundle["status"] == "PASS"
+    assert bundle["hardware_status"] == "PENDING_HARDWARE"
+    assert bundle["result"]["schema_version"] == 1
+    assert bundle["profile"]["profile_id"] == "standard"
+    assert bundle["profile"]["vision2d"] == _vision2d_parameters()[
+        "vision2d"
+    ]
+    assert [layer["layer_id"] for layer in bundle["layers"]] == [
+        "raw",
+        "roi-input",
+        "foreground-mask",
+        "cleaned-mask",
+        "annotated",
+    ]
+    assert bundle["layers"][0]["path"] == "frames/frame-000001.png"
+    assert len({layer["path"] for layer in bundle["layers"]}) == 5
+    assert all(
+        [layer["width"], layer["height"]] == [512, 512]
+        for layer in bundle["layers"]
+    )
+
+
+def test_gateway_vision2d_analysis_rejects_arguments_and_missing_capability(
+    tmp_path,
+):
+    gateway, _, _, _ = _vision2d_gateway(tmp_path / "arguments")
+    with pytest.raises(ValueError, match="does not accept arguments"):
+        gateway.dispatch("vision2d.analyze", {"roi_px": [0, 0, 1, 1]})
+
+    absent, camera, _, evidence = _vision2d_gateway(
+        tmp_path / "absent",
+        capabilities=("camera.rgb", "camera.profile", "lighting.profile"),
+    )
+    with pytest.raises(VisionPlatformError) as captured:
+        absent.dispatch("vision2d.analyze", {})
+    assert captured.value.code == "VISION2D_CONTEXT_REQUIRED"
+    assert camera.read_calls == 0
+    assert evidence.calls == []
+
+
+def test_gateway_vision2d_analysis_fails_closed_for_config_and_profile(
+    tmp_path,
+):
+    invalid, camera, _, evidence = _vision2d_gateway(
+        tmp_path / "invalid",
+        parameters=_vision2d_parameters(extra=True),
+    )
+    with pytest.raises(VisionPlatformError) as invalid_error:
+        invalid.dispatch("vision2d.analyze", {})
+    assert invalid_error.value.code == "VISION2D_CONFIG_INVALID"
+    assert camera.read_calls == 0
+    assert evidence.calls == []
+
+    controller = FakeProfileController(resolution=(512, 512))
+    controller.profile_id = "wide_dim"
+    mismatch, camera, _, evidence = _vision2d_gateway(
+        tmp_path / "profile",
+        controller=controller,
+    )
+    with pytest.raises(VisionPlatformError) as profile_error:
+        mismatch.dispatch("vision2d.analyze", {})
+    assert profile_error.value.code == "VISION2D_PROFILE_MISMATCH"
+    assert camera.read_calls == 0
+    assert evidence.calls == []
 
 
 def test_profile_capture_keeps_raw_snapshot_when_bundle_json_write_fails(

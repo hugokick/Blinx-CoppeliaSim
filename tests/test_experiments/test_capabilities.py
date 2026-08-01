@@ -196,3 +196,62 @@ def test_profile_pair_accepts_generator_without_touching_runtime_objects():
     )
 
     assert report.ready
+
+
+def test_sim_camera_profiles_expose_controlled_vision2d_analysis():
+    report = check_capabilities(
+        _application(),
+        (
+            "camera.rgb",
+            "camera.profile",
+            "lighting.profile",
+            "vision2d.analysis",
+        ),
+    )
+
+    assert report.ready
+    assert report.available[-1] == "vision2d.analysis"
+
+
+@pytest.mark.parametrize(
+    ("application", "reason"),
+    [
+        (
+            _application(camera_backend="replay"),
+            "二维视觉分析仅支持 CoppeliaSim 相机后端",
+        ),
+        (
+            _application(sim=False),
+            "当前应用没有 CoppeliaSim 场景连接",
+        ),
+        (
+            _application(camera=False),
+            "当前应用没有可用相机",
+        ),
+    ],
+)
+def test_vision2d_analysis_rejects_unavailable_runtime(application, reason):
+    report = check_capabilities(
+        application,
+        (
+            "camera.rgb",
+            "camera.profile",
+            "lighting.profile",
+            "vision2d.analysis",
+        ),
+    )
+
+    assert "vision2d.analysis" in report.missing
+    assert report.reasons["vision2d.analysis"] == reason
+
+
+def test_vision2d_analysis_requires_camera_and_profile_declarations():
+    report = check_capabilities(
+        _application(),
+        ("vision2d.analysis",),
+    )
+
+    assert report.missing == ("vision2d.analysis",)
+    assert report.reasons["vision2d.analysis"] == (
+        "二维视觉分析必须同时声明相机与成对视觉配置能力"
+    )

@@ -727,6 +727,7 @@ class ProbeSim:
     [
         "def main(ctx):\n    ctx.camera.capture()\n",
         "def main(ctx):\n    ctx.experiment.info()\n",
+        "def main(ctx):\n    ctx.vision2d.analyze()\n",
     ],
 )
 def test_experiment_command_without_context_fails_closed(tmp_path, source):
@@ -814,6 +815,7 @@ def test_profile_commands_route_only_through_experiment_gateway(tmp_path):
             ("camera.profile.get", {}),
             ("camera.profile.apply", {"profile_id": "wide_dim"}),
             ("camera.profile.reset", {}),
+            ("vision2d.analyze", {}),
         ),
         start=1,
     ):
@@ -826,6 +828,7 @@ def test_profile_commands_route_only_through_experiment_gateway(tmp_path):
         ("camera.profile.get", {}),
         ("camera.profile.apply", {"profile_id": "wide_dim"}),
         ("camera.profile.reset", {}),
+        ("vision2d.analyze", {}),
     ]
 
 
