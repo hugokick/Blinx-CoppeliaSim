@@ -147,6 +147,7 @@ tests/test_acceptance/test_coppeliasim_r1_experiments.py
 tests/test_acceptance/test_coppeliasim_student_program.py
 tests/test_acceptance/test_coppeliasim_training_scenes.py
 tests/test_acceptance/test_coppeliasim_v1_01.py
+tests/test_acceptance/test_coppeliasim_v1_02.py
 tests/test_acceptance/test_coppeliasim_vision_quality_scene.py
 tests/test_acceptance/test_delivery_contract.py
 tests/test_acceptance/test_experiment_guides.py

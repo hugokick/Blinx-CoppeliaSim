@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string]$OutputDir = "artifacts\vision_lab\v2-2-c0-v1-01",
+    [string]$OutputDir = "artifacts\vision_lab\v2-2-c1-v1-02",
     [string]$CoppeliaRoot = $(if ($env:COPPELIASIM_ROOT) {
         $env:COPPELIASIM_ROOT
     } else {
@@ -53,7 +53,7 @@ $OwnedProcessPath = $null
 $OwnedProcessStartTimeUtcTicks = $null
 $FailureMessage = $null
 $Steps = [ordered]@{}
-$ExperimentPayload = $null
+$ExperimentPayloads = [ordered]@{}
 
 if (-not ("RobotSim.KillOnCloseJob" -as [type])) {
     Add-Type -TypeDefinition @"
@@ -602,6 +602,61 @@ function Invoke-CheckedPython {
     }
 }
 
+function Invoke-CheckedExperiment {
+    param(
+        [string]$ExperimentId,
+        [string]$StepName,
+        [string]$ExperimentOutput
+    )
+    $Arguments = @(
+        "-m", "vision_platform.cli", "experiment-run",
+        "--experiment", $ExperimentId,
+        "--host", $HostAddress,
+        "--port", [string]$Port,
+        "--output", $ExperimentOutput
+    )
+    $StartedAt = Get-Date
+    $Result = Invoke-BoundedPythonProcess `
+        -Name $StepName `
+        -Arguments $Arguments `
+        -TimeoutSeconds $ExperimentTimeoutSeconds
+    $ExitCode = $Result.ExitCode
+    if ($Result.TimedOut) {
+        throw (
+            "$ExperimentId experiment-run timed out after " +
+            "$ExperimentTimeoutSeconds seconds"
+        )
+    }
+    try {
+        $Payload = $Result.StdOut.Trim() | ConvertFrom-Json
+    } catch {
+        throw "$ExperimentId experiment-run did not return valid JSON"
+    }
+    $Passed = (
+        $ExitCode -eq 0 -and
+        $Payload.status -eq "PASS" -and
+        $Payload.hardware_status -eq "PENDING_HARDWARE"
+    )
+    $Steps[$StepName] = [ordered]@{
+        status = $(if ($Passed) { "PASS" } else { "FAIL" })
+        exit_code = $ExitCode
+        elapsed_seconds = [math]::Round(
+            ((Get-Date) - $StartedAt).TotalSeconds,
+            3
+        )
+        command = "python " + ($Arguments -join " ")
+        summary = $Payload.summary
+        evidence = $Payload.evidence
+    }
+    if (-not $Passed) {
+        throw (
+            "$ExperimentId experiment-run failed its " +
+            "PASS/PENDING_HARDWARE contract"
+        )
+    }
+    return $Payload
+}
+
 function Assert-JUnitNoSkips {
     param(
         [string]$Name,
@@ -690,6 +745,7 @@ try {
             "-m", "pytest",
             "tests/test_acceptance/test_coppeliasim_vision_quality_scene.py",
             "tests/test_acceptance/test_coppeliasim_v1_01.py",
+            "tests/test_acceptance/test_coppeliasim_v1_02.py",
             "-m", "coppeliasim",
             "--coppelia-host", $HostAddress,
             "--coppelia-port", [string]$Port,
@@ -699,53 +755,17 @@ try {
     Assert-JUnitNoSkips `
         -Name "vision_quality_online" `
         -Path $JUnitPath `
-        -ExpectedTests 2
+        -ExpectedTests 3
 
     $ExperimentOutput = Join-Path $OutputDir "experiment-runs"
-    $ExperimentArguments = @(
-        "-m", "vision_platform.cli", "experiment-run",
-        "--experiment", "V1-01",
-        "--host", $HostAddress,
-        "--port", [string]$Port,
-        "--output", $ExperimentOutput
-    )
-    $ExperimentStartedAt = Get-Date
-    $ExperimentResult = Invoke-BoundedPythonProcess `
-        -Name "v1_01_experiment_run" `
-        -Arguments $ExperimentArguments `
-        -TimeoutSeconds $ExperimentTimeoutSeconds
-    $ExperimentExitCode = $ExperimentResult.ExitCode
-    $ExperimentText = $ExperimentResult.StdOut.Trim()
-    if ($ExperimentResult.TimedOut) {
-        throw (
-            "V1-01 experiment-run timed out after " +
-            "$ExperimentTimeoutSeconds seconds"
-        )
-    }
-    try {
-        $ExperimentPayload = $ExperimentText | ConvertFrom-Json
-    } catch {
-        throw "V1-01 experiment-run did not return valid JSON"
-    }
-    $ExperimentPassed = (
-        $ExperimentExitCode -eq 0 -and
-        $ExperimentPayload.status -eq "PASS" -and
-        $ExperimentPayload.hardware_status -eq "PENDING_HARDWARE"
-    )
-    $Steps["v1_01_experiment_run"] = [ordered]@{
-        status = $(if ($ExperimentPassed) { "PASS" } else { "FAIL" })
-        exit_code = $ExperimentExitCode
-        elapsed_seconds = [math]::Round(
-            ((Get-Date) - $ExperimentStartedAt).TotalSeconds,
-            3
-        )
-        command = "python " + ($ExperimentArguments -join " ")
-        summary = $ExperimentPayload.summary
-        evidence = $ExperimentPayload.evidence
-    }
-    if (-not $ExperimentPassed) {
-        throw "V1-01 experiment-run failed its PASS/PENDING_HARDWARE contract"
-    }
+    $ExperimentPayloads["V1-01"] = Invoke-CheckedExperiment `
+        -ExperimentId "V1-01" `
+        -StepName "v1_01_experiment_run" `
+        -ExperimentOutput $ExperimentOutput
+    $ExperimentPayloads["V1-02"] = Invoke-CheckedExperiment `
+        -ExperimentId "V1-02" `
+        -StepName "v1_02_experiment_run" `
+        -ExperimentOutput $ExperimentOutput
 } catch {
     $FailureMessage = $_.Exception.Message
 } finally {
@@ -813,11 +833,51 @@ try {
         port = $Port
         steps = $Steps
         experiment_summary = $(
-            if ($ExperimentPayload) { $ExperimentPayload.summary } else { $null }
+            if ($ExperimentPayloads["V1-01"]) {
+                $ExperimentPayloads["V1-01"].summary
+            } else {
+                $null
+            }
         )
         experiment_evidence = $(
-            if ($ExperimentPayload) { $ExperimentPayload.evidence } else { $null }
+            if ($ExperimentPayloads["V1-01"]) {
+                $ExperimentPayloads["V1-01"].evidence
+            } else {
+                $null
+            }
         )
+        experiment_summaries = [ordered]@{
+            "V1-01" = $(
+                if ($ExperimentPayloads["V1-01"]) {
+                    $ExperimentPayloads["V1-01"].summary
+                } else {
+                    $null
+                }
+            )
+            "V1-02" = $(
+                if ($ExperimentPayloads["V1-02"]) {
+                    $ExperimentPayloads["V1-02"].summary
+                } else {
+                    $null
+                }
+            )
+        }
+        experiment_evidence_by_id = [ordered]@{
+            "V1-01" = $(
+                if ($ExperimentPayloads["V1-01"]) {
+                    $ExperimentPayloads["V1-01"].evidence
+                } else {
+                    $null
+                }
+            )
+            "V1-02" = $(
+                if ($ExperimentPayloads["V1-02"]) {
+                    $ExperimentPayloads["V1-02"].evidence
+                } else {
+                    $null
+                }
+            )
+        }
         failure = $FailureMessage
         hardware_status = "PENDING_HARDWARE"
         teaching_effect = "PENDING_HUMAN_ACCEPTANCE"

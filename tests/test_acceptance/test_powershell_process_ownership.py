@@ -696,6 +696,7 @@ def test_vision_quality_acceptance_wrapper_is_fail_closed_and_owned():
     assert "BL23_vision_quality_lab.ttt" in source
     assert "test_coppeliasim_vision_quality_scene.py" in source
     assert "test_coppeliasim_v1_01.py" in source
+    assert "test_coppeliasim_v1_02.py" in source
     assert '"--junitxml"' in source
     assert "Assert-JUnitNoSkips" in source
     assert "$Skipped -ne 0" in source
@@ -703,6 +704,8 @@ def test_vision_quality_acceptance_wrapper_is_fail_closed_and_owned():
     assert "$Errors -ne 0" in source
     assert "experiment-run" in source
     assert '"V1-01"' in source
+    assert '"V1-02"' in source
+    assert "-ExpectedTests 3" in source
     assert "Wait-Process" in source
     assert "-Timeout $TimeoutSeconds" in source
     assert "Stop-StartedProcessObject" in source
