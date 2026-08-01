@@ -1285,6 +1285,7 @@ git commit -m "feat(vision-quality): record reusable vision result bundles"
 - Modify: `vision_platform/experiments/capabilities.py`
 - Modify: `vision_platform/student/experiment_gateway.py`
 - Modify: `vision_platform/student/runner.py`
+- Modify: `vision_platform/vision_quality/controller.py`
 - Modify: `tests/test_experiments/test_capabilities.py`
 - Modify: `tests/test_student_programs/test_experiment_gateway.py`
 - Modify: `tests/test_student_programs/test_runner.py`
