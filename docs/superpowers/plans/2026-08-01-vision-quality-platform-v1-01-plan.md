@@ -1184,6 +1184,8 @@ def test_loader_rejects_path_escape_or_hash_mismatch(tmp_path):
 
 Also test duplicate artifact names, PNG encode failure cleanup, layer-record dimension mismatch, missing files, invalid JSON constants and changed file hashes. Add RED cases proving that the loader rejects JPEG bytes disguised with a `.png` name; an `existing_layer_records["raw"]` record must correspond exactly to the bundle's `raw` layer; supplying that record when the bundle has no `raw` layer is rejected before any write; normal and overlength appended-layer snapshot IDs follow the deterministic rule below; and all appended-layer ID collisions are rejected before any write.
 
+Add RED cases with `annotated` ordered before `raw` proving that an invalid existing raw record is still rejected without leaving a new PNG; an appended-layer ID colliding with the reused raw `source_snapshot_id` is rejected without leaving a new PNG; and an 80-character `bundle_id` records and loads normally, returns the deterministic limited artifact name below, and leaves no new PNG when artifact preflight fails.
+
 - [ ] **Step 3: Run and verify result/evidence APIs are missing**
 
 ```powershell
@@ -1244,11 +1246,13 @@ record = evidence.record_snapshot(...)
 artifact = evidence.record_json_artifact(name, payload)
 ```
 
-If `existing_layer_records` contains `raw`, require the bundle to contain a `raw` layer and verify that the record corresponds exactly to that layer: its path is `frames/{snapshot_id}.png`, its SHA matches that raw layer encoded as PNG, and its width/height match. Supplying a raw record for a bundle without a raw layer must fail before any write.
+If `existing_layer_records` contains `raw`, locate the bundle's `raw` layer by `layer_id`, independently of layer order, and require it to exist. Before any `record_snapshot()` call, derive and validate the existing record's snapshot ID from `frames/{snapshot_id}.png`, require it to equal `bundle.source_snapshot_id`, and verify that its SHA matches that raw layer encoded as PNG and its width/height match. Supplying a raw record for a bundle without a raw layer, or failing any raw validation, must fail before any write.
 
-For every layer that will be appended with `record_snapshot()`, form the full logical snapshot ID as `{bundle_id}-{layer_id}`. Use that ID unchanged when its length is at most 80 characters. When it is longer, use the deterministic ASCII limited ID `vision-` plus the lowercase hexadecimal SHA-256 digest of the full logical ID (71 characters total). Precompute every appended-layer snapshot ID and reject any collision within the bundle before performing any write. These rules must not relax the public identifier limits above. Write the bundle JSON last, so a recorded bundle never references a future file.
+For every layer that will be appended with `record_snapshot()`, form the full logical snapshot ID as `{bundle_id}-{layer_id}`. Use that ID unchanged when its length is at most 80 characters. When it is longer, use the deterministic ASCII limited ID `vision-` plus the lowercase hexadecimal SHA-256 digest of the full logical ID (71 characters total). Precompute the complete set of selected snapshot IDs before any write; when raw is reused, include its validated snapshot ID, which equals `bundle.source_snapshot_id`, in that set. Reject an appended-layer ID that collides with the reused raw ID or another appended-layer ID before performing any write. These rules must not relax the public identifier limits above.
 
-`load_recorded_bundle(run_directory, artifact_name)` must resolve every layer path beneath the run directory, verify SHA-256 and PNG dimensions, and return a copied JSON mapping plus resolved layer paths in a separate private field for UI use. Before any `cv2` decode, require the actual file bytes to begin with the PNG signature `b"\x89PNG\r\n\x1a\n"`; reject JPEG or other bytes even when the filename ends in `.png`. Do not allow absolute paths, `..`, symlinks escaping the run, NaN or duplicate layer IDs.
+Keep the public `StudentRunEvidence` artifact-stem limit at 75 characters. Use the ordinary artifact name `vision-bundle-{bundle_id}.json` when its stem is at most 75 characters, which permits `bundle_id` lengths through 61. For a longer valid `bundle_id`, use `vision-bundle-` plus `hashlib.sha256(bundle_id.encode("ascii")).hexdigest()[:61]` plus `.json`; the stem is exactly 75 characters and the filename exactly 80. This deterministic limited name continues to match the Task 9/11 `vision-bundle-*.json` discovery contract. Precompute and validate the artifact name and reject an already existing artifact before writing any PNG. Write the bundle JSON last, so a recorded bundle never references a future file.
+
+`load_recorded_bundle(run_directory, artifact_name)` must allowlist both ordinary and deterministic limited artifact names above without accepting a stem longer than 75 characters, a filename longer than 80 characters or a `bundle_id` beyond the public `_ID` limit. It must resolve every layer path beneath the run directory, verify SHA-256 and PNG dimensions, and return a copied JSON mapping plus resolved layer paths in a separate private field for UI use. Before any `cv2` decode, require the actual file bytes to begin with the PNG signature `b"\x89PNG\r\n\x1a\n"`; reject JPEG or other bytes even when the filename ends in `.png`. Do not allow absolute paths, `..`, symlinks escaping the run, NaN or duplicate layer IDs.
 
 - [ ] **Step 5: Run evidence, existing evidence and security regressions**
 
@@ -1259,7 +1263,7 @@ For every layer that will be appended with `record_snapshot()`, form the full lo
   tests/test_student_programs/test_evidence.py -q
 ```
 
-Expected: all selected tests pass with `0 skipped`, including the strict PNG-signature, exact raw-record correspondence, pre-write rejection, deterministic overlength ID, collision, public-limit and strict `hardware_status` regressions.
+Expected: all selected tests pass with `0 skipped`, including the strict PNG-signature, layer-order-independent exact raw-record correspondence, write-free preflight failures, selected-ID collisions with reused raw, deterministic overlength snapshot/artifact IDs, 80-character bundle record/load, public-limit and strict `hardware_status` regressions.
 
 - [ ] **Step 6: Commit Task 5**
 
