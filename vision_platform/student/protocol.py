@@ -9,6 +9,9 @@ SCHEMA_VERSION = 1
 ALLOWED_COMMANDS = frozenset(
     {
         "camera.capture",
+        "camera.profile.apply",
+        "camera.profile.get",
+        "camera.profile.reset",
         "context.log",
         "context.sleep",
         "context.checkpoint",

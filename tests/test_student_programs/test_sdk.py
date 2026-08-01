@@ -119,6 +119,19 @@ class GuardLoopConnection(FakeConnection):
         ).to_dict()
 
 
+def _profile_value(**overrides):
+    value = {
+        "profile_id": "standard",
+        "resolution": [512, 512],
+        "perspective_angle_deg": 60.0,
+        "camera_rig_z_m": 0.7,
+        "key_diffuse_rgb": [0.8, 0.8, 0.8],
+        "fill_diffuse_rgb": [0.35, 0.35, 0.35],
+    }
+    value.update(overrides)
+    return value
+
+
 def test_student_context_emits_whitelisted_commands() -> None:
     connection = FakeConnection()
     ctx = StudentContext(connection)
@@ -314,6 +327,137 @@ def test_student_camera_strictly_rejects_invalid_snapshot_metadata(
 
     with pytest.raises(RuntimeError, match=message):
         StudentContext(connection).camera.capture()
+
+
+def test_student_camera_exposes_profile_ids_not_raw_sim_parameters():
+    connection = ScriptedConnection(
+        [
+            _profile_value(),
+            _profile_value(
+                profile_id="wide_dim",
+                resolution=[256, 256],
+                perspective_angle_deg=75.0,
+                camera_rig_z_m=0.8,
+                key_diffuse_rgb=[0.35, 0.35, 0.35],
+                fill_diffuse_rgb=[0.15, 0.15, 0.15],
+            ),
+            _profile_value(),
+        ]
+    )
+    ctx = StudentContext(connection)
+
+    assert ctx.camera.get_profile().profile_id == "standard"
+    assert ctx.camera.apply_profile("wide_dim").resolution == (256, 256)
+    assert ctx.camera.reset_profile().profile_id == "standard"
+    assert [item["name"] for item in connection.sent] == [
+        "camera.profile.get",
+        "camera.profile.apply",
+        "camera.profile.reset",
+    ]
+    assert connection.sent[1]["args"] == {"profile_id": "wide_dim"}
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        _profile_value(
+            resolution=[128, 128],
+            perspective_angle_deg=20,
+            camera_rig_z_m=0.50,
+            key_diffuse_rgb=[0, 0, 0],
+            fill_diffuse_rgb=[0, 0, 0],
+        ),
+        _profile_value(
+            resolution=[1024, 1024],
+            perspective_angle_deg=90,
+            camera_rig_z_m=0.90,
+            key_diffuse_rgb=[1, 1, 1],
+            fill_diffuse_rgb=[1, 1, 1],
+        ),
+    ],
+)
+def test_student_camera_accepts_profile_numeric_contract_boundaries(value):
+    profile = StudentContext(ScriptedConnection([value])).camera.get_profile()
+
+    assert 128 <= profile.resolution[0] <= 1024
+    assert 128 <= profile.resolution[1] <= 1024
+    assert 20 <= profile.perspective_angle_deg <= 90
+    assert 0.50 <= profile.camera_rig_z_m <= 0.90
+    assert all(0 <= component <= 1 for component in profile.key_diffuse_rgb)
+    assert all(0 <= component <= 1 for component in profile.fill_diffuse_rgb)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        [],
+        _profile_value(extra="not-public"),
+        {
+            key: value
+            for key, value in _profile_value().items()
+            if key != "camera_rig_z_m"
+        },
+        _profile_value(profile_id=3),
+        _profile_value(profile_id="../unsafe"),
+        _profile_value(profile_id="Wide-Dim"),
+        _profile_value(profile_id="a" * 33),
+        _profile_value(profile_id="\u6807\u51c6"),
+        _profile_value(resolution=[512]),
+        _profile_value(resolution=[512, 512, 512]),
+        _profile_value(resolution=[True, 512]),
+        _profile_value(resolution=[512.0, 512]),
+        _profile_value(resolution=[127, 512]),
+        _profile_value(resolution=[512, 1025]),
+        _profile_value(resolution=[10**400, 512]),
+        _profile_value(perspective_angle_deg=True),
+        _profile_value(perspective_angle_deg=19.999),
+        _profile_value(perspective_angle_deg=90.001),
+        _profile_value(perspective_angle_deg=float("nan")),
+        _profile_value(perspective_angle_deg=10**400),
+        _profile_value(camera_rig_z_m=0.499),
+        _profile_value(camera_rig_z_m=0.901),
+        _profile_value(camera_rig_z_m=float("inf")),
+        _profile_value(key_diffuse_rgb=[0.8, 0.8]),
+        _profile_value(key_diffuse_rgb=[0.8, True, 0.8]),
+        _profile_value(key_diffuse_rgb=[-0.001, 0.8, 0.8]),
+        _profile_value(key_diffuse_rgb=[1.001, 0.8, 0.8]),
+        _profile_value(key_diffuse_rgb=[10**400, 0.8, 0.8]),
+        _profile_value(fill_diffuse_rgb=[-0.001, 0.35, 0.35]),
+        _profile_value(fill_diffuse_rgb=[1.001, 0.35, 0.35]),
+        _profile_value(fill_diffuse_rgb=[0.35, 0.35, float("-inf")]),
+    ],
+)
+def test_student_camera_rejects_malformed_profile_response(value):
+    connection = ScriptedConnection([value])
+
+    with pytest.raises(RuntimeError, match="PROTOCOL_RESPONSE_INVALID"):
+        StudentContext(connection).camera.get_profile()
+
+
+@pytest.mark.parametrize(
+    "profile_id",
+    [
+        None,
+        True,
+        7,
+        "",
+        "../standard",
+        "wide dim",
+        "Wide-Dim",
+        "a" * 33,
+        "\u6807\u51c6",
+    ],
+)
+def test_student_camera_rejects_unsafe_profile_id_before_rpc(profile_id):
+    connection = ScriptedConnection([])
+
+    with pytest.raises(
+        ValueError,
+        match="profile_id must be a published ASCII identifier",
+    ):
+        StudentContext(connection).camera.apply_profile(profile_id)
+
+    assert connection.sent == []
 
 
 def test_student_experiment_returns_detached_public_json_info():

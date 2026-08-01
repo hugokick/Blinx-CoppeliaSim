@@ -14,7 +14,18 @@ from vision_platform.student.protocol import CommandMessage, ResponseMessage
 
 
 _PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+_PROFILE_ID = re.compile(r"[a-z][a-z0-9_]{0,31}\Z")
 _SNAPSHOT_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,79}\Z")
+_VISION_PROFILE_FIELDS = frozenset(
+    {
+        "profile_id",
+        "resolution",
+        "perspective_angle_deg",
+        "camera_rig_z_m",
+        "key_diffuse_rgb",
+        "fill_diffuse_rgb",
+    }
+)
 _PUBLIC_EXPERIMENT_FIELDS = frozenset(
     {
         "experiment_id",
@@ -162,9 +173,113 @@ class StudentFrame:
     sequence_id: int
 
 
+@dataclass(frozen=True)
+class StudentVisionProfile:
+    profile_id: str
+    resolution: tuple[int, int]
+    perspective_angle_deg: float
+    camera_rig_z_m: float
+    key_diffuse_rgb: tuple[float, float, float]
+    fill_diffuse_rgb: tuple[float, float, float]
+
+
+def _profile_error(field: str) -> RuntimeError:
+    return RuntimeError(f"PROTOCOL_RESPONSE_INVALID: camera.profile {field}")
+
+
+def _bounded_profile_number(
+    value: Any,
+    field: str,
+    minimum: float,
+    maximum: float,
+) -> float:
+    if type(value) not in {int, float}:
+        raise _profile_error(field)
+    try:
+        result = float(value)
+    except (OverflowError, ValueError) as error:
+        raise _profile_error(field) from error
+    if not isfinite(result) or not minimum <= result <= maximum:
+        raise _profile_error(field)
+    return result
+
+
+def _profile_rgb(value: Any, field: str) -> tuple[float, float, float]:
+    if type(value) is not list or len(value) != 3:
+        raise _profile_error(field)
+    return (
+        _bounded_profile_number(value[0], f"{field}[0]", 0.0, 1.0),
+        _bounded_profile_number(value[1], f"{field}[1]", 0.0, 1.0),
+        _bounded_profile_number(value[2], f"{field}[2]", 0.0, 1.0),
+    )
+
+
+def _vision_profile(value: Any) -> StudentVisionProfile:
+    if not isinstance(value, Mapping) or set(value) != _VISION_PROFILE_FIELDS:
+        raise _profile_error("fields")
+
+    profile_id = value["profile_id"]
+    if type(profile_id) is not str or _PROFILE_ID.fullmatch(profile_id) is None:
+        raise _profile_error("profile_id")
+
+    resolution = value["resolution"]
+    if (
+        type(resolution) is not list
+        or len(resolution) != 2
+        or type(resolution[0]) is not int
+        or type(resolution[1]) is not int
+        or not 128 <= resolution[0] <= 1024
+        or not 128 <= resolution[1] <= 1024
+    ):
+        raise _profile_error("resolution")
+
+    return StudentVisionProfile(
+        profile_id=profile_id,
+        resolution=(resolution[0], resolution[1]),
+        perspective_angle_deg=_bounded_profile_number(
+            value["perspective_angle_deg"],
+            "perspective_angle_deg",
+            20.0,
+            90.0,
+        ),
+        camera_rig_z_m=_bounded_profile_number(
+            value["camera_rig_z_m"],
+            "camera_rig_z_m",
+            0.50,
+            0.90,
+        ),
+        key_diffuse_rgb=_profile_rgb(
+            value["key_diffuse_rgb"],
+            "key_diffuse_rgb",
+        ),
+        fill_diffuse_rgb=_profile_rgb(
+            value["fill_diffuse_rgb"],
+            "fill_diffuse_rgb",
+        ),
+    )
+
+
 class StudentCamera:
     def __init__(self, rpc: _Rpc) -> None:
         self._rpc = rpc
+
+    def get_profile(self) -> StudentVisionProfile:
+        return _vision_profile(self._rpc.call("camera.profile.get"))
+
+    def apply_profile(self, profile_id: str) -> StudentVisionProfile:
+        if (
+            type(profile_id) is not str
+            or _PROFILE_ID.fullmatch(profile_id) is None
+        ):
+            raise ValueError(
+                "profile_id must be a published ASCII identifier"
+            )
+        return _vision_profile(
+            self._rpc.call("camera.profile.apply", profile_id=profile_id)
+        )
+
+    def reset_profile(self) -> StudentVisionProfile:
+        return _vision_profile(self._rpc.call("camera.profile.reset"))
 
     def capture(self) -> StudentFrame:
         value = self._rpc.call("camera.capture")

@@ -121,6 +121,9 @@ def test_allowed_commands_are_exactly_the_public_student_api():
     assert ALLOWED_COMMANDS == frozenset(
         {
             "camera.capture",
+            "camera.profile.apply",
+            "camera.profile.get",
+            "camera.profile.reset",
             "context.log",
             "context.sleep",
             "context.checkpoint",
@@ -137,3 +140,13 @@ def test_allowed_commands_are_exactly_the_public_student_api():
 def test_v2_2_read_only_commands_are_whitelisted():
     assert "camera.capture" in ALLOWED_COMMANDS
     assert "experiment.info" in ALLOWED_COMMANDS
+
+
+def test_v1_01_profile_commands_are_exactly_whitelisted():
+    assert {
+        "camera.profile.get",
+        "camera.profile.apply",
+        "camera.profile.reset",
+    } <= ALLOWED_COMMANDS
+    assert "sim.setObjectInt32Param" not in ALLOWED_COMMANDS
+    assert "camera.profile.set_arbitrary" not in ALLOWED_COMMANDS
