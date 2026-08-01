@@ -2060,11 +2060,29 @@ Expected: all tests pass and the formal list contains six stable entries.
 - [ ] **Step 7: Validate the generated files and run the explicit online test**
 
 ```powershell
-.\.venv-vision\Scripts\python.exe -m simulation.training_scenes.verify_scene `
-  --spec simulation/vision_quality_lab/scene_spec.json
-.\.venv-vision\Scripts\python.exe -m pytest `
-  tests/test_acceptance/test_coppeliasim_vision_quality_scene.py `
-  -m coppeliasim -q --run-coppeliasim
+$port = 23005
+$scene = 'simulation/vision_quality_lab/BL23_vision_quality_lab.ttt'
+$launch = & '.\tools\vision_lab\launch_coppeliasim.ps1' `
+  -Scene $scene -Port $port -Hidden
+try {
+  .\.venv-vision\Scripts\python.exe -m simulation.training_scenes.verify_scene `
+    --spec simulation/vision_quality_lab/scene_spec.json
+  if ($LASTEXITCODE -ne 0) { throw 'vision quality scene verification failed' }
+  .\.venv-vision\Scripts\python.exe -m pytest `
+    tests/test_acceptance/test_coppeliasim_vision_quality_scene.py `
+    -m coppeliasim -q `
+    --coppelia-host 127.0.0.1 --coppelia-port $port
+  if ($LASTEXITCODE -ne 0) { throw 'vision quality online test failed' }
+} finally {
+  . '.\tools\vision_lab\process_ownership.ps1'
+  Stop-ExactOwnedProcess `
+    -ProcessId $launch.ProcessId `
+    -ProcessPath $launch.ProcessPath `
+    -ProcessStartTimeUtcTicks $launch.ProcessStartTimeUtcTicks
+}
+if (Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue) {
+  throw "CoppeliaSim listener remains on port $port"
+}
 ```
 
 Expected: scene contract PASS and online test `1 passed, 0 skipped`. Record the exact observed count; do not use the expected text if the run differs.
@@ -2156,9 +2174,26 @@ Also read the final scene probe artifact and assert `profile_id == standard`. Ev
 - [ ] **Step 2: Run the test once to verify its real pre-wrapper behavior**
 
 ```powershell
-.\.venv-vision\Scripts\python.exe -m pytest `
-  tests/test_acceptance/test_coppeliasim_v1_01.py `
-  -m coppeliasim -q --run-coppeliasim
+$port = 23005
+$scene = 'simulation/vision_quality_lab/BL23_vision_quality_lab.ttt'
+$launch = & '.\tools\vision_lab\launch_coppeliasim.ps1' `
+  -Scene $scene -Port $port -Hidden
+try {
+  .\.venv-vision\Scripts\python.exe -m pytest `
+    tests/test_acceptance/test_coppeliasim_v1_01.py `
+    -m coppeliasim -q `
+    --coppelia-host 127.0.0.1 --coppelia-port $port
+  if ($LASTEXITCODE -ne 0) { throw 'V1-01 pre-wrapper online test failed' }
+} finally {
+  . '.\tools\vision_lab\process_ownership.ps1'
+  Stop-ExactOwnedProcess `
+    -ProcessId $launch.ProcessId `
+    -ProcessPath $launch.ProcessPath `
+    -ProcessStartTimeUtcTicks $launch.ProcessStartTimeUtcTicks
+}
+if (Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue) {
+  throw "CoppeliaSim listener remains on port $port"
+}
 ```
 
 Expected after Tasks 1–10: test passes online with zero skips. If it fails, use systematic debugging; do not weaken profile, reset, evidence or probe assertions.
