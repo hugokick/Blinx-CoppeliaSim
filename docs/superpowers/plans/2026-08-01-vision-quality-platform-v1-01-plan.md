@@ -144,7 +144,7 @@ RETAINED_FILES.txt
 - Create: `tests/test_vision_quality/__init__.py`
 - Create: `tests/test_vision_quality/test_catalog.py`
 
-- [ ] **Step 1: Write the failing catalog tests**
+- [x] **Step 1: Write the failing catalog tests**
 
 Create `tests/test_vision_quality/__init__.py` as an empty package marker. Create `tests/test_vision_quality/test_catalog.py` with focused contract tests:
 
@@ -239,7 +239,7 @@ def test_profile_catalog_requires_fixed_scene_paths(tmp_path):
         load_profile_catalog(_write(tmp_path, payload))
 ```
 
-- [ ] **Step 2: Run the test and verify the missing package failure**
+- [x] **Step 2: Run the test and verify the missing package failure**
 
 ```powershell
 .\.venv-vision\Scripts\python.exe -m pytest tests/test_vision_quality/test_catalog.py -q
@@ -247,7 +247,7 @@ def test_profile_catalog_requires_fixed_scene_paths(tmp_path):
 
 Expected: collection fails because `vision_platform.vision_quality` does not exist.
 
-- [ ] **Step 3: Implement immutable models and strict loading**
+- [x] **Step 3: Implement immutable models and strict loading**
 
 Create `vision_platform/vision_quality/models.py`:
 
@@ -394,7 +394,7 @@ __all__ = [
 ]
 ```
 
-- [ ] **Step 4: Run catalog tests and full model regressions**
+- [x] **Step 4: Run catalog tests and full model regressions**
 
 ```powershell
 .\.venv-vision\Scripts\python.exe -m pytest `
@@ -404,7 +404,7 @@ __all__ = [
 
 Expected: all selected tests pass.
 
-- [ ] **Step 5: Commit Task 1**
+- [x] **Step 5: Commit Task 1**
 
 ```powershell
 git add vision_platform/vision_quality tests/test_vision_quality
@@ -422,7 +422,7 @@ git commit -m "feat(vision-quality): define immutable visual profiles"
 - Modify: `simulation/training_scenes/scene_contract.py`
 - Create: `tests/test_simulation/test_vision_quality_scene_contract.py`
 
-- [ ] **Step 1: Write failing formal-scene tests**
+- [x] **Step 1: Write failing formal-scene tests**
 
 Create `tests/test_simulation/test_vision_quality_scene_contract.py`:
 
@@ -495,7 +495,7 @@ def test_profile_digest_is_stable_and_nonempty():
     assert digest != "0" * 64
 ```
 
-- [ ] **Step 2: Run and verify missing files**
+- [x] **Step 2: Run and verify missing files**
 
 ```powershell
 .\.venv-vision\Scripts\python.exe -m pytest `
@@ -504,7 +504,7 @@ def test_profile_digest_is_stable_and_nonempty():
 
 Expected: failure because the new scene directory/spec/profile files are absent.
 
-- [ ] **Step 3: Add the fixed profile and scene declarations**
+- [x] **Step 3: Add the fixed profile and scene declarations**
 
 Create `simulation/vision_quality_lab/profiles.json` with all three exact profiles from the design:
 
@@ -594,7 +594,7 @@ Create `scene_spec.json` with exact top-level fields:
 
 The triangle builder must create original geometry from vertices. The resolution target builder must create twelve alternating black/white cuboids; do not add an external image.
 
-- [ ] **Step 4: Register and validate the third formal scene**
+- [x] **Step 4: Register and validate the third formal scene**
 
 In `simulation/training_scenes/build_scene.py`:
 
@@ -628,7 +628,7 @@ assert manifest["profile_catalog"] == expected_profile_entry
 
 Resolve the path inside `project_root`, verify the file hash and return `profile_sha256` in the validation report.
 
-- [ ] **Step 5: Run static scene contracts and existing scene regressions**
+- [x] **Step 5: Run static scene contracts and existing scene regressions**
 
 ```powershell
 .\.venv-vision\Scripts\python.exe -m pytest `
@@ -639,7 +639,7 @@ Resolve the path inside `project_root`, verify the file hash and return `profile
 
 Expected: all selected static tests pass. No `.ttt` is created in this Task.
 
-- [ ] **Step 6: Commit Task 2**
+- [x] **Step 6: Commit Task 2**
 
 ```powershell
 git add simulation/vision_quality_lab simulation/training_scenes `
@@ -655,7 +655,7 @@ git commit -m "feat(simulation): define vision quality lab contract"
 - Modify: `vision_platform/vision_quality/__init__.py`
 - Create: `tests/test_vision_quality/test_controller.py`
 
-- [ ] **Step 1: Write fake-sim controller tests first**
+- [x] **Step 1: Write fake-sim controller tests first**
 
 Create `tests/test_vision_quality/test_controller.py`. The fake must expose only the Remote API methods the controller is allowed to call and record call order:
 
@@ -817,7 +817,7 @@ def test_reset_is_idempotent_and_returns_standard():
 
 Add separate tests for missing fixed objects, readback mismatch, a second fake with permanent setter failure to prove `VISION_PROFILE_ROLLBACK_FAILED`, non-string profile IDs, duplicate allowed IDs and concurrent apply serialization.
 
-- [ ] **Step 2: Run and verify controller is missing**
+- [x] **Step 2: Run and verify controller is missing**
 
 ```powershell
 .\.venv-vision\Scripts\python.exe -m pytest tests/test_vision_quality/test_controller.py -q
@@ -825,7 +825,7 @@ Add separate tests for missing fixed objects, readback mismatch, a second fake w
 
 Expected: import failure for `vision_platform.vision_quality.controller`.
 
-- [ ] **Step 3: Implement the minimal controller with explicit snapshots**
+- [x] **Step 3: Implement the minimal controller with explicit snapshots**
 
 Create `vision_platform/vision_quality/controller.py` with private immutable `_SceneSnapshot`. Resolve four fixed handles in `__init__`; validate the camera backend has callable `read`. Use `RLock` and these public methods:
 
@@ -872,7 +872,7 @@ resolution: exact integer equality
 
 `_match_published_profile()` must return the unique matching profile or raise `VISION_PROFILE_READBACK_MISMATCH`. Never infer a nearest profile.
 
-- [ ] **Step 4: Run controller tests twice for determinism**
+- [x] **Step 4: Run controller tests twice for determinism**
 
 ```powershell
 .\.venv-vision\Scripts\python.exe -m pytest tests/test_vision_quality/test_controller.py -q
@@ -881,7 +881,7 @@ resolution: exact integer equality
 
 Expected: both runs pass with identical counts.
 
-- [ ] **Step 5: Commit Task 3**
+- [x] **Step 5: Commit Task 3**
 
 ```powershell
 git add vision_platform/vision_quality tests/test_vision_quality/test_controller.py
@@ -897,7 +897,7 @@ git commit -m "feat(vision-quality): control allowlisted camera profiles"
 - Modify: `tests/test_student_programs/test_protocol.py`
 - Modify: `tests/test_student_programs/test_sdk.py`
 
-- [ ] **Step 1: Extend tests before the command allowlist**
+- [x] **Step 1: Extend tests before the command allowlist**
 
 Append to `tests/test_student_programs/test_protocol.py`:
 
@@ -936,7 +936,7 @@ def test_student_camera_exposes_profile_ids_not_raw_sim_parameters():
 
 Also test malformed response fields, non-finite floats, wrong resolution length and non-string IDs. Each must raise `PROTOCOL_RESPONSE_INVALID`.
 
-- [ ] **Step 2: Run and verify missing commands/methods**
+- [x] **Step 2: Run and verify missing commands/methods**
 
 ```powershell
 .\.venv-vision\Scripts\python.exe -m pytest `
@@ -946,7 +946,7 @@ Also test malformed response fields, non-finite floats, wrong resolution length 
 
 Expected: allowlist assertion and missing SDK methods fail.
 
-- [ ] **Step 3: Add three commands and a strict public state model**
+- [x] **Step 3: Add three commands and a strict public state model**
 
 Add exactly three strings to `ALLOWED_COMMANDS` in `protocol.py`.
 
@@ -982,7 +982,7 @@ def reset_profile(self) -> StudentVisionProfile:
 
 Do not expose sensor paths, handles, arbitrary resolution, pose or light setters.
 
-- [ ] **Step 4: Run protocol, SDK and validator regressions**
+- [x] **Step 4: Run protocol, SDK and validator regressions**
 
 ```powershell
 .\.venv-vision\Scripts\python.exe -m pytest `
@@ -993,7 +993,7 @@ Do not expose sensor paths, handles, arbitrary resolution, pose or light setters
 
 Expected: all selected tests pass.
 
-- [ ] **Step 5: Commit Task 4**
+- [x] **Step 5: Commit Task 4**
 
 ```powershell
 git add vision_platform/student/protocol.py vision_platform/student/sdk.py `
@@ -1012,7 +1012,7 @@ git commit -m "feat(student): expose allowlisted vision profiles"
 - Create: `tests/test_vision_quality/test_results.py`
 - Create: `tests/test_vision_quality/test_evidence.py`
 
-- [ ] **Step 1: Write result-model tests**
+- [x] **Step 1: Write result-model tests**
 
 Create `tests/test_vision_quality/test_results.py`:
 
@@ -1094,7 +1094,7 @@ def test_bundle_rejects_non_json_or_nonfinite_results():
 
 Test stable layer ordering, duplicate/suspicious IDs, mutation of caller arrays/mappings after construction, and strict `hardware_status` validation: `type(hardware_status) is str` and the value is exactly `PENDING_HARDWARE`. Add `0 skipped` RED cases proving that direct `VisionImageLayer`/`VisionResultBundle` construction and `dataclasses.replace()` cannot bypass validation or defensive copying; later caller mutation cannot change stored images or nested result/profile values; surrogate-containing strings or mapping keys are rejected; and public bundle failures expose the stable code `VISION_RESULT_BUNDLE_INVALID`.
 
-- [ ] **Step 2: Write evidence tests using the real evidence class**
+- [x] **Step 2: Write evidence tests using the real evidence class**
 
 Create `tests/test_vision_quality/test_evidence.py`:
 
@@ -1186,7 +1186,7 @@ Also test duplicate artifact names, PNG encode failure cleanup, layer-record dim
 
 Add RED cases with `annotated` ordered before `raw` proving that an invalid existing raw record is still rejected without leaving a new PNG; an appended-layer ID colliding with the reused raw `source_snapshot_id` is rejected without leaving a new PNG; a pre-existing second-layer target or a final payload that cannot be UTF-8 JSON serialized leaves no new PNG; and same-run arbitrary or repeated layer paths are rejected. An 80-character `bundle_id` must record and load normally with the deterministic limited artifact name below, while a valid short `bundle_id` equal to the old 61-hex digest alias can coexist in the same run. Add signature/IHDR pre-decode RED cases for encoded data over 64 MiB, grayscale, alpha, malformed IHDR and all dimension/pixel-limit violations.
 
-- [ ] **Step 3: Run and verify result/evidence APIs are missing**
+- [x] **Step 3: Run and verify result/evidence APIs are missing**
 
 ```powershell
 .\.venv-vision\Scripts\python.exe -m pytest `
@@ -1196,7 +1196,7 @@ Add RED cases with `annotated` ordered before `raw` proving that an invalid exis
 
 Expected: RED from import failures for the new modules, or from the new evidence-contract assertions if the modules already exist. The run must report `0 skipped`; skipped contract cases are not an acceptable RED result.
 
-- [ ] **Step 4: Implement immutable bundles and public evidence calls**
+- [x] **Step 4: Implement immutable bundles and public evidence calls**
 
 Add to `models.py`:
 
@@ -1260,7 +1260,7 @@ Complete one deterministic preflight before the first `record_snapshot()` call: 
 
 Use one PNG header validator for pre-encoded recording layers and loaded bytes. Before any `cv2` decode, require encoded size at most 64 MiB, the PNG signature `b"\x89PNG\r\n\x1a\n"`, an `IHDR` first chunk with length exactly 13, positive width/height each at most 4096, at most 16,777,216 pixels, bit depth 8, truecolor RGB color type 2, and compression/filter/interlace methods all 0. Require recorded width/height to match IHDR before decoding. Reject JPEG, grayscale, alpha, oversized or malformed bytes before `cv2` is called. Do not allow absolute paths, `..`, symlinks escaping the run, NaN or duplicate layer IDs.
 
-- [ ] **Step 5: Run evidence, existing evidence and security regressions**
+- [x] **Step 5: Run evidence, existing evidence and security regressions**
 
 ```powershell
 .\.venv-vision\Scripts\python.exe -m pytest `
@@ -1271,7 +1271,7 @@ Use one PNG header validator for pre-encoded recording layers and loaded bytes. 
 
 Expected: all selected tests pass with `0 skipped`, including public-model direct construction/replace, defensive copying and recursive freezing, UTF-8/surrogate rejection, stable chained error codes, full write-free record preflight, strict path binding, `_`-separated long-artifact coexistence, PNG IHDR/resource limits before decode, layer-order-independent exact raw-record correspondence, selected-ID collisions with reused raw, 80-character bundle record/load, public-limit and strict `hardware_status` regressions.
 
-- [ ] **Step 6: Commit Task 5**
+- [x] **Step 6: Commit Task 5**
 
 ```powershell
 git add vision_platform/vision_quality tests/test_vision_quality
@@ -1292,7 +1292,7 @@ git commit -m "feat(vision-quality): record reusable vision result bundles"
 - Modify: `tests/test_student_programs/test_runner.py`
 - Modify: `tests/test_vision_quality/test_catalog.py`
 
-- [ ] **Step 1: Write capability and gateway failures first**
+- [x] **Step 1: Write capability and gateway failures first**
 
 Add to `tests/test_experiments/test_capabilities.py`:
 
@@ -1357,7 +1357,7 @@ Add rejection tests for extra arguments, unallowed IDs, profile commands in R1 e
 
 Treat the recorded raw snapshot as independent failure evidence. Add a `0 skipped` RED case that makes bundle JSON recording fail after `record_snapshot()`: the `camera.capture` command must fail, the raw snapshot and its metadata must remain, and no `vision-bundle-*.json`, synthetic `vision_bundle_path` or otherwise falsely complete bundle may remain.
 
-- [ ] **Step 2: Add runner tests for cleanup ordering and failure**
+- [x] **Step 2: Add runner tests for cleanup ordering and failure**
 
 In `tests/test_student_programs/test_runner.py`, extend the fake gateway and cleanup trace:
 
@@ -1382,7 +1382,7 @@ Add `0 skipped` startup RED coverage with a `BlockingSim.getObject`: after the c
 
 Add `0 skipped` production-exception integration coverage using the real `VisionProfileController`, gateway and runner rather than a synthetic `RuntimeError`. Force an apply `BaseException` together with rollback setter/readback failures and prove the runner recognizes the structured rollback marker through direct attributes, notes, `BaseExceptionGroup`, `__cause__` and `__context__`, quarantines the backend and does not run later backend cleanup. Parameterize ordinary controller failures to prove `VISION_PROFILE_ID_INVALID`, `VISION_PROFILE_NOT_ALLOWED`, `VISION_PROFILE_APPLY_FAILED`, `VISION_PROFILE_RESET_FAILED` and the other existing `VISION_PROFILE_*` codes survive as student error `.code` values.
 
-- [ ] **Step 3: Run and verify missing integration**
+- [x] **Step 3: Run and verify missing integration**
 
 ```powershell
 .\.venv-vision\Scripts\python.exe -m pytest `
@@ -1394,7 +1394,7 @@ Add `0 skipped` production-exception integration coverage using the real `Vision
 
 Expected: new capability, byte-binding, dispatch, startup, rollback and cleanup assertions fail with `0 skipped`.
 
-- [ ] **Step 4: Implement profile controller construction and dispatch**
+- [x] **Step 4: Implement profile controller construction and dispatch**
 
 In `capabilities.py`, add both names to `_KNOWN`. Materialize the requested capabilities before evaluating them and require `camera.profile` and `lighting.profile` to be declared together. If only one is present, report that declared member missing with a stable paired-capability reason. Mark the complete pair available only when:
 
@@ -1525,7 +1525,7 @@ def reset_environment(self) -> dict[str, object] | None:
     return self._profile_controller.reset().to_public_dict()
 ```
 
-- [ ] **Step 5: Route commands and invoke cleanup in the runner**
+- [x] **Step 5: Route commands and invoke cleanup in the runner**
 
 In `StudentProgramController.start()`, call `_bound_client_timeout()` before any gateway/controller construction can resolve a scene object. Construct `StudentExperimentGateway` (and therefore `controller_for_experiment`) through the existing `_dispatch_backend_action_bounded(stage="vision.profile.controller", ...)`. An `_BackendActionStuck` or transport failure must quarantine the backend, set `_starting` false, complete the run as FAILED and return promptly from `start()`; ordinary validation/controller errors must also complete and return while preserving any `VisionPlatformError.code`. Reuse the existing backend-action deadline, registration and quarantine machinery; do not add another worker-thread architecture.
 
@@ -1533,7 +1533,7 @@ In `StudentProgramController._dispatch`, include all three profile command names
 
 Do not add profile commands to the robot motion guard; they remain experiment-gateway commands.
 
-- [ ] **Step 6: Run gateway, runner and full student regressions**
+- [x] **Step 6: Run gateway, runner and full student regressions**
 
 ```powershell
 .\.venv-vision\Scripts\python.exe -m pytest `
@@ -1546,7 +1546,7 @@ Do not add profile commands to the robot motion guard; they remain experiment-ga
 
 Expected: all selected tests pass with `0 skipped`. Record exact pass and skip counts. If a separate full static suite skips live CoppeliaSim cases, report those skips as unexecuted live coverage; skipped live tests are not PASS and do not satisfy this Task's zero-skip focused gate.
 
-- [ ] **Step 7: Commit Task 6**
+- [x] **Step 7: Commit Task 6**
 
 ```powershell
 git add vision_platform/experiments/capabilities.py `
@@ -1566,7 +1566,7 @@ git commit -m "feat(student): guard V1-01 profile execution"
 - Create: `student_programs/templates/v1_01_virtual_vision.py`
 - Create: `tests/test_vision_quality/test_v1_01_materials.py`
 
-- [ ] **Step 1: Write formal-material tests**
+- [x] **Step 1: Write formal-material tests**
 
 Create `tests/test_vision_quality/test_v1_01_materials.py`:
 
@@ -1622,7 +1622,7 @@ def test_v1_01_template_uses_public_sdk_only():
     assert any(isinstance(node, ast.FunctionDef) and node.name == "main" for node in ast.walk(tree))
 ```
 
-- [ ] **Step 2: Run and verify the three missing materials**
+- [x] **Step 2: Run and verify the three missing materials**
 
 ```powershell
 .\.venv-vision\Scripts\python.exe -m pytest `
@@ -1631,7 +1631,7 @@ def test_v1_01_template_uses_public_sdk_only():
 
 Expected: failure at missing `V1-01.json`.
 
-- [ ] **Step 3: Create the strict V1-01 experiment definition**
+- [x] **Step 3: Create the strict V1-01 experiment definition**
 
 Create `config/experiments/V1-01.json` with the common schema used by R1 definitions. Use:
 
@@ -1670,7 +1670,7 @@ Create `config/experiments/V1-01.json` with the common schema used by R1 definit
 
 Do not append `V1-01` to `config/experiments/catalog.json` in this Task. The catalog loader requires the formal `.ttt` and manifest to exist; registration is intentionally gated until Task 10 publishes and validates both files.
 
-- [ ] **Step 4: Write the guide and executable template**
+- [x] **Step 4: Write the guide and executable template**
 
 `docs/experiments/V1-01.md` must contain: objective, safety boundary, three profile table, student steps, expected evidence, questions, automated checks, human checks, and hardware boundary.
 
@@ -1701,11 +1701,11 @@ def main(ctx):
 
 Do not catch and suppress command failures. The runner must retain the real failure and still perform its own cleanup reset.
 
-- [ ] **Step 5: Execute the template against a strict fake public SDK**
+- [x] **Step 5: Execute the template against a strict fake public SDK**
 
 In `test_v1_01_materials.py`, load the template with `runpy.run_path`, pass a fake context whose camera implements only `apply_profile`, `capture` and `reset_profile`, and assert the template produces three apply/capture pairs plus a final reset. Validate the three captured widths are 512, 256 and 768. Make a capture fail and assert the template still calls explicit reset while preserving the original exception.
 
-- [ ] **Step 6: Run raw-material and validator tests**
+- [x] **Step 6: Run raw-material and validator tests**
 
 ```powershell
 .\.venv-vision\Scripts\python.exe -m pytest `
@@ -1715,7 +1715,7 @@ In `test_v1_01_materials.py`, load the template with `runpy.run_path`, pass a fa
 
 Expected: all selected tests pass. The formal experiment list still contains only the five released R1 entries at this point.
 
-- [ ] **Step 7: Commit Task 7**
+- [x] **Step 7: Commit Task 7**
 
 ```powershell
 git add config/experiments/V1-01.json docs/experiments/V1-01.md `
@@ -1731,7 +1731,7 @@ git commit -m "feat(curriculum): add V1-01 virtual vision lab"
 - Modify: `vision_platform/experiments/probes.py`
 - Modify: `tests/test_experiments/test_probes.py`
 
-- [ ] **Step 1: Add probe tests with exact published values**
+- [x] **Step 1: Add probe tests with exact published values**
 
 Append a fake profile-aware sim to `tests/test_experiments/test_probes.py` and test:
 
@@ -1760,7 +1760,7 @@ def test_vision_profile_probe_reports_exact_standard_state():
 
 Test an unknown parameter combination produces FAIL rather than nearest-profile PASS, missing light paths produce an exception, and both `initial` and `final` require baseline `standard`.
 
-- [ ] **Step 2: Run and verify unsupported probe kind**
+- [x] **Step 2: Run and verify unsupported probe kind**
 
 ```powershell
 .\.venv-vision\Scripts\python.exe -m pytest `
@@ -1769,7 +1769,7 @@ Test an unknown parameter combination produces FAIL rather than nearest-profile 
 
 Expected: `unsupported probe_kind: vision_profile_observation`.
 
-- [ ] **Step 3: Implement probe by reusing profile readback semantics**
+- [x] **Step 3: Implement probe by reusing profile readback semantics**
 
 Add the kind to `_KNOWN_PROBE_KINDS`. Do not instantiate the command controller because the probe is read-only. Add a read-only helper in `controller.py`:
 
@@ -1788,7 +1788,7 @@ The helper resolves only fixed catalog paths and does not require a camera. In `
 
 Keep the existing function signature and call sites unchanged. Derive the profile file only from the already validated `definition.scene` and manifest digest; do not accept a student-provided path or new caller path argument.
 
-- [ ] **Step 4: Run probe and existing experiment regressions**
+- [x] **Step 4: Run probe and existing experiment regressions**
 
 ```powershell
 .\.venv-vision\Scripts\python.exe -m pytest `
@@ -1798,7 +1798,7 @@ Keep the existing function signature and call sites unchanged. Derive the profil
 
 Expected: all selected tests pass.
 
-- [ ] **Step 5: Commit Task 8**
+- [x] **Step 5: Commit Task 8**
 
 ```powershell
 git add vision_platform/experiments/probes.py `
@@ -1815,7 +1815,7 @@ git commit -m "feat(experiments): probe V1-01 visual profiles"
 - Create: `tests/test_vision_platform/test_vision_result_panel.py`
 - Modify: `tests/test_vision_platform/test_pyqt_smoke.py`
 
-- [ ] **Step 1: Write panel tests for empty, valid and hostile evidence**
+- [x] **Step 1: Write panel tests for empty, valid and hostile evidence**
 
 Create `tests/test_vision_platform/test_vision_result_panel.py`:
 
@@ -1869,7 +1869,7 @@ def test_panel_contains_invalid_bundle_error(qtbot, tmp_path):
 
 The helper `_record_two_layer_bundle()` must use the real evidence adapter from Task 5, not write a hand-crafted success file.
 
-- [ ] **Step 2: Run and verify missing panel**
+- [x] **Step 2: Run and verify missing panel**
 
 ```powershell
 $env:QT_QPA_PLATFORM='offscreen'
@@ -1879,7 +1879,7 @@ $env:QT_QPA_PLATFORM='offscreen'
 
 Expected: import failure for `VisionResultPanel`.
 
-- [ ] **Step 3: Implement a read-only evidence viewer**
+- [x] **Step 3: Implement a read-only evidence viewer**
 
 Create `vision_platform/ui/vision_result_panel.py` with:
 
@@ -1907,7 +1907,7 @@ boundary_label
 
 If `controller` is provided, subscribe to `StudentRunSnapshot`. When state enters PASSED, FAILED or CANCELLED and `evidence_dir` is present, load the latest bundle; terminal runs without a bundle show `本次运行没有视觉结果包`. Catch all callback errors and render a stable UI error instead of raising into the runner thread.
 
-- [ ] **Step 4: Add the tab without changing existing student controls**
+- [x] **Step 4: Add the tab without changing existing student controls**
 
 In `VisionLabWindow`:
 
@@ -1920,7 +1920,7 @@ In `VisionLabWindow`:
 
 Do not let the result panel initiate profile changes or run student code.
 
-- [ ] **Step 5: Run panel and full PyQt smoke tests**
+- [x] **Step 5: Run panel and full PyQt smoke tests**
 
 ```powershell
 $env:QT_QPA_PLATFORM='offscreen'
@@ -1932,7 +1932,7 @@ $env:QT_QPA_PLATFORM='offscreen'
 
 Expected: all selected tests pass; no Qt thread remains after close tests.
 
-- [ ] **Step 6: Commit Task 9**
+- [x] **Step 6: Commit Task 9**
 
 ```powershell
 git add vision_platform/ui/vision_result_panel.py vision_platform/ui/pyqt_app.py `
@@ -1962,7 +1962,7 @@ git commit -m "feat(ui): display reusable vision result evidence"
 - Modify: `tests/test_vision_platform/test_coppeliasim_camera.py`
 - Modify: `tests/test_vision_quality/test_v1_01_materials.py`
 
-- [ ] **Step 1: Add static builder tests before scene generation**
+- [x] **Step 1: Add static builder tests before scene generation**
 
 Extend `tests/test_simulation/test_formal_training_scenes.py` with fakes that assert `_build_vision_quality()` creates exactly the required aliases beneath `/VisionQualityLab`, uses primitives only, sets the camera path from `profiles.json`, and never modifies `/BLX`, `/BLX_base`, `/BLX_tool_suction` or any existing mesh.
 
@@ -1977,7 +1977,7 @@ assert manifest["profile_catalog"] == {
 
 Do not append `simulation/vision_quality_lab` to the real-module `SCENES` tuple yet. Before Step 5 there is intentionally no published `.ttt` or `scene_manifest.json`, so the existing two formal-scene regression cases must remain unchanged.
 
-- [ ] **Step 2: Implement original scene objects in the existing safe publisher**
+- [x] **Step 2: Implement original scene objects in the existing safe publisher**
 
 Add small focused helpers to `build_scene.py`:
 
@@ -2017,7 +2017,7 @@ else:
     raise RuntimeError(f"unsupported formal scene: {formal.scene_id}")
 ```
 
-- [ ] **Step 3: Run static builder tests**
+- [x] **Step 3: Run static builder tests**
 
 ```powershell
 .\.venv-vision\Scripts\python.exe -m pytest `
@@ -2029,7 +2029,7 @@ else:
 
 Expected: all selected unit/static tests pass before launching CoppeliaSim. Any manifest assertion in this step uses the fake publisher's temporary output, never a nonexistent repository manifest.
 
-- [ ] **Step 4: Write the opt-in online scene test**
+- [x] **Step 4: Write the opt-in online scene test**
 
 Create `tests/test_acceptance/test_coppeliasim_vision_quality_scene.py` using the existing explicit `coppeliasim` marker and endpoint options. Connect only to the prelaunched dedicated port; verify the loaded scene path equals the formal vision-quality scene before changing anything:
 
@@ -2090,7 +2090,7 @@ def test_vision_quality_scene_required_paths_profiles_and_frames(request):
 
 Import and use the existing `close_remote_client()` compatibility helper because the installed ZMQ `RemoteAPIClient` does not expose `client.close()`. Do not mark the test as passed when the marker is skipped.
 
-- [ ] **Step 5: Launch a dedicated build port and publish the scene**
+- [x] **Step 5: Launch a dedicated build port and publish the scene**
 
 Use port `23005` so active acceptance ports remain isolated. Launch the protected template through the existing owned-process script, run the builder, and stop only the returned owned process in `finally`:
 
@@ -2115,7 +2115,7 @@ try {
 
 Verify no listener remains on `23005`; do not stop by process name.
 
-- [ ] **Step 6: Register V1-01 only after formal scene files exist**
+- [x] **Step 6: Register V1-01 only after formal scene files exist**
 
 Append `V1-01` to `config/experiments/catalog.json` after the five R1 entries. Extend existing formal-catalog expectations without changing any R1 contract. Add a strict fake camera to `tests/test_experiments/test_student_templates.py` and verify the V1-01 template applies/captures 512, 256 and 768 pixel profiles and resets in `finally`.
 
@@ -2152,7 +2152,7 @@ Do not create a V1-01-specific launcher. Run the registration gate:
 
 Expected: all tests pass and the formal list contains six stable entries.
 
-- [ ] **Step 7: Validate the generated files and run the explicit online test**
+- [x] **Step 7: Validate the generated files and run the explicit online test**
 
 First add RED cases to `tests/test_acceptance/test_coppeliasim_readiness.py` proving that `require_expected_scene()` requires `/VisionQualityLab` and `/BLX_base_link` when the expected filename is `BL23_vision_quality_lab.ttt`, while preserving the existing `/VisionLab` and `/BLX_base_link` sentinels for the protected template and all existing R1 launches. Implement the smallest scene-aware sentinel selection in `vision_platform/coppeliasim_readiness.py`; do not weaken exact scene-path matching.
 
@@ -2186,7 +2186,7 @@ if (Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyCon
 
 Expected: scene contract PASS and online test `1 passed, 0 skipped`. Record the exact observed count; do not use the expected text if the run differs.
 
-- [ ] **Step 8: Recheck protected assets before commit**
+- [x] **Step 8: Recheck protected assets before commit**
 
 ```powershell
 git diff --exit-code v2.2.0 -- `
@@ -2199,7 +2199,7 @@ if ($protected) { $protected; throw 'Protected URDF/STL changed' }
 
 Expected: no protected changes.
 
-- [ ] **Step 9: Commit Task 10**
+- [x] **Step 9: Commit Task 10**
 
 ```powershell
 git add simulation/training_scenes/build_scene.py `
@@ -2227,7 +2227,7 @@ git commit -m "feat(simulation): publish vision quality lab scene"
 - Modify: `tests/test_acceptance/test_powershell_process_ownership.py`
 - Modify: `tests/test_vision_platform/test_pyqt_smoke.py`
 
-- [ ] **Step 1: Write the end-to-end online test before the acceptance wrapper**
+- [x] **Step 1: Write the end-to-end online test before the acceptance wrapper**
 
 Create `tests/test_acceptance/test_coppeliasim_v1_01.py` with the explicit marker and existing endpoint options. Run the formal template through the public `experiment-run` CLI, which constructs `StudentProgramController`, and assert:
 
@@ -2276,7 +2276,7 @@ def test_v1_01_student_template_records_three_profiles_and_resets(tmp_path, requ
 
 Also read the final scene probe artifact and assert `profile_id == standard`. Every bundle must load through `load_recorded_bundle()` and contain one `raw` layer with dimensions matching its recorded profile.
 
-- [ ] **Step 2: Run the test once to verify its real pre-wrapper behavior**
+- [x] **Step 2: Run the test once to verify its real pre-wrapper behavior**
 
 ```powershell
 $port = 23005
@@ -2303,7 +2303,7 @@ if (Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyCon
 
 Expected after Tasks 1–10: test passes online with zero skips. If it fails, use systematic debugging; do not weaken profile, reset, evidence or probe assertions.
 
-- [ ] **Step 3: Add a dedicated owned-process acceptance wrapper**
+- [x] **Step 3: Add a dedicated owned-process acceptance wrapper**
 
 Create `tools/vision_lab/run_vision_quality_acceptance.ps1` modeled on `run_acceptance.ps1`, but limited to this branch. It must:
 
@@ -2321,7 +2321,7 @@ Create `tools/vision_lab/run_vision_quality_acceptance.ps1` modeled on `run_acce
 
 Do not delete unrelated files under the output directory; only replace the wrapper-owned summary/JUnit names.
 
-- [ ] **Step 4: Add PowerShell ownership and failure-order tests**
+- [x] **Step 4: Add PowerShell ownership and failure-order tests**
 
 Extend `tests/test_acceptance/test_powershell_process_ownership.py` to assert the new wrapper:
 
@@ -2335,7 +2335,7 @@ does not use Stop-Process by name
 does not claim hardware PASS
 ```
 
-- [ ] **Step 5: Capture PyQt evidence at 100% and 125%**
+- [x] **Step 5: Capture PyQt evidence at 100% and 125%**
 
 Extend the existing UI screenshot harness to load a real recorded V1-01 result bundle and save:
 
@@ -2346,7 +2346,7 @@ artifacts/vision_lab/v2-2-c0-v1-01/ui-125/vision-result.png
 
 Automated assertions must verify nonzero dimensions, visible profile summary, selected raw layer, JSON text, and boundary label. Human review remains pending until a teacher checks the screenshots.
 
-- [ ] **Step 6: Run the complete explicit acceptance wrapper**
+- [x] **Step 6: Run the complete explicit acceptance wrapper**
 
 ```powershell
 powershell.exe -ExecutionPolicy Bypass -File `
@@ -2358,7 +2358,7 @@ if ($LASTEXITCODE -ne 0) { throw 'V1-01 acceptance failed' }
 
 Expected: wrapper summary PASS, online JUnit zero skips, exact owned process stopped, port `23005` free. Report actual test counts from JUnit.
 
-- [ ] **Step 7: Commit Task 11**
+- [x] **Step 7: Commit Task 11**
 
 Do not add `artifacts/` screenshots or run evidence to Git unless `RETAINED_FILES.txt` explicitly defines them as formal published files; this plan keeps them untracked.
 
@@ -2379,7 +2379,7 @@ git commit -m "test(acceptance): verify V1-01 live workflow"
 - Modify: `docs/superpowers/plans/2026-08-01-vision-quality-platform-v1-01-plan.md` only to mark genuinely completed checkboxes
 - Evidence: `artifacts/vision_lab/v2-2-c0-v1-01/`
 
-- [ ] **Step 1: Write the failing delivery whitelist test**
+- [x] **Step 1: Write the failing delivery whitelist test**
 
 Create `tests/test_vision_quality/test_delivery.py`:
 
@@ -2434,7 +2434,7 @@ def test_v1_01_delivery_is_complete_retained_and_isolated():
     assert not any(path.startswith("artifacts/") for path in retained)
 ```
 
-- [ ] **Step 2: Run and verify missing retained paths**
+- [x] **Step 2: Run and verify missing retained paths**
 
 ```powershell
 .\.venv-vision\Scripts\python.exe -m pytest `
@@ -2443,11 +2443,11 @@ def test_v1_01_delivery_is_complete_retained_and_isolated():
 
 Expected: failure listing new paths not yet in `RETAINED_FILES.txt`.
 
-- [ ] **Step 3: Add every formal V1-01 path to `RETAINED_FILES.txt`**
+- [x] **Step 3: Add every formal V1-01 path to `RETAINED_FILES.txt`**
 
 Add all paths from the required set in repository-path order. Preserve every existing V2.1/V2.2 entry. Do not add caches, environments, generated acceptance evidence, student submissions or screenshots.
 
-- [ ] **Step 4: Run focused static suites with saved evidence**
+- [x] **Step 4: Run focused static suites with saved evidence**
 
 ```powershell
 $evidence = 'artifacts/vision_lab/v2-2-c0-v1-01'
@@ -2464,7 +2464,7 @@ if ($LASTEXITCODE -ne 0) { throw 'focused regression failed' }
 
 Expected: zero failures. Report exact pass/skip counts from the fresh output.
 
-- [ ] **Step 5: Run the complete static regression**
+- [x] **Step 5: Run the complete static regression**
 
 ```powershell
 .\.venv-vision\Scripts\python.exe -m pytest -q 2>&1 |
@@ -2474,7 +2474,7 @@ if ($LASTEXITCODE -ne 0) { throw 'full static regression failed' }
 
 Expected: zero failures. Opt-in CoppeliaSim tests may skip here; report the exact skip count and do not call skips PASS.
 
-- [ ] **Step 6: Re-run release and retained-file contracts**
+- [x] **Step 6: Re-run release and retained-file contracts**
 
 ```powershell
 .\.venv-vision\Scripts\python.exe -m pytest `
@@ -2484,7 +2484,7 @@ Expected: zero failures. Opt-in CoppeliaSim tests may skip here; report the exac
 
 Expected: all selected tests pass, retained paths have zero duplicates and zero missing files.
 
-- [ ] **Step 7: Verify parallel and protected boundaries are untouched**
+- [x] **Step 7: Verify parallel and protected boundaries are untouched**
 
 ```powershell
 git diff --exit-code v2.2.0 -- `
@@ -2504,7 +2504,7 @@ if ($protected) { $protected; throw 'Protected URDF/STL changed' }
 
 Expected: zero differences for every listed path and no URDF/STL matches.
 
-- [ ] **Step 8: Validate document encoding, fences, placeholders and whitespace**
+- [x] **Step 8: Validate document encoding, fences, placeholders and whitespace**
 
 ```powershell
 $documents = @(
@@ -2530,7 +2530,7 @@ git diff --check
 
 Expected: no BOM, no unresolved placeholder match, balanced fences and no whitespace errors.
 
-- [ ] **Step 9: Re-run explicit online acceptance after final static changes**
+- [x] **Step 9: Re-run explicit online acceptance after final static changes**
 
 ```powershell
 powershell.exe -ExecutionPolicy Bypass -File `
@@ -2542,7 +2542,7 @@ if ($LASTEXITCODE -ne 0) { throw 'final V1-01 online acceptance failed' }
 
 Expected: fresh online PASS with zero skipped online tests, owned process stopped and port free. This is CoppeliaSim evidence only.
 
-- [ ] **Step 10: Mark only executed checkboxes and commit the final handoff**
+- [x] **Step 10: Mark only executed checkboxes and commit the final handoff**
 
 Only after Steps 1–9 have fresh evidence, change their checkboxes from `[ ]` to `[x]`. Do not mark manual teaching review or hardware validation complete.
 
