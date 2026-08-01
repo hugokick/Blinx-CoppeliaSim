@@ -13,7 +13,11 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
+import vision_platform.student.experiment_gateway as gateway_module
 import vision_platform.student.runner as runner_module
+import vision_platform.vision_quality.controller as profile_controller_module
+from vision_platform.cameras.coppeliasim import CoppeliaSimCamera
+from vision_platform.errors import VisionPlatformError
 from vision_platform.experiments.models import (
     ExperimentAcceptance,
     ExperimentDefinition,
@@ -21,13 +25,17 @@ from vision_platform.experiments.models import (
 )
 from vision_platform.models import Frame
 from vision_platform.robot.safety import WorkspacePolicy
-from vision_platform.student.protocol import RunState
+from vision_platform.student.protocol import CommandMessage, RunState
 from vision_platform.student.runner import (
     StudentProgramController,
     StudentRunResult,
     StudentRunSnapshot,
 )
 from vision_platform.student.safety import StudentExecutionPolicy
+from vision_platform.vision_quality.models import (
+    VisionProfile,
+    VisionProfileCatalog,
+)
 
 
 class FakeRobot:
@@ -453,6 +461,198 @@ def experiment_bundle(
     return context, definition, manifest
 
 
+def profile_factory_bundle(
+    tmp_path: Path,
+    *,
+    allowed_profile_ids=("standard", "wide_dim"),
+):
+    project = tmp_path / "project"
+    manifest_dir = project / "config" / "experiments"
+    manifest_dir.mkdir(parents=True)
+    scene_dir = project / "simulation" / "vision_quality_lab"
+    scene_dir.mkdir(parents=True)
+    scene = scene_dir / "BL23_vision_quality_lab.ttt"
+    scene.write_bytes(b"runner-profile-scene")
+    scene_sha256 = hashlib.sha256(scene.read_bytes()).hexdigest()
+    profile_path = scene_dir / "profiles.json"
+    profile_payload = {
+        "schema_version": 1,
+        "baseline_profile_id": "standard",
+        "sensor_path": "/VisionQualityLab/CameraRig/Camera",
+        "camera_rig_path": "/VisionQualityLab/CameraRig",
+        "key_light_path": "/VisionQualityLab/Lighting/KeyLight",
+        "fill_light_path": "/VisionQualityLab/Lighting/FillLight",
+        "near_clip_m": 0.05,
+        "far_clip_m": 2.0,
+        "profiles": [
+            {
+                "profile_id": "standard",
+                "label": "standard",
+                "resolution": [512, 512],
+                "perspective_angle_deg": 60,
+                "camera_rig_z_m": 0.7,
+                "key_diffuse_rgb": [0.8, 0.8, 0.8],
+                "fill_diffuse_rgb": [0.35, 0.35, 0.35],
+            },
+            {
+                "profile_id": "wide_dim",
+                "label": "wide dim",
+                "resolution": [256, 256],
+                "perspective_angle_deg": 75,
+                "camera_rig_z_m": 0.8,
+                "key_diffuse_rgb": [0.35, 0.35, 0.35],
+                "fill_diffuse_rgb": [0.15, 0.15, 0.15],
+            },
+        ],
+    }
+    profile_bytes = json.dumps(
+        profile_payload,
+        ensure_ascii=False,
+    ).encode("utf-8")
+    profile_path.write_bytes(profile_bytes)
+    manifest_path = manifest_dir / "V1-01.scene.json"
+    manifest = {
+        "schema_version": 1,
+        "scene": {
+            "path": str(scene),
+            "sha256": scene_sha256,
+        },
+        "profile_catalog": {
+            "path": "simulation/vision_quality_lab/profiles.json",
+            "sha256": hashlib.sha256(profile_bytes).hexdigest(),
+        },
+        "task_contracts": {},
+    }
+    manifest_path.write_text(
+        json.dumps(manifest, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    parameters = {
+        "baseline_profile_id": "standard",
+        "allowed_profile_ids": list(allowed_profile_ids),
+    }
+    definition = ExperimentDefinition(
+        experiment_id="V1-01",
+        pack_id="V1",
+        title="Vision quality profile",
+        version="2.2.0",
+        scene=scene,
+        scene_manifest=manifest_path,
+        student_template=project / "student.py",
+        guide=project / "guide.md",
+        capabilities=(
+            "camera.rgb",
+            "camera.profile",
+            "lighting.profile",
+            "scene.probe",
+        ),
+        workspace={
+            "x_mm": (20, 140),
+            "y_mm": (-90, 90),
+            "z_mm": (10, 140),
+            "safe_z_mm": 100,
+        },
+        public_parameters=parameters,
+        acceptance=ExperimentAcceptance(
+            probe_kind="motion_observation",
+            automated_checks=("scene_probe",),
+            human_checks=("teacher_review",),
+        ),
+        hardware_status="PENDING_HARDWARE",
+    )
+    context = ExperimentRunContext(
+        experiment_id="V1-01",
+        experiment_version="2.2.0",
+        scene_path=scene,
+        scene_sha256=scene_sha256,
+        scene_manifest_path=manifest_path,
+        public_parameters=parameters,
+    )
+    return context, definition, manifest
+
+
+class FunctionalProfileSim:
+    handle_world = -1
+    visionintparam_resolution_x = "resolution_x"
+    visionintparam_resolution_y = "resolution_y"
+    visionfloatparam_perspective_angle = "perspective_angle"
+    visionfloatparam_near_clipping = "near_clip"
+    visionfloatparam_far_clipping = "far_clip"
+
+    def __init__(self, *, read_error=False, mismatch=False):
+        resolution = 300 if mismatch else 512
+        self.ints = {
+            "resolution_x": resolution,
+            "resolution_y": resolution,
+        }
+        self.floats = {
+            "perspective_angle": 1.0471975511965976,
+            "near_clip": 0.05,
+            "far_clip": 2.0,
+        }
+        self.rig_position = [0.0, 0.0, 0.7]
+        self.lights = {
+            3: (1, [0.8, 0.8, 0.8], [0.0, 0.0, 0.0]),
+            4: (1, [0.35, 0.35, 0.35], [0.0, 0.0, 0.0]),
+        }
+        self.read_error = read_error
+        self.get_calls = []
+
+    def getObject(self, path):
+        self.get_calls.append(path)
+        return {
+            "/VisionQualityLab/CameraRig/Camera": 1,
+            "/VisionQualityLab/CameraRig": 2,
+            "/VisionQualityLab/Lighting/KeyLight": 3,
+            "/VisionQualityLab/Lighting/FillLight": 4,
+        }.get(path, path)
+
+    def _fail_read(self):
+        if self.read_error:
+            raise RuntimeError("profile-read-failed")
+
+    def getObjectInt32Param(self, handle, parameter):
+        self._fail_read()
+        return self.ints[parameter]
+
+    def getObjectFloatParam(self, handle, parameter):
+        self._fail_read()
+        return self.floats[parameter]
+
+    def getObjectPosition(self, handle, relative_to):
+        self._fail_read()
+        return list(self.rig_position)
+
+    def getLightParameters(self, handle):
+        self._fail_read()
+        enabled, diffuse, specular = self.lights[handle]
+        return enabled, [0.0, 0.0, 0.0], list(diffuse), list(specular)
+
+    def setObjectInt32Param(self, handle, parameter, value):
+        self.ints[parameter] = value
+
+    def setObjectFloatParam(self, handle, parameter, value):
+        self.floats[parameter] = value
+
+    def setObjectPosition(self, handle, relative_to, value):
+        self.rig_position = list(value)
+
+    def setLightParameters(
+        self,
+        handle,
+        enabled,
+        ambient,
+        diffuse,
+        specular,
+    ):
+        self.lights[handle] = (enabled, list(diffuse), list(specular))
+
+    def getVisionSensorImg(self, handle):
+        width = self.ints["resolution_x"]
+        height = self.ints["resolution_y"]
+        return bytes(width * height * 3), [width, height]
+
+
 class ProbeSim:
     handle_world = -1
 
@@ -597,6 +797,247 @@ def test_controller_dispatches_experiment_commands_and_records_metadata(
     assert summary["scene_probe_status"] == "PASS"
     assert (result.evidence_dir / "scene-initial.json").is_file()
     assert (result.evidence_dir / "scene-final.json").is_file()
+
+
+def test_profile_commands_route_only_through_experiment_gateway(tmp_path):
+    controller, _, _ = make_controller(
+        tmp_path,
+        "def main(ctx):\n    pass\n",
+    )
+    calls = []
+    controller._experiment_gateway = SimpleNamespace(
+        dispatch=lambda name, args: calls.append((name, args)) or name
+    )
+
+    for index, (name, args) in enumerate(
+        (
+            ("camera.profile.get", {}),
+            ("camera.profile.apply", {"profile_id": "wide_dim"}),
+            ("camera.profile.reset", {}),
+        ),
+        start=1,
+    ):
+        value = controller._dispatch(
+            CommandMessage(f"cmd-{index}", name, args)
+        )
+        assert value == name
+
+    assert calls == [
+        ("camera.profile.get", {}),
+        ("camera.profile.apply", {"profile_id": "wide_dim"}),
+        ("camera.profile.reset", {}),
+    ]
+
+
+def test_terminal_cleanup_resets_vision_before_tool_and_robot(tmp_path):
+    controller, _, _ = make_controller(
+        tmp_path,
+        "def main(ctx):\n    pass\n",
+    )
+    trace = []
+    controller._experiment_gateway = SimpleNamespace(
+        reset_environment=lambda: trace.append("vision.reset")
+    )
+    controller._application.tool.off = lambda: trace.append("tool.off")
+    controller._read_pose = (
+        lambda: trace.append("robot.pose") or (0.0, 0.0, 100.0)
+    )
+    controller._application.robot.move_home = (
+        lambda: trace.append("robot.home")
+    )
+
+    errors = controller._cleanup()
+
+    assert errors == []
+    assert trace == [
+        "vision.reset",
+        "tool.off",
+        "robot.pose",
+        "robot.home",
+    ]
+
+
+def test_profile_reset_failure_changes_pass_to_failed_and_preserves_hardware(
+    tmp_path,
+    monkeypatch,
+):
+    session = FakeSession()
+    session.application.sim = ProbeSim.motion(actions=session.actions)
+    context, definition, manifest = experiment_bundle(tmp_path)
+    controller, _, _ = make_controller(
+        tmp_path,
+        "def main(ctx):\n    pass\n",
+        session=session,
+        experiment_context=context,
+        experiment_definition=definition,
+        scene_manifest=manifest,
+    )
+
+    def fail_reset(self):
+        raise RuntimeError("vision-reset-failed")
+
+    monkeypatch.setattr(
+        runner_module.StudentExperimentGateway,
+        "reset_environment",
+        fail_reset,
+        raising=False,
+    )
+    assert controller.validate().ok is True
+
+    controller.start()
+    result = controller.wait(timeout_s=5)
+
+    assert result.status == "FAILED"
+    assert result.error["code"] == "STUDENT_CLEANUP_FAILED"
+    summary = json.loads(result.summary_path.read_text(encoding="utf-8"))
+    assert summary["hardware_status"] == "PENDING_HARDWARE"
+    assert summary["status"] == "FAILED"
+    assert [item["stage"] for item in summary["cleanup_errors"]] == [
+        "vision.profile.reset",
+    ]
+
+
+def test_profile_reset_transport_failure_quarantines_before_tool(tmp_path):
+    controller, session, _ = make_controller(
+        tmp_path,
+        "def main(ctx):\n    pass\n",
+    )
+
+    def fail_reset():
+        try:
+            raise ProtocolAgain()
+        except ProtocolAgain as error:
+            raise RuntimeError("VISION_PROFILE_RESET_FAILED") from error
+
+    controller._experiment_gateway = SimpleNamespace(
+        reset_environment=fail_reset
+    )
+
+    errors = controller._cleanup()
+
+    assert [item["stage"] for item in errors] == [
+        "vision.profile.reset",
+        "backend.connection",
+    ]
+    assert controller._backend_quarantined is True
+    assert session.application.tool.off_calls == 0
+    assert session.application.robot.pose_calls == 0
+
+
+def test_profile_reset_rollback_failure_quarantines_before_tool(tmp_path):
+    controller, session, _ = make_controller(
+        tmp_path,
+        "def main(ctx):\n    pass\n",
+    )
+
+    def fail_reset():
+        try:
+            raise RuntimeError("VISION_PROFILE_ROLLBACK_FAILED")
+        except RuntimeError as error:
+            raise RuntimeError("VISION_PROFILE_RESET_FAILED") from error
+
+    controller._experiment_gateway = SimpleNamespace(
+        reset_environment=fail_reset
+    )
+
+    errors = controller._cleanup()
+
+    assert [item["stage"] for item in errors] == [
+        "vision.profile.reset",
+        "backend.connection",
+    ]
+    assert errors[0]["error"]["code"] == (
+        "STUDENT_BACKEND_CONNECTION_QUARANTINED"
+    )
+    assert controller._backend_quarantined is True
+    assert session.application.tool.off_calls == 0
+    assert session.application.robot.pose_calls == 0
+
+
+def test_profile_rollback_failure_detection_walks_nested_exception_groups():
+    rollback = RuntimeError("VISION_PROFILE_ROLLBACK_FAILED")
+    wrapped = RuntimeError("VISION_PROFILE_RESET_FAILED")
+    wrapped.__cause__ = ExceptionGroup("rollback", [rollback])
+
+    marker = KeyboardInterrupt("student interrupt")
+    marker.vision_profile_rollback_failure = (
+        "VISION_PROFILE_ROLLBACK_FAILED"
+    )
+    noted = SystemExit("student exit")
+    noted.add_note("VISION_PROFILE_ROLLBACK_FAILED during rollback")
+    coded = VisionPlatformError(
+        "VISION_PROFILE_ROLLBACK_FAILED",
+        "rollback failed",
+    )
+    contextual = RuntimeError("outer")
+    contextual.__context__ = BaseExceptionGroup(
+        "nested",
+        [marker, noted, coded],
+    )
+
+    assert runner_module._is_profile_rollback_failure(rollback) is True
+    assert runner_module._is_profile_rollback_failure(wrapped) is True
+    assert runner_module._is_profile_rollback_failure(marker) is True
+    assert runner_module._is_profile_rollback_failure(noted) is True
+    assert runner_module._is_profile_rollback_failure(coded) is True
+    assert runner_module._is_profile_rollback_failure(contextual) is True
+    assert (
+        runner_module._is_profile_rollback_failure(
+            RuntimeError("VISION_PROFILE_APPLY_FAILED")
+        )
+        is False
+    )
+
+
+def test_profile_error_code_survives_student_error_boundary():
+    failure = VisionPlatformError(
+        "VISION_PROFILE_NOT_ALLOWED",
+        "profile is not allowed",
+    )
+
+    assert runner_module._exception_error(failure) == {
+        "code": "VISION_PROFILE_NOT_ALLOWED",
+        "message": "profile is not allowed",
+        "details": {},
+    }
+
+
+def test_profile_reset_stuck_is_bounded_and_quarantined_before_tool(tmp_path):
+    entered = threading.Event()
+    release = threading.Event()
+    controller, session, _ = make_controller(
+        tmp_path,
+        "def main(ctx):\n    pass\n",
+        execution_policy=policy(command_timeout_s=0.05),
+    )
+
+    def block_reset():
+        entered.set()
+        assert release.wait(timeout=5)
+
+    controller._experiment_gateway = SimpleNamespace(
+        reset_environment=block_reset
+    )
+    started = time.monotonic()
+    try:
+        errors = controller._cleanup()
+
+        assert entered.is_set()
+        assert time.monotonic() - started < 0.4
+        assert [item["stage"] for item in errors] == [
+            "vision.profile.reset",
+            "backend.connection",
+        ]
+        assert errors[0]["error"]["code"] == (
+            "STUDENT_BACKEND_COMMAND_STUCK"
+        )
+        assert controller._backend_quarantined is True
+        assert controller._backend_action_is_alive() is True
+        assert session.application.tool.off_calls == 0
+        assert session.application.robot.pose_calls == 0
+    finally:
+        release.set()
+        assert controller.wait_for_quiescence(1) is True
 
 
 def stack_experiment_bundle(tmp_path):
@@ -1001,6 +1442,68 @@ def test_final_probe_runs_while_client_timeouts_are_still_bounded(tmp_path):
     assert socket.RCVTIMEO == 5000
     assert socket.SNDTIMEO == 7000
     assert controller._backend_action_threads == {}
+
+
+def test_gateway_factory_stuck_is_timeout_bounded_and_quarantined(
+    tmp_path,
+):
+    entered = threading.Event()
+    release = threading.Event()
+    socket = ProtocolSocket(rcvtimeo=5000, sndtimeo=7000)
+    client = ProtocolFaithfulClient(timeout=600.0, socket=socket)
+    observations = []
+
+    class BlockingSim(FunctionalProfileSim):
+        def getObject(self, path):
+            observations.append(
+                (client.timeout, socket.RCVTIMEO, socket.SNDTIMEO)
+            )
+            entered.set()
+            if not release.wait(10):
+                raise TimeoutError("profile factory test release timed out")
+            return super().getObject(path)
+
+    sim = BlockingSim()
+    camera = CoppeliaSimCamera(
+        sensor_path="/VisionQualityLab/CameraRig/Camera",
+        sim=sim,
+    )
+    session = FakeSession(client=client)
+    session.application.config.camera_backend = "sim"
+    session.application.sim = sim
+    session.application.camera = camera
+    context, definition, manifest = profile_factory_bundle(tmp_path)
+    controller, _, _ = make_controller(
+        tmp_path,
+        "def main(ctx):\n    pass\n",
+        session=session,
+        execution_policy=policy(command_timeout_s=0.05),
+        experiment_context=context,
+        experiment_definition=definition,
+        scene_manifest=manifest,
+    )
+    assert controller.validate().ok is True
+
+    starter = threading.Thread(target=controller.start)
+    starter.start()
+    assert entered.wait(2)
+    completed_while_blocked = controller._done.wait(0.5)
+    if not completed_while_blocked:
+        release.set()
+        starter.join(5)
+    assert completed_while_blocked, "gateway factory was not execution-bounded"
+
+    result = controller.wait(timeout_s=1)
+    assert result.status == "FAILED"
+    assert result.error["code"] == "STUDENT_BACKEND_COMMAND_STUCK"
+    assert controller._backend_quarantined is True
+    assert observations == [(0.05, 50, 50)]
+    assert session.application.tool.off_calls == 0
+    assert session.application.robot.home_calls == 0
+
+    release.set()
+    starter.join(5)
+    assert controller.wait_for_quiescence(2) is True
 
 
 def test_initial_probe_stuck_is_bounded_quarantined_and_never_spawns(
@@ -2733,6 +3236,392 @@ def test_transport_timeout_quarantines_connection_and_reset_rebuilds_client(
     assert controller.reset() is session.application
     assert session.application.client is replacement_client
     assert controller.state is RunState.VALIDATED
+
+
+def test_profile_command_rollback_failure_quarantines_terminal_flow(
+    tmp_path,
+    monkeypatch,
+):
+    class RollbackGateway:
+        def __init__(self):
+            self.dispatch_calls = []
+            self.reset_calls = 0
+            self.final_probe_errors = 0
+
+        def collect_probe(self, phase):
+            return {"phase": phase, "status": "PASS"}
+
+        def record_probe_report(self, phase, report):
+            assert report["phase"] == phase
+            return dict(report)
+
+        def record_probe_error(self, phase, **kwargs):
+            assert phase == "final"
+            self.final_probe_errors += 1
+            return {"phase": phase, "status": "ERROR", "error": kwargs}
+
+        def dispatch(self, name, args):
+            self.dispatch_calls.append((name, dict(args)))
+            if name != "camera.profile.apply":
+                raise AssertionError(f"unexpected command: {name}")
+            rollback = RuntimeError("VISION_PROFILE_ROLLBACK_FAILED")
+            failure = RuntimeError("VISION_PROFILE_APPLY_FAILED")
+            failure.__cause__ = ExceptionGroup("rollback", [rollback])
+            raise failure
+
+        def reset_environment(self):
+            self.reset_calls += 1
+            raise AssertionError("quarantined cleanup touched the backend")
+
+    gateway = RollbackGateway()
+    monkeypatch.setattr(
+        runner_module,
+        "StudentExperimentGateway",
+        lambda **kwargs: gateway,
+    )
+    session = FakeSession()
+    context, definition, manifest = experiment_bundle(
+        tmp_path,
+        experiment_id="V1-01",
+    )
+    definition = replace(
+        definition,
+        capabilities=(
+            "camera.rgb",
+            "camera.profile",
+            "lighting.profile",
+            "scene.probe",
+        ),
+    )
+    controller, _, _ = make_controller(
+        tmp_path,
+        (
+            "def main(ctx):\n"
+            "    ctx.camera.apply_profile('wide_dim')\n"
+        ),
+        session=session,
+        experiment_context=context,
+        experiment_definition=definition,
+        scene_manifest=manifest,
+    )
+    reap_calls = []
+    original_reap_child = controller._reap_child
+
+    def record_reap(*, force):
+        reap_calls.append(force)
+        return original_reap_child(force=force)
+
+    monkeypatch.setattr(controller, "_reap_child", record_reap)
+    assert controller.validate().ok is True
+
+    controller.start()
+    result = controller.wait(timeout_s=5)
+
+    assert result.status == "FAILED"
+    assert result.error["code"] == (
+        "STUDENT_BACKEND_CONNECTION_QUARANTINED"
+    )
+    assert result.error["details"]["quarantined"] is True
+    assert result.error["details"]["connection_unusable"] is True
+    assert result.error["details"]["cause"]["message"] == (
+        "VISION_PROFILE_APPLY_FAILED"
+    )
+    assert result.error["details"]["rollback_failure"] == (
+        "VISION_PROFILE_ROLLBACK_FAILED"
+    )
+    assert controller._backend_quarantined is True
+    assert controller._stop_requested is True
+    assert controller._requested_status == "FAILED"
+    assert reap_calls.count(True) >= 2
+    assert controller.process_is_alive is False
+    assert gateway.dispatch_calls == [
+        ("camera.profile.apply", {"profile_id": "wide_dim"})
+    ]
+    assert gateway.reset_calls == 0
+    assert gateway.final_probe_errors == 1
+    assert session.application.tool.off_calls == 0
+    assert session.application.robot.pose_calls == 0
+    assert session.application.robot.home_calls == 0
+    with pytest.raises(RuntimeError, match="隔离"):
+        controller.ensure_experiment_switch_allowed()
+
+
+def test_real_profile_controller_gateway_runner_quarantines_interrupt_rollback(
+    tmp_path,
+    monkeypatch,
+):
+    class RollbackFailingSim:
+        handle_world = -1
+        visionintparam_resolution_x = "resolution_x"
+        visionintparam_resolution_y = "resolution_y"
+        visionfloatparam_perspective_angle = "perspective_angle"
+        visionfloatparam_near_clipping = "near_clip"
+        visionfloatparam_far_clipping = "far_clip"
+
+        def __init__(self):
+            self.ints = {"resolution_x": 512, "resolution_y": 512}
+            self.floats = {
+                "perspective_angle": 1.0471975511965976,
+                "near_clip": 0.05,
+                "far_clip": 2.0,
+            }
+            self.rig_position = [0.0, 0.0, 0.7]
+            self.lights = {
+                "/VisionQualityLab/Lighting/KeyLight": (
+                    1,
+                    [0.8, 0.8, 0.8],
+                    [0.0, 0.0, 0.0],
+                ),
+                "/VisionQualityLab/Lighting/FillLight": (
+                    1,
+                    [0.35, 0.35, 0.35],
+                    [0.0, 0.0, 0.0],
+                ),
+            }
+            self.interrupt = KeyboardInterrupt("camera interrupted")
+            self.rollback_started = False
+            self.rollback_failure_injected = False
+            self.set_attempts = 0
+            self.vision_reads = 0
+
+        def getObject(self, path):
+            if path == "/VisionQualityLab/CameraRig/Camera":
+                return 1
+            return path
+
+        def getObjectInt32Param(self, handle, parameter):
+            return self.ints[parameter]
+
+        def getObjectFloatParam(self, handle, parameter):
+            return self.floats[parameter]
+
+        def getObjectPosition(self, handle, relative_to):
+            return list(self.rig_position)
+
+        def getLightParameters(self, handle):
+            enabled, diffuse, specular = self.lights[handle]
+            return enabled, [0.0, 0.0, 0.0], list(diffuse), list(specular)
+
+        def setObjectInt32Param(self, handle, parameter, value):
+            self.set_attempts += 1
+            self.ints[parameter] = value
+
+        def setObjectFloatParam(self, handle, parameter, value):
+            self.set_attempts += 1
+            self.floats[parameter] = value
+
+        def setObjectPosition(self, handle, relative_to, value):
+            self.set_attempts += 1
+            self.rig_position = list(value)
+
+        def setLightParameters(
+            self,
+            handle,
+            enabled,
+            ambient,
+            diffuse,
+            specular,
+        ):
+            self.set_attempts += 1
+            if self.rollback_started and not self.rollback_failure_injected:
+                self.rollback_failure_injected = True
+                raise RuntimeError("rollback-set-failed")
+            self.lights[handle] = (
+                enabled,
+                list(diffuse),
+                list(specular),
+            )
+
+        def getVisionSensorImg(self, handle):
+            self.vision_reads += 1
+            self.rollback_started = True
+            raise self.interrupt
+
+    sim = RollbackFailingSim()
+    camera = CoppeliaSimCamera(
+        sensor_path="/VisionQualityLab/CameraRig/Camera",
+        sim=sim,
+    )
+    catalog = VisionProfileCatalog(
+        baseline_profile_id="standard",
+        sensor_path="/VisionQualityLab/CameraRig/Camera",
+        camera_rig_path="/VisionQualityLab/CameraRig",
+        key_light_path="/VisionQualityLab/Lighting/KeyLight",
+        fill_light_path="/VisionQualityLab/Lighting/FillLight",
+        near_clip_m=0.05,
+        far_clip_m=2.0,
+        profiles=(
+            VisionProfile(
+                "standard",
+                "standard",
+                (512, 512),
+                60,
+                0.7,
+                (0.8, 0.8, 0.8),
+                (0.35, 0.35, 0.35),
+            ),
+            VisionProfile(
+                "wide_dim",
+                "wide dim",
+                (256, 256),
+                75,
+                0.8,
+                (0.35, 0.35, 0.35),
+                (0.15, 0.15, 0.15),
+            ),
+        ),
+    )
+    real_profile_controller = profile_controller_module.VisionProfileController(
+        sim=sim,
+        camera=camera,
+        catalog=catalog,
+        allowed_profile_ids=("standard", "wide_dim"),
+    )
+    monkeypatch.setattr(
+        gateway_module,
+        "controller_for_experiment",
+        lambda application, definition, manifest: real_profile_controller,
+    )
+
+    session = FakeSession()
+    session.application.config.camera_backend = "sim"
+    session.application.sim = sim
+    session.application.camera = camera
+    parameters = {
+        "baseline_profile_id": "standard",
+        "allowed_profile_ids": ["standard", "wide_dim"],
+    }
+    context, definition, manifest = experiment_bundle(
+        tmp_path,
+        experiment_id="V1-01",
+        public_parameters=parameters,
+    )
+    definition = replace(
+        definition,
+        capabilities=(
+            "camera.rgb",
+            "camera.profile",
+            "lighting.profile",
+            "scene.probe",
+        ),
+    )
+    controller, _, _ = make_controller(
+        tmp_path,
+        "def main(ctx):\n    ctx.camera.apply_profile('wide_dim')\n",
+        session=session,
+        experiment_context=context,
+        experiment_definition=definition,
+        scene_manifest=manifest,
+    )
+    assert controller.validate().ok is True
+
+    controller.start()
+    result = controller.wait(timeout_s=5)
+
+    assert result.status == "FAILED"
+    assert result.error["code"] == (
+        "STUDENT_BACKEND_CONNECTION_QUARANTINED"
+    )
+    assert controller._backend_quarantined is True
+    assert sim.interrupt.vision_profile_rollback_failure == (
+        "VISION_PROFILE_ROLLBACK_FAILED"
+    )
+    assert sim.rollback_failure_injected is True
+    assert sim.vision_reads == 1
+    assert sim.set_attempts == 16
+    assert session.application.tool.off_calls == 0
+    assert session.application.robot.pose_calls == 0
+    assert session.application.robot.home_calls == 0
+
+
+@pytest.mark.parametrize(
+    (
+        "source",
+        "expected_code",
+        "allowed_profile_ids",
+        "sim_options",
+    ),
+    [
+        (
+            "def main(ctx):\n    ctx.camera.apply_profile('missing')\n",
+            "VISION_PROFILE_ID_INVALID",
+            ("standard", "wide_dim"),
+            {},
+        ),
+        (
+            "def main(ctx):\n    ctx.camera.apply_profile('wide_dim')\n",
+            "VISION_PROFILE_NOT_ALLOWED",
+            ("standard",),
+            {},
+        ),
+        (
+            "def main(ctx):\n    ctx.camera.apply_profile('wide_dim')\n",
+            "VISION_PROFILE_APPLY_FAILED",
+            ("standard", "wide_dim"),
+            {"read_error": True},
+        ),
+        (
+            "def main(ctx):\n    ctx.camera.reset_profile()\n",
+            "VISION_PROFILE_RESET_FAILED",
+            ("standard", "wide_dim"),
+            {"read_error": True},
+        ),
+        (
+            "def main(ctx):\n    ctx.camera.get_profile()\n",
+            "VISION_PROFILE_BACKEND_UNAVAILABLE",
+            ("standard", "wide_dim"),
+            {"read_error": True},
+        ),
+        (
+            "def main(ctx):\n    ctx.camera.get_profile()\n",
+            "VISION_PROFILE_READBACK_MISMATCH",
+            ("standard", "wide_dim"),
+            {"mismatch": True},
+        ),
+    ],
+)
+def test_real_profile_errors_keep_codes_through_gateway_and_runner(
+    tmp_path,
+    source,
+    expected_code,
+    allowed_profile_ids,
+    sim_options,
+):
+    sim = FunctionalProfileSim(**sim_options)
+    camera = CoppeliaSimCamera(
+        sensor_path="/VisionQualityLab/CameraRig/Camera",
+        sim=sim,
+    )
+    session = FakeSession()
+    session.application.config.camera_backend = "sim"
+    session.application.sim = sim
+    session.application.camera = camera
+    context, definition, manifest = profile_factory_bundle(
+        tmp_path,
+        allowed_profile_ids=allowed_profile_ids,
+    )
+    controller, _, _ = make_controller(
+        tmp_path,
+        source,
+        session=session,
+        experiment_context=context,
+        experiment_definition=definition,
+        scene_manifest=manifest,
+    )
+    assert controller.validate().ok is True
+
+    controller.start()
+    result = controller.wait(timeout_s=5)
+
+    assert result.status == "FAILED"
+    assert result.error["code"] == expected_code
+    assert type(controller._experiment_gateway) is (
+        gateway_module.StudentExperimentGateway
+    )
+    assert isinstance(
+        controller._experiment_gateway._profile_controller,
+        profile_controller_module.VisionProfileController,
+    )
 
 
 def test_non_transport_backend_failure_restores_socket_timeouts(tmp_path):

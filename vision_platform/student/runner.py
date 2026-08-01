@@ -480,6 +480,54 @@ def _is_transport_timeout(error: BaseException) -> bool:
         ):
             if isinstance(related, BaseException):
                 pending.append(related)
+        nested = getattr(candidate, "exceptions", ())
+        if isinstance(nested, (list, tuple)):
+            pending.extend(
+                item for item in nested if isinstance(item, BaseException)
+            )
+    return False
+
+
+def _is_profile_rollback_failure(error: BaseException) -> bool:
+    pending: list[BaseException] = [error]
+    seen: set[int] = set()
+    while pending:
+        candidate = pending.pop()
+        identity = id(candidate)
+        if identity in seen:
+            continue
+        seen.add(identity)
+        if (
+            getattr(
+                candidate,
+                "vision_profile_rollback_failure",
+                None,
+            )
+            == "VISION_PROFILE_ROLLBACK_FAILED"
+            or any(
+                "VISION_PROFILE_ROLLBACK_FAILED" in note
+                for note in getattr(candidate, "__notes__", ())
+                if isinstance(note, str)
+            )
+            or (
+                getattr(candidate, "code", None)
+                == "VISION_PROFILE_ROLLBACK_FAILED"
+                or _safe_text(candidate)
+                == "VISION_PROFILE_ROLLBACK_FAILED"
+            )
+        ):
+            return True
+        for related in (
+            getattr(candidate, "__cause__", None),
+            getattr(candidate, "__context__", None),
+        ):
+            if isinstance(related, BaseException):
+                pending.append(related)
+        nested = getattr(candidate, "exceptions", ())
+        if isinstance(nested, (list, tuple)):
+            pending.extend(
+                item for item in nested if isinstance(item, BaseException)
+            )
     return False
 
 
@@ -945,33 +993,6 @@ class StudentProgramController:
         with self._condition:
             self._prepare_run_locked(evidence)
         try:
-            experiment_gateway = (
-                StudentExperimentGateway(
-                    application=self._application,
-                    evidence=evidence,
-                    context=self._experiment_context,
-                    definition=self._experiment_definition,
-                    scene_manifest=validated_scene_manifest,
-                )
-                if self._experiment_context is not None
-                and self._experiment_definition is not None
-                and validated_scene_manifest is not None
-                else None
-            )
-        except BaseException as gateway_error:
-            with self._condition:
-                self._starting = False
-            self._complete_run(
-                "FAILED",
-                _exception_error(
-                    gateway_error,
-                    code="EXPERIMENT_CONTEXT_INVALID",
-                ),
-            )
-            return
-        with self._condition:
-            self._experiment_gateway = experiment_gateway
-        try:
             self._bound_client_timeout()
         except BaseException as timeout_guard_error:
             error = self._quarantine_backend(
@@ -984,6 +1005,62 @@ class StudentProgramController:
                 self._starting = False
             self._complete_run("FAILED", error)
             return
+
+        try:
+            experiment_gateway = (
+                self._dispatch_backend_action_bounded(
+                    stage="vision.profile.controller",
+                    action=lambda: StudentExperimentGateway(
+                        application=self._application,
+                        evidence=evidence,
+                        context=self._experiment_context,
+                        definition=self._experiment_definition,
+                        scene_manifest=validated_scene_manifest,
+                    ),
+                    thread_name="StudentVisionProfileController",
+                    action_name="vision.profile.controller",
+                )
+                if self._experiment_context is not None
+                and self._experiment_definition is not None
+                and validated_scene_manifest is not None
+                else None
+            )
+        except _BackendActionStuck as gateway_error:
+            error = self._quarantine_backend(
+                _error(
+                    "STUDENT_BACKEND_COMMAND_STUCK",
+                    "Vision profile controller initialization did not finish",
+                    details={"stage": gateway_error.command_name},
+                )
+            )
+            with self._condition:
+                self._starting = False
+            self._complete_run("FAILED", error)
+            return
+        except BaseException as gateway_error:
+            if _is_transport_timeout(gateway_error):
+                error = self._quarantine_backend(
+                    _error(
+                        "STUDENT_BACKEND_TRANSPORT_TIMEOUT",
+                        "CoppeliaSim transport timed out while initializing "
+                        "the vision profile controller",
+                        details={
+                            "stage": "vision.profile.controller",
+                            "cause": _exception_error(gateway_error),
+                        },
+                    )
+                )
+            else:
+                error = _exception_error(
+                    gateway_error,
+                    code="EXPERIMENT_CONTEXT_INVALID",
+                )
+            with self._condition:
+                self._starting = False
+            self._complete_run("FAILED", error)
+            return
+        with self._condition:
+            self._experiment_gateway = experiment_gateway
 
         try:
             captured_source = evidence.source_path.read_bytes()
@@ -2107,6 +2184,12 @@ class StudentProgramController:
             self._clear_active_command()
             return selected
         except VisionPlatformError as command_error:
+            rollback = self._profile_rollback_outcome(
+                command,
+                command_error,
+            )
+            if rollback is not None:
+                return rollback
             error = _exception_error(command_error)
             with self._condition:
                 self._safety_violation_count += 1
@@ -2155,6 +2238,12 @@ class StudentProgramController:
                 self._reap_child(force=True)
                 self._clear_active_command()
                 return requested or ("FAILED", transport_error)
+            rollback = self._profile_rollback_outcome(
+                command,
+                command_error,
+            )
+            if rollback is not None:
+                return rollback
             error = _exception_error(command_error)
             selected = self._requested_outcome() or ("FAILED", error)
             self._send_failure(
@@ -2194,6 +2283,43 @@ class StudentProgramController:
                 ),
             )
         return None
+
+    def _profile_rollback_outcome(
+        self,
+        command: CommandMessage,
+        command_error: BaseException,
+    ) -> tuple[str, dict[str, Any]] | None:
+        if (
+            command.name
+            not in {
+                "camera.profile.apply",
+                "camera.profile.get",
+                "camera.profile.reset",
+            }
+            or not _is_profile_rollback_failure(command_error)
+        ):
+            return None
+        rollback_error = self._quarantine_backend(
+            _error(
+                "STUDENT_BACKEND_CONNECTION_QUARANTINED",
+                "Vision profile rollback failed; the backend "
+                "connection cannot be reused",
+                details={
+                    "command": command.name,
+                    "cause": _exception_error(command_error),
+                    "rollback_failure": (
+                        "VISION_PROFILE_ROLLBACK_FAILED"
+                    ),
+                },
+            )
+        )
+        requested = self._requested_outcome()
+        if requested is None:
+            self._request_stop("FAILED", rollback_error)
+            requested = self._requested_outcome()
+        self._reap_child(force=True)
+        self._clear_active_command()
+        return requested or ("FAILED", rollback_error)
 
     def _clear_active_command(self) -> None:
         with self._condition:
@@ -2454,7 +2580,13 @@ class StudentProgramController:
         return recorded_report
 
     def _dispatch(self, command: CommandMessage) -> Any:
-        if command.name in {"camera.capture", "experiment.info"}:
+        if command.name in {
+            "camera.capture",
+            "camera.profile.apply",
+            "camera.profile.get",
+            "camera.profile.reset",
+            "experiment.info",
+        }:
             gateway = self._experiment_gateway
             if gateway is None:
                 raise VisionPlatformError(
@@ -3293,6 +3425,23 @@ class StudentProgramController:
                 )
                 record_quarantine(stage, quarantine_error)
                 return True
+            if (
+                stage == "vision.profile.reset"
+                and _is_profile_rollback_failure(cleanup_error)
+            ):
+                quarantine_error = self._quarantine_backend(
+                    _error(
+                        "STUDENT_BACKEND_CONNECTION_QUARANTINED",
+                        "Vision profile rollback failed during cleanup; "
+                        "the backend connection cannot be reused",
+                        details={
+                            "stage": stage,
+                            "cause": _exception_error(cleanup_error),
+                        },
+                    )
+                )
+                record_quarantine(stage, quarantine_error)
+                return True
             errors.append(
                 {
                     "stage": stage,
@@ -3336,6 +3485,15 @@ class StudentProgramController:
                     None,
                 )
             return False, True, value
+
+        experiment_gateway = self._experiment_gateway
+        if experiment_gateway is not None:
+            stop, _, _ = capture(
+                "vision.profile.reset",
+                experiment_gateway.reset_environment,
+            )
+            if stop:
+                return errors
 
         stop, _, _ = capture("tool.off", self._application.tool.off)
         if stop:

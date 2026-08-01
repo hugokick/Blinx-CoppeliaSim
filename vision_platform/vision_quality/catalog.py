@@ -118,10 +118,11 @@ def _validate_rgb(value: Any, name: str) -> tuple[float, float, float]:
     return tuple(float(component) for component in value)
 
 
-def load_profile_catalog(path: str | Path) -> VisionProfileCatalog:
-    catalog_path = Path(path).expanduser().resolve()
+def load_profile_catalog_bytes(content: bytes) -> VisionProfileCatalog:
+    if type(content) is not bytes:
+        raise TypeError("catalog content must be exact bytes")
     payload = json.loads(
-        catalog_path.read_text(encoding="utf-8"),
+        content.decode("utf-8"),
         parse_constant=_reject_nonfinite,
         object_pairs_hook=_reject_duplicate_keys,
     )
@@ -159,3 +160,8 @@ def load_profile_catalog(path: str | Path) -> VisionProfileCatalog:
         far_clip_m=far_clip_m,
         profiles=profiles,
     )
+
+
+def load_profile_catalog(path: str | Path) -> VisionProfileCatalog:
+    catalog_path = Path(path).expanduser().resolve()
+    return load_profile_catalog_bytes(catalog_path.read_bytes())

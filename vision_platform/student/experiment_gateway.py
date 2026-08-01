@@ -19,6 +19,18 @@ from vision_platform.experiments.models import (
     ExperimentRunContext,
 )
 from vision_platform.experiments.probes import probe_experiment
+from vision_platform.vision_quality.controller import controller_for_experiment
+from vision_platform.vision_quality.evidence import record_vision_bundle
+from vision_platform.vision_quality.models import (
+    VisionImageLayer,
+    VisionResultBundle,
+)
+
+
+_PROFILE_CONTROLLER_UNSET = object()
+_PROFILE_CAPABILITIES = frozenset(
+    {"camera.profile", "lighting.profile"}
+)
 
 
 @dataclass(frozen=True)
@@ -331,6 +343,7 @@ class StudentExperimentGateway:
         definition: ExperimentDefinition,
         scene_manifest: Mapping[str, Any],
         capture_timeout_s: float = 2.0,
+        profile_controller: Any = _PROFILE_CONTROLLER_UNSET,
     ) -> None:
         copied_manifest = validate_experiment_binding(
             context,
@@ -343,18 +356,93 @@ class StudentExperimentGateway:
         self.context = context
         self._definition = definition
         self._scene_manifest = copied_manifest
+        self._profile_controller = (
+            controller_for_experiment(
+                application,
+                definition,
+                copied_manifest,
+            )
+            if profile_controller is _PROFILE_CONTROLLER_UNSET
+            else profile_controller
+        )
         self.capture_timeout_s = float(capture_timeout_s)
         self._snapshot_ids = count(1)
         self._probe_lock = RLock()
 
     def dispatch(self, name: str, args: Mapping[str, Any]) -> Any:
-        if args:
-            raise ValueError(f"{name} does not accept arguments")
         if name == "experiment.info":
+            self._require_exact_args(name, args, ())
             return self._public_experiment_info()
         if name == "camera.capture":
+            self._require_exact_args(name, args, ())
             return self._capture()
+        if name == "camera.profile.get":
+            self._require_exact_args(name, args, ())
+            return self._profile_public(
+                self._profiles_required().current(),
+                path=name,
+            )
+        if name == "camera.profile.apply":
+            self._require_exact_args(name, args, ("profile_id",))
+            return self._profile_public(
+                self._profiles_required().apply(args["profile_id"]),
+                path=name,
+            )
+        if name == "camera.profile.reset":
+            self._require_exact_args(name, args, ())
+            return self._profile_public(
+                self._profiles_required().reset(),
+                path=name,
+            )
         raise ValueError(f"COMMAND_NOT_ALLOWED: {name}")
+
+    @staticmethod
+    def _require_exact_args(
+        name: str,
+        args: Mapping[str, Any],
+        expected: tuple[str, ...],
+    ) -> None:
+        try:
+            keys = tuple(args.keys())
+        except BaseException as error:
+            raise ValueError(f"{name} arguments are invalid") from error
+        if len(keys) == len(expected) and set(keys) == set(expected):
+            return
+        if not expected:
+            raise ValueError(f"{name} does not accept arguments")
+        raise ValueError(
+            f"{name} arguments must be exactly: {', '.join(expected)}"
+        )
+
+    def _profiles_required(self) -> Any:
+        if (
+            not _PROFILE_CAPABILITIES
+            <= set(self._definition.capabilities)
+            or self._profile_controller is None
+        ):
+            raise VisionPlatformError(
+                "VISION_PROFILE_CONTEXT_REQUIRED",
+                "当前实验没有可用的受控视觉配置",
+            )
+        return self._profile_controller
+
+    @staticmethod
+    def _profile_public(value: Any, *, path: str) -> dict[str, Any]:
+        to_public_dict = getattr(value, "to_public_dict", None)
+        if not callable(to_public_dict):
+            raise TypeError(
+                f"{path} must return a JSON-native public profile"
+            )
+        public = _copy_json_native(
+            to_public_dict(),
+            path=path,
+        )
+        if not isinstance(public, dict):
+            raise TypeError(
+                f"{path} must return a JSON-native public profile"
+            )
+        json.dumps(public, ensure_ascii=False, allow_nan=False)
+        return public
 
     def _public_experiment_info(self) -> dict[str, Any]:
         public = self.context.to_public_dict()
@@ -368,6 +456,20 @@ class StudentExperimentGateway:
         return _copy_json_native(value, path="experiment.info")
 
     def _capture(self) -> dict[str, Any]:
+        profile_controller = (
+            self._profile_controller
+            if _PROFILE_CAPABILITIES
+            <= set(self._definition.capabilities)
+            else None
+        )
+        profile = (
+            self._profile_public(
+                profile_controller.current(),
+                path="camera.capture.vision_profile",
+            )
+            if profile_controller is not None
+            else None
+        )
         frame = self.application.camera.read(
             timeout_s=self.capture_timeout_s
         )
@@ -398,6 +500,15 @@ class StudentExperimentGateway:
             or sequence_id < 0
         ):
             raise RuntimeError("CAMERA_SNAPSHOT_FRAME_INVALID")
+        if profile is not None:
+            resolution = profile.get("resolution")
+            if (
+                type(resolution) is not list
+                or len(resolution) != 2
+                or any(type(component) is not int for component in resolution)
+                or resolution != [width, height]
+            ):
+                raise RuntimeError("VISION_PROFILE_RESOLUTION_MISMATCH")
 
         ok, encoded = cv2.imencode(".png", image)
         if not ok:
@@ -411,17 +522,56 @@ class StudentExperimentGateway:
             "source": source,
             "sequence_id": sequence_id,
         }
+        if profile is not None:
+            metadata["vision_profile"] = profile
         record = self.evidence.record_snapshot(
             snapshot_id=snapshot_id,
             png_bytes=png_bytes,
             metadata=metadata,
         )
-        return {
+        value = {
             "snapshot_id": snapshot_id,
             "png_bytes": png_bytes,
             **metadata,
             "evidence_path": record["path"],
         }
+        if profile is not None:
+            bundle = VisionResultBundle(
+                schema_version=1,
+                bundle_id=(
+                    f"{self.context.experiment_id}-{snapshot_id}"
+                ),
+                experiment_id=self.context.experiment_id,
+                source_snapshot_id=snapshot_id,
+                status="PASS",
+                layers=(
+                    VisionImageLayer("raw", "原图", image),
+                ),
+                result={"snapshot_id": snapshot_id},
+                profile=profile,
+                hardware_status="PENDING_HARDWARE",
+            )
+            bundle_path = record_vision_bundle(
+                self.evidence,
+                bundle,
+                existing_layer_records={"raw": record},
+            )
+            value["vision_bundle_path"] = bundle_path
+        return value
+
+    def reset_environment(self) -> dict[str, Any] | None:
+        profile_controller = (
+            self._profile_controller
+            if _PROFILE_CAPABILITIES
+            <= set(self._definition.capabilities)
+            else None
+        )
+        if profile_controller is None:
+            return None
+        return self._profile_public(
+            profile_controller.reset(),
+            path="vision.profile.reset",
+        )
 
     def record_probe(self, phase: str) -> dict[str, Any]:
         report = self.collect_probe(phase)

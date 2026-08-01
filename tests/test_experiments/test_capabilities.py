@@ -5,13 +5,23 @@ import pytest
 from vision_platform.experiments.capabilities import check_capabilities
 
 
-def _application(*, camera=True, backend="sim", tool=True, sim=True):
+def _application(
+    *,
+    camera=True,
+    backend="sim",
+    camera_backend="sim",
+    tool=True,
+    sim=True,
+):
     return SimpleNamespace(
         camera=object() if camera else None,
         robot=object(),
         tool=object() if tool else None,
         sim=object() if sim else None,
-        config=SimpleNamespace(robot_backend=backend),
+        config=SimpleNamespace(
+            robot_backend=backend,
+            camera_backend=camera_backend,
+        ),
     )
 
 
@@ -103,3 +113,86 @@ def test_unknown_capability_is_not_silently_accepted():
 
     assert report.missing == ("robot.fly",)
     assert "未注册能力" in report.reasons["robot.fly"]
+
+
+def test_sim_camera_and_scene_expose_profile_capabilities():
+    report = check_capabilities(
+        _application(),
+        ("camera.profile", "lighting.profile"),
+    )
+
+    assert report.ready
+    assert report.available == ("camera.profile", "lighting.profile")
+
+
+@pytest.mark.parametrize(
+    ("application", "reason"),
+    [
+        (
+            _application(camera_backend="replay"),
+            "视觉配置仅支持 CoppeliaSim 相机后端",
+        ),
+        (
+            _application(sim=False),
+            "当前应用没有 CoppeliaSim 场景连接",
+        ),
+        (
+            _application(camera=False),
+            "当前应用没有可用相机",
+        ),
+    ],
+)
+def test_unavailable_profile_runtime_has_stable_reasons(application, reason):
+    report = check_capabilities(
+        application,
+        ("camera.profile", "lighting.profile"),
+    )
+
+    assert report.missing == ("camera.profile", "lighting.profile")
+    assert report.reasons == {
+        "camera.profile": reason,
+        "lighting.profile": reason,
+    }
+
+
+def test_profile_capability_check_does_not_probe_arbitrary_scene_objects():
+    class NoSceneProbe:
+        def __getattr__(self, name):
+            raise AssertionError(f"unexpected scene probe: {name}")
+
+    application = _application()
+    application.sim = NoSceneProbe()
+
+    report = check_capabilities(
+        application,
+        ("camera.profile", "lighting.profile"),
+    )
+
+    assert report.ready
+
+
+@pytest.mark.parametrize("capability", ["camera.profile", "lighting.profile"])
+def test_profile_capabilities_are_an_indivisible_pair(capability):
+    report = check_capabilities(_application(), (capability,))
+
+    assert report.missing == (capability,)
+    assert report.reasons[capability] == (
+        "视觉配置能力必须同时声明 camera.profile 和 lighting.profile"
+    )
+
+
+def test_profile_pair_accepts_generator_without_touching_runtime_objects():
+    class PresenceOnly:
+        def __getattribute__(self, name):
+            raise AssertionError(f"unexpected runtime inspection: {name}")
+
+    application = _application()
+    application.sim = PresenceOnly()
+    application.camera = PresenceOnly()
+
+    report = check_capabilities(
+        application,
+        (name for name in ("camera.profile", "lighting.profile")),
+    )
+
+    assert report.ready

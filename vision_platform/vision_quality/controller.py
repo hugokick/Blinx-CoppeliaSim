@@ -1,13 +1,18 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
+import hashlib
 import math
+from pathlib import Path
 import re
 from threading import RLock
 from typing import Any
 
 from vision_platform.cameras.coppeliasim import CoppeliaSimCamera
+from vision_platform.errors import VisionPlatformError
 
+from .catalog import load_profile_catalog_bytes
 from .models import AppliedVisionProfile, VisionProfile, VisionProfileCatalog
 
 
@@ -27,6 +32,119 @@ _LightState = tuple[
 
 class _ReadbackMismatch(RuntimeError):
     pass
+
+
+class VisionProfileError(VisionPlatformError):
+    def __init__(self, code: str) -> None:
+        super().__init__(code, code)
+
+
+class VisionProfileValueError(VisionProfileError, ValueError):
+    pass
+
+
+class VisionProfileTypeError(VisionProfileError, TypeError):
+    pass
+
+
+def _profile_context_required() -> VisionProfileValueError:
+    return VisionProfileValueError("VISION_PROFILE_CONTEXT_REQUIRED")
+
+
+def _mark_rollback_failure(error: BaseException) -> None:
+    error.vision_profile_rollback_failure = (
+        "VISION_PROFILE_ROLLBACK_FAILED"
+    )
+
+
+def controller_for_experiment(
+    application: Any,
+    definition: Any,
+    scene_manifest: Mapping[str, Any],
+) -> VisionProfileController | None:
+    required = {"camera.profile", "lighting.profile"}
+    declared = set(definition.capabilities)
+    profile_capabilities = required & declared
+    if not profile_capabilities:
+        return None
+    if profile_capabilities != required:
+        raise _profile_context_required()
+
+    config = getattr(application, "config", None)
+    sim = getattr(application, "sim", None)
+    camera = getattr(application, "camera", None)
+    if (
+        getattr(config, "camera_backend", None) != "sim"
+        or sim is None
+        or camera is None
+    ):
+        raise VisionProfileError("VISION_PROFILE_BACKEND_UNAVAILABLE")
+
+    try:
+        scene_path = Path(definition.scene).expanduser().resolve()
+        profile_path = (scene_path.parent / "profiles.json").resolve()
+        project_root = next(
+            candidate
+            for candidate in scene_path.parents
+            if (candidate / "config" / "experiments").is_dir()
+            and (candidate / "simulation").is_dir()
+        )
+        scene_path.relative_to(project_root / "simulation")
+        profile_path.relative_to(project_root / "simulation")
+    except (OSError, RuntimeError, StopIteration, TypeError, ValueError) as error:
+        raise _profile_context_required() from error
+
+    entry = scene_manifest.get("profile_catalog")
+    if not isinstance(entry, Mapping):
+        raise _profile_context_required()
+    try:
+        if set(entry) != {"path", "sha256"}:
+            raise _profile_context_required()
+        expected_path = profile_path.relative_to(project_root).as_posix()
+        if type(entry["path"]) is not str or entry["path"] != expected_path:
+            raise _profile_context_required()
+        expected_sha256 = entry["sha256"]
+        if (
+            type(expected_sha256) is not str
+            or len(expected_sha256) != 64
+            or any(
+                character not in "0123456789abcdef"
+                for character in expected_sha256
+            )
+        ):
+            raise _profile_context_required()
+        content = profile_path.read_bytes()
+    except (KeyError, OSError, RuntimeError, TypeError, ValueError) as error:
+        if isinstance(error, ValueError) and str(error) == (
+            "VISION_PROFILE_CONTEXT_REQUIRED"
+        ):
+            raise
+        raise _profile_context_required() from error
+    if hashlib.sha256(content).hexdigest() != expected_sha256:
+        raise _profile_context_required()
+
+    try:
+        catalog = load_profile_catalog_bytes(content)
+        allowed = definition.public_parameters.get("allowed_profile_ids")
+        baseline = definition.public_parameters.get("baseline_profile_id")
+        if (
+            type(allowed) is not tuple
+            or not allowed
+            or any(type(profile_id) is not str for profile_id in allowed)
+            or type(baseline) is not str
+            or baseline != catalog.baseline_profile_id
+        ):
+            raise _profile_context_required()
+    except VisionProfileValueError:
+        raise
+    except (OSError, RuntimeError, TypeError, UnicodeError, ValueError) as error:
+        raise _profile_context_required() from error
+    return VisionProfileController(
+        sim=sim,
+        camera=camera,
+        catalog=catalog,
+        allowed_profile_ids=allowed,
+    )
 
 
 @dataclass(frozen=True)
@@ -55,7 +173,7 @@ class VisionProfileController:
         allowed_profile_ids: tuple[str, ...],
     ) -> None:
         if not isinstance(catalog, VisionProfileCatalog):
-            raise TypeError("VISION_PROFILE_CATALOG_INVALID")
+            raise VisionProfileTypeError("VISION_PROFILE_CATALOG_INVALID")
         self._validate_catalog_ambiguity(catalog)
         self._validate_allowed_profile_ids(catalog, allowed_profile_ids)
         self._validate_backend(sim, camera, catalog)
@@ -72,14 +190,16 @@ class VisionProfileController:
             self._key_light_handle = sim.getObject(catalog.key_light_path)
             self._fill_light_handle = sim.getObject(catalog.fill_light_path)
         except Exception as error:
-            raise RuntimeError("VISION_PROFILE_OBJECT_MISSING") from error
+            raise VisionProfileError("VISION_PROFILE_OBJECT_MISSING") from error
 
     @classmethod
     def _validate_catalog_ambiguity(cls, catalog: VisionProfileCatalog) -> None:
         for index, left in enumerate(catalog.profiles):
             for right in catalog.profiles[index + 1 :]:
                 if cls._profiles_overlap(left, right):
-                    raise ValueError("VISION_PROFILE_CATALOG_AMBIGUOUS")
+                    raise VisionProfileValueError(
+                        "VISION_PROFILE_CATALOG_AMBIGUOUS"
+                    )
 
     @classmethod
     def _profiles_overlap(cls, left: VisionProfile, right: VisionProfile) -> bool:
@@ -119,11 +239,11 @@ class VisionProfileController:
             or catalog.sensor_path != _SENSOR_PATH
             or camera.sensor_path != _SENSOR_PATH
         ):
-            raise RuntimeError("VISION_PROFILE_BACKEND_UNAVAILABLE")
+            raise VisionProfileError("VISION_PROFILE_BACKEND_UNAVAILABLE")
         resolver = getattr(camera, "_resolver", None)
         injected_sim = getattr(resolver, "_injected_sim", None)
         if getattr(camera, "_sim", None) is not sim and injected_sim is not sim:
-            raise RuntimeError("VISION_PROFILE_BACKEND_UNAVAILABLE")
+            raise VisionProfileError("VISION_PROFILE_BACKEND_UNAVAILABLE")
 
     @staticmethod
     def _validate_allowed_profile_ids(
@@ -131,29 +251,33 @@ class VisionProfileController:
         allowed_profile_ids: tuple[str, ...],
     ) -> None:
         if not isinstance(allowed_profile_ids, tuple) or not allowed_profile_ids:
-            raise ValueError("VISION_PROFILE_NOT_ALLOWED")
+            raise VisionProfileValueError("VISION_PROFILE_NOT_ALLOWED")
         if any(
             not isinstance(profile_id, str)
             or not profile_id.isascii()
             or _PROFILE_ID.fullmatch(profile_id) is None
             for profile_id in allowed_profile_ids
         ):
-            raise ValueError("VISION_PROFILE_ID_INVALID")
+            raise VisionProfileValueError("VISION_PROFILE_ID_INVALID")
         if len(set(allowed_profile_ids)) != len(allowed_profile_ids):
-            raise ValueError("VISION_PROFILE_NOT_ALLOWED")
+            raise VisionProfileValueError("VISION_PROFILE_NOT_ALLOWED")
         if any(profile_id not in catalog.profile_ids for profile_id in allowed_profile_ids):
-            raise ValueError("VISION_PROFILE_NOT_ALLOWED")
+            raise VisionProfileValueError("VISION_PROFILE_NOT_ALLOWED")
         if catalog.baseline_profile_id not in allowed_profile_ids:
-            raise ValueError("VISION_PROFILE_NOT_ALLOWED")
+            raise VisionProfileValueError("VISION_PROFILE_NOT_ALLOWED")
 
     def current(self) -> AppliedVisionProfile:
         with self._lock:
             try:
                 snapshot = self._read_snapshot()
             except _ReadbackMismatch as error:
-                raise RuntimeError("VISION_PROFILE_READBACK_MISMATCH") from error
+                raise VisionProfileError(
+                    "VISION_PROFILE_READBACK_MISMATCH"
+                ) from error
             except Exception as error:
-                raise RuntimeError("VISION_PROFILE_BACKEND_UNAVAILABLE") from error
+                raise VisionProfileError(
+                    "VISION_PROFILE_BACKEND_UNAVAILABLE"
+                ) from error
             return self._match_published_profile(snapshot)
 
     def apply(self, profile_id: str) -> AppliedVisionProfile:
@@ -162,7 +286,7 @@ class VisionProfileController:
             try:
                 before = self._read_snapshot()
             except Exception as error:
-                raise RuntimeError("VISION_PROFILE_APPLY_FAILED") from error
+                raise VisionProfileError("VISION_PROFILE_APPLY_FAILED") from error
 
             target = self._target_snapshot(before, selected)
             try:
@@ -174,6 +298,7 @@ class VisionProfileController:
                 rollback_errors = self._best_effort_restore(before)
                 if not isinstance(original, Exception):
                     if rollback_errors:
+                        _mark_rollback_failure(original)
                         evidence = BaseExceptionGroup(
                             "VISION_PROFILE_ROLLBACK_EVIDENCE",
                             rollback_errors,
@@ -197,18 +322,24 @@ class VisionProfileController:
                     rollback_error.add_note(
                         f"original apply failure: {type(original).__name__}: {original}"
                     )
+                    _mark_rollback_failure(rollback_error)
                     raise rollback_error from evidence
                 if rollback_errors:
                     evidence = BaseExceptionGroup(
                         "VISION_PROFILE_ROLLBACK_EVIDENCE",
                         rollback_errors,
                     )
-                    failure = RuntimeError("VISION_PROFILE_ROLLBACK_FAILED")
+                    failure = VisionProfileError(
+                        "VISION_PROFILE_ROLLBACK_FAILED"
+                    )
                     failure.add_note(
                         f"original apply failure: {type(original).__name__}: {original}"
                     )
+                    _mark_rollback_failure(failure)
                     raise failure from evidence
-                raise RuntimeError("VISION_PROFILE_APPLY_FAILED") from original
+                raise VisionProfileError(
+                    "VISION_PROFILE_APPLY_FAILED"
+                ) from original
             return self._public_state(selected)
 
     def reset(self) -> AppliedVisionProfile:
@@ -216,7 +347,19 @@ class VisionProfileController:
             try:
                 return self.apply(self._catalog.baseline_profile_id)
             except Exception as error:
-                raise RuntimeError("VISION_PROFILE_RESET_FAILED") from error
+                failure = VisionProfileError("VISION_PROFILE_RESET_FAILED")
+                if (
+                    getattr(
+                        error,
+                        "vision_profile_rollback_failure",
+                        None,
+                    )
+                    == "VISION_PROFILE_ROLLBACK_FAILED"
+                    or getattr(error, "code", None)
+                    == "VISION_PROFILE_ROLLBACK_FAILED"
+                ):
+                    _mark_rollback_failure(failure)
+                raise failure from error
 
     def _allowed_profile(self, profile_id: str) -> VisionProfile:
         if (
@@ -225,9 +368,9 @@ class VisionProfileController:
             or _PROFILE_ID.fullmatch(profile_id) is None
             or profile_id not in self._catalog.profile_ids
         ):
-            raise ValueError("VISION_PROFILE_ID_INVALID")
+            raise VisionProfileValueError("VISION_PROFILE_ID_INVALID")
         if profile_id not in self._allowed_profile_ids:
-            raise ValueError("VISION_PROFILE_NOT_ALLOWED")
+            raise VisionProfileValueError("VISION_PROFILE_NOT_ALLOWED")
         return self._catalog.require(profile_id)
 
     def _read_snapshot(self) -> _SceneSnapshot:
@@ -484,7 +627,7 @@ class VisionProfileController:
             if self._matches_profile(snapshot, profile)
         ]
         if len(matches) != 1:
-            raise RuntimeError("VISION_PROFILE_READBACK_MISMATCH")
+            raise VisionProfileError("VISION_PROFILE_READBACK_MISMATCH")
         return self._public_state(matches[0])
 
     def _matches_profile(self, snapshot: _SceneSnapshot, profile: VisionProfile) -> bool:

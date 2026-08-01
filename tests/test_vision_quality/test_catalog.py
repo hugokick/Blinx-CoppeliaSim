@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from dataclasses import FrozenInstanceError
 import json
+from pathlib import Path
 
 import pytest
+import vision_platform.vision_quality.catalog as catalog_module
 
 from vision_platform.vision_quality import (
     AppliedVisionProfile,
@@ -215,3 +217,61 @@ def test_applied_profile_public_dict_uses_json_native_values():
         "perspective_angle_deg": 60, "camera_rig_z_m": 0.7,
         "key_diffuse_rgb": [0.8, 0.8, 0.8], "fill_diffuse_rgb": [0.35, 0.35, 0.35],
     }
+
+
+def test_catalog_bytes_loader_matches_path_loader(tmp_path):
+    path = _write_catalog(tmp_path)
+
+    from_bytes = catalog_module.load_profile_catalog_bytes(path.read_bytes())
+
+    assert from_bytes == load_profile_catalog(path)
+    assert from_bytes.profile_ids == ("standard", "wide_dim")
+
+
+@pytest.mark.parametrize(
+    ("content", "error_type", "message"),
+    [
+        (b"\xff", UnicodeDecodeError, None),
+        (
+            b'{"schema_version":1,"schema_version":1}',
+            ValueError,
+            "schema_version",
+        ),
+        (b'{"near_clip_m":NaN}', ValueError, "non-finite"),
+    ],
+)
+def test_catalog_bytes_loader_uses_strict_shared_json_parser(
+    content,
+    error_type,
+    message,
+):
+    with pytest.raises(error_type, match=message):
+        catalog_module.load_profile_catalog_bytes(content)
+
+
+def test_path_loader_reads_exactly_once_then_delegates(tmp_path, monkeypatch):
+    path = _write_catalog(tmp_path)
+    content = path.read_bytes()
+    read_calls = []
+    delegated = []
+    sentinel = object()
+
+    def read_bytes_once(self):
+        read_calls.append(self)
+        return content
+
+    def load_bytes(value):
+        delegated.append(value)
+        return sentinel
+
+    monkeypatch.setattr(Path, "read_bytes", read_bytes_once)
+    monkeypatch.setattr(
+        catalog_module,
+        "load_profile_catalog_bytes",
+        load_bytes,
+        raising=False,
+    )
+
+    assert load_profile_catalog(path) is sentinel
+    assert read_calls == [path.resolve()]
+    assert delegated == [content]
