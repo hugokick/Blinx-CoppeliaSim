@@ -346,7 +346,7 @@ def test_experiment_run_parser_uses_catalog_id_not_arbitrary_scene():
     assert not hasattr(args, "scene")
 
 
-def test_experiment_list_prints_eight_formal_items(capsys):
+def test_experiment_list_prints_nine_formal_items(capsys):
     code = main(["experiment-list"])
     payload = json.loads(capsys.readouterr().out)
 
@@ -361,6 +361,7 @@ def test_experiment_list_prints_eight_formal_items(capsys):
         "V1-01",
         "V1-02",
         "V1-03",
+        "V1-04",
     ]
     assert all(
         item["hardware_status"] == "PENDING_HARDWARE"
@@ -368,16 +369,17 @@ def test_experiment_list_prints_eight_formal_items(capsys):
     )
 
 
-def test_experiment_list_and_show_include_first_three_v1_labs(capsys):
+def test_experiment_list_and_show_include_first_four_v1_labs(capsys):
     assert main(["experiment-list"]) == 0
     listed = json.loads(capsys.readouterr().out)
     assert [
-        item["experiment_id"] for item in listed["experiments"][-3:]
-    ] == ["V1-01", "V1-02", "V1-03"]
+        item["experiment_id"] for item in listed["experiments"][-4:]
+    ] == ["V1-01", "V1-02", "V1-03", "V1-04"]
     expected_templates = {
         "V1-01": "v1_01_virtual_vision.py",
         "V1-02": "v1_02_size_measurement.py",
         "V1-03": "v1_03_pose_measurement.py",
+        "V1-04": "v1_04_geometry_measurement.py",
     }
     for experiment_id, template in expected_templates.items():
         assert main(
