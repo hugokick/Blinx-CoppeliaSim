@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "scene_id": "vision-quality-lab",
+  "template": "simulation/vision_lab/BL23_vision_lab.ttt",
+  "output": "simulation/vision_quality_lab/BL23_vision_quality_lab.ttt",
+  "remove_paths": ["/VisionLab"],
+  "root_path": "/VisionQualityLab",
+  "profiles": "simulation/vision_quality_lab/profiles.json",
+  "workspace": {"center_m": [0.35, 0.0, 0.02], "size_m": [0.36, 0.28, 0.02]},
+  "camera": {"rig_position_m": [0.35, 0.0, 0.7], "orientation_deg": [180, 0, 0]},
+  "samples": {
+    "ReferenceRectangle": {"shape": "cuboid", "position_m": [0.29, -0.06, 0.045], "size_m": [0.08, 0.04, 0.03], "color_rgb": [0.85, 0.1, 0.1]},
+    "ReferenceCircle": {"shape": "cylinder", "position_m": [0.41, -0.06, 0.045], "size_m": [0.05, 0.05, 0.03], "color_rgb": [0.1, 0.3, 0.9]},
+    "ReferenceTriangle": {"shape": "triangle", "position_m": [0.29, 0.07, 0.045], "size_m": [0.07, 0.06, 0.03], "color_rgb": [0.1, 0.75, 0.2]},
+    "ResolutionTarget": {"shape": "resolution_target", "position_m": [0.41, 0.07, 0.031], "size_m": [0.08, 0.06, 0.002], "stripe_count": 12}
+  },
+  "required_paths": ["/VisionQualityLab", "/VisionQualityLab/InspectionBoard", "/VisionQualityLab/Samples", "/VisionQualityLab/Samples/ReferenceRectangle", "/VisionQualityLab/Samples/ReferenceCircle", "/VisionQualityLab/Samples/ReferenceTriangle", "/VisionQualityLab/Samples/ResolutionTarget", "/VisionQualityLab/CameraRig", "/VisionQualityLab/CameraRig/Camera", "/VisionQualityLab/Lighting", "/VisionQualityLab/Lighting/KeyLight", "/VisionQualityLab/Lighting/FillLight"]
+}

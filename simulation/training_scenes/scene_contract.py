@@ -162,9 +162,29 @@ def validate_scene_contract(
         raise ValueError("template sha256 mismatch")
     if _sha256(scene) != scene_sha256:
         raise ValueError("scene sha256 mismatch")
-    return {
+    report = {
         "status": "PASS",
         "scene_id": spec_scene_id,
         "scene_sha256": scene_sha256,
         "required_path_count": len(spec_required_paths),
     }
+    if spec_scene_id == "vision-quality-lab":
+        profile_path = _project_relative_path(
+            spec.get("profiles"),
+            label="spec profiles",
+        )
+        if profile_path != "simulation/vision_quality_lab/profiles.json":
+            raise ValueError("spec profiles must be the canonical vision-quality catalog")
+        manifest_profile_path, profile_sha256 = _manifest_file(
+            manifest,
+            "profile_catalog",
+        )
+        expected_profile = {"path": profile_path, "sha256": _sha256(_inside(root, profile_path))}
+        if manifest.get("profile_catalog") != expected_profile:
+            raise ValueError("profile_catalog must match the formal profile catalog")
+        if manifest_profile_path != profile_path:
+            raise ValueError("profile_catalog path mismatch")
+        if _sha256(_inside(root, manifest_profile_path)) != profile_sha256:
+            raise ValueError("profile_catalog sha256 mismatch")
+        report["profile_sha256"] = profile_sha256
+    return report

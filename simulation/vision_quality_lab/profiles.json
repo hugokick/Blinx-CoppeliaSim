@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "baseline_profile_id": "standard",
+  "sensor_path": "/VisionQualityLab/CameraRig/Camera",
+  "camera_rig_path": "/VisionQualityLab/CameraRig",
+  "key_light_path": "/VisionQualityLab/Lighting/KeyLight",
+  "fill_light_path": "/VisionQualityLab/Lighting/FillLight",
+  "near_clip_m": 0.05,
+  "far_clip_m": 2.0,
+  "profiles": [
+    {"profile_id": "standard", "label": "标准视图", "resolution": [512, 512], "perspective_angle_deg": 60, "camera_rig_z_m": 0.7, "key_diffuse_rgb": [0.8, 0.8, 0.8], "fill_diffuse_rgb": [0.35, 0.35, 0.35]},
+    {"profile_id": "wide_dim", "label": "宽视场弱光", "resolution": [256, 256], "perspective_angle_deg": 75, "camera_rig_z_m": 0.8, "key_diffuse_rgb": [0.35, 0.35, 0.35], "fill_diffuse_rgb": [0.15, 0.15, 0.15]},
+    {"profile_id": "detail_bright", "label": "细节强光", "resolution": [768, 768], "perspective_angle_deg": 40, "camera_rig_z_m": 0.6, "key_diffuse_rgb": [1.0, 1.0, 1.0], "fill_diffuse_rgb": [0.55, 0.55, 0.55]}
+  ]
+}

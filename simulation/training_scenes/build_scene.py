@@ -20,6 +20,7 @@ from typing import Any
 from coppeliasim_zmqremoteapi_client import RemoteAPIClient
 
 from simulation.vision_lab.hashing import asset_sha256
+from vision_platform.vision_quality import load_profile_catalog
 from vision_platform.coppelia_scene import stage_scene_for_coppeliasim
 
 
@@ -79,6 +80,14 @@ _LOGISTICS_REQUIRED_PATHS = (
     "/LogisticsLab/Tasks/Classes",
     "/LogisticsLab/Tasks/Classes/Pickables",
     "/LogisticsLab/Tasks/Classes/Targets",
+)
+_VISION_QUALITY_REQUIRED_PATHS = (
+    "/VisionQualityLab", "/VisionQualityLab/InspectionBoard",
+    "/VisionQualityLab/Samples", "/VisionQualityLab/Samples/ReferenceRectangle",
+    "/VisionQualityLab/Samples/ReferenceCircle", "/VisionQualityLab/Samples/ReferenceTriangle",
+    "/VisionQualityLab/Samples/ResolutionTarget", "/VisionQualityLab/CameraRig",
+    "/VisionQualityLab/CameraRig/Camera", "/VisionQualityLab/Lighting",
+    "/VisionQualityLab/Lighting/KeyLight", "/VisionQualityLab/Lighting/FillLight",
 )
 
 
@@ -240,6 +249,13 @@ _FORMAL_SCENES = {
         root_path="/LogisticsLab",
         output_relative="simulation/logistics_lab/BL23_logistics_lab.ttt",
         required_paths=_LOGISTICS_REQUIRED_PATHS,
+    ),
+    "simulation/vision_quality_lab/scene_spec.json": _FormalScene(
+        spec_relative="simulation/vision_quality_lab/scene_spec.json",
+        scene_id="vision-quality-lab",
+        root_path="/VisionQualityLab",
+        output_relative="simulation/vision_quality_lab/BL23_vision_quality_lab.ttt",
+        required_paths=_VISION_QUALITY_REQUIRED_PATHS,
     ),
 }
 
@@ -536,8 +552,68 @@ def _validate_tasks(payload: Any) -> None:
                 raise ValueError("Classes object footprints must not overlap")
 
 
+def _validate_vision_samples(payload: Any) -> None:
+    if not isinstance(payload, dict) or set(payload) != {
+        "ReferenceRectangle", "ReferenceCircle", "ReferenceTriangle", "ResolutionTarget",
+    }:
+        raise ValueError("samples must contain exactly the four formal sample aliases")
+    expected = (
+        ("ReferenceRectangle", "cuboid", True),
+        ("ReferenceCircle", "cylinder", True),
+        ("ReferenceTriangle", "triangle", True),
+        ("ResolutionTarget", "resolution_target", False),
+    )
+    for alias, shape, has_color in expected:
+        keys = {"shape", "position_m", "size_m"}
+        if has_color:
+            keys.add("color_rgb")
+        else:
+            keys.add("stripe_count")
+        sample = _exact_keys(payload[alias], keys, label=alias)
+        if sample["shape"] != shape:
+            raise ValueError(f"{alias} shape must match the formal sample")
+        position = _vector(sample["position_m"], label=f"{alias} position_m", length=3)
+        size = _vector(sample["size_m"], label=f"{alias} size_m", length=3, positive=True)
+        if any(abs(value) > 1.0 for value in position):
+            raise ValueError(f"{alias} position_m values must stay within one metre")
+        if any(value > 1.0 for value in size):
+            raise ValueError(f"{alias} size_m values must stay within one metre")
+        if has_color:
+            color = _vector(sample["color_rgb"], label=f"{alias} color_rgb", length=3)
+            if any(value < 0.0 or value > 1.0 for value in color):
+                raise ValueError(f"{alias} color_rgb values must be between 0 and 1")
+        elif type(sample["stripe_count"]) is not int or sample["stripe_count"] != 12:
+            raise ValueError("ResolutionTarget stripe_count must be integer 12")
+
+
 def _validate_spec(spec: dict[str, Any], formal: _FormalScene) -> None:
-    detail_field = "markers" if formal.scene_id == "robot-basics" else "tasks"
+    if formal.scene_id == "robot-basics":
+        detail_field = "markers"
+    elif formal.scene_id == "logistics-lab":
+        detail_field = "tasks"
+    elif formal.scene_id == "vision-quality-lab":
+        _exact_keys(spec, {"schema_version", "scene_id", "template", "output", "remove_paths", "root_path", "profiles", "workspace", "camera", "samples", "required_paths"}, label="scene spec")
+        if type(spec["schema_version"]) is not int or spec["schema_version"] != 1:
+            raise ValueError("scene schema_version must be integer 1")
+        for field, expected in {"scene_id": formal.scene_id, "root_path": formal.root_path, "template": TEMPLATE_RELATIVE, "output": formal.output_relative}.items():
+            if spec[field] != expected:
+                raise ValueError(f"{field} must be {expected}")
+        if spec["remove_paths"] != ["/VisionLab"] or spec["required_paths"] != list(formal.required_paths):
+            raise ValueError("vision-quality formal paths must match the contract")
+        profiles = "simulation/vision_quality_lab/profiles.json"
+        if spec["profiles"] != profiles:
+            raise ValueError("profiles must be the canonical vision-quality catalog")
+        load_profile_catalog(_project_file_from_relative(profiles, label="profiles", must_exist=True))
+        workspace = _exact_keys(spec["workspace"], {"center_m", "size_m"}, label="workspace")
+        _vector(workspace["center_m"], label="workspace center_m", length=3)
+        _vector(workspace["size_m"], label="workspace size_m", length=3, positive=True)
+        camera = _exact_keys(spec["camera"], {"rig_position_m", "orientation_deg"}, label="camera")
+        _vector(camera["rig_position_m"], label="camera rig_position_m", length=3)
+        _vector(camera["orientation_deg"], label="camera orientation_deg", length=3)
+        _validate_vision_samples(spec["samples"])
+        return
+    else:
+        raise ValueError("unsupported formal scene")
     _exact_keys(
         spec,
         {
@@ -1062,6 +1138,10 @@ def build_scene(
     port: int,
 ) -> dict[str, Any]:
     spec_path, formal = _formal_spec_path(spec_path)
+    if formal.scene_id == "vision-quality-lab":
+        raise RuntimeError(
+            "vision-quality-lab primitive builders are unavailable until Task 10"
+        )
     spec = _load(spec_path)
     _validate_spec(spec, formal)
     if not isinstance(host, str) or not host.strip() or host != host.strip():
@@ -1136,9 +1216,13 @@ def build_scene(
         _camera(sim, spec["camera"], root)
         if formal.scene_id == "robot-basics":
             _build_basics(sim, spec, root)
-        else:
+        elif formal.scene_id == "logistics-lab":
             _build_logistics(sim, spec, root)
             _attach_logistics_camera_scope(sim, root)
+        else:
+            raise RuntimeError(
+                "vision-quality-lab primitive builders are not available yet"
+            )
         for path in formal.required_paths:
             sim.getObject(path)
 
