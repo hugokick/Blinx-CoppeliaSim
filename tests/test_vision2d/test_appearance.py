@@ -60,3 +60,51 @@ def test_irregular_concave_contour_is_polygon():
 
     assert result.color == "green"
     assert result.shape == "polygon"
+
+
+def test_pixel_staircase_triangle_is_not_mislabeled_as_square():
+    points = np.array(
+        [
+            [274, 282],
+            [273, 283],
+            [273, 289],
+            [276, 292],
+            [276, 295],
+            [280, 299],
+            [280, 301],
+            [284, 305],
+            [284, 309],
+            [288, 312],
+            [288, 316],
+            [292, 319],
+            [292, 322],
+            [294, 324],
+            [300, 324],
+            [301, 323],
+            [301, 319],
+            [305, 316],
+            [305, 312],
+            [309, 309],
+            [309, 305],
+            [313, 302],
+            [313, 299],
+            [317, 296],
+            [317, 292],
+            [321, 289],
+            [321, 284],
+            [318, 282],
+        ],
+        dtype=np.int32,
+    )
+    image = np.zeros((360, 400, 3), dtype=np.uint8)
+    cv2.fillPoly(image, [points], (0, 255, 0))
+    hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+
+    result = measure_appearance(
+        hsv,
+        points.reshape(-1, 1, 2),
+        Vision2DConfig(),
+    )
+
+    assert result.vertex_count == 4
+    assert result.shape == "triangle"

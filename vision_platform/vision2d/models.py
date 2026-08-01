@@ -42,6 +42,7 @@ class Vision2DConfig:
     morphology_kernel_size: int = 3
     border_margin_px: int = 1
     polygon_epsilon_ratio: float = 0.03
+    triangle_rectangularity_max: float = 0.75
     square_aspect_min: float = 0.85
     circle_circularity_min: float = 0.70
     pixel_scale: PixelScale | None = None
@@ -61,6 +62,10 @@ class Vision2DConfig:
             raise ValueError("border_margin_px must be non-negative")
         if not 0.0 < self.polygon_epsilon_ratio < 1.0:
             raise ValueError("polygon_epsilon_ratio must be between 0 and 1")
+        if not 0.0 < self.triangle_rectangularity_max < 1.0:
+            raise ValueError(
+                "triangle_rectangularity_max must be between 0 and 1"
+            )
         if not 0.0 < self.square_aspect_min <= 1.0:
             raise ValueError("square_aspect_min must be between 0 and 1")
         if not 0.0 < self.circle_circularity_min <= 1.0:

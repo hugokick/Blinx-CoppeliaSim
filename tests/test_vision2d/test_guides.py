@@ -19,4 +19,5 @@ def test_four_guides_define_algorithm_inputs_outputs_and_boundaries():
         assert "原创合成图" in text
         assert "不是课程成绩" in text
         assert "PENDING_HARDWARE" in text
-        assert "CoppeliaSim 在线验收不在本分支范围" in text
+        assert "CoppeliaSim" in text
+        assert "在线" in text

@@ -61,12 +61,17 @@ def measure_appearance(
     longer = max(float(width), float(height))
     shorter = min(float(width), float(height))
     aspect_ratio = shorter / longer if longer > 0.0 else 0.0
+    enclosing_area = longer * shorter
+    rectangularity = area / enclosing_area if enclosing_area > 0.0 else 0.0
     circularity = (
         4.0 * math.pi * area / (perimeter * perimeter)
         if perimeter > 0.0
         else 0.0
     )
-    if vertex_count == 3:
+    if vertex_count == 3 or (
+        vertex_count == 4
+        and rectangularity <= config.triangle_rectangularity_max
+    ):
         shape = "triangle"
     elif vertex_count == 4:
         shape = "square" if aspect_ratio >= config.square_aspect_min else "rectangle"
