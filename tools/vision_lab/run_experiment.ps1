@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet('R1-01', 'R1-02', 'R1-05', 'R1-06', 'R1-07')]
+    [ValidateSet('R1-01', 'R1-02', 'R1-05', 'R1-06', 'R1-07', 'V1-01')]
     [string]$Experiment,
     [string]$Program,
     [string]$HostName = '127.0.0.1',

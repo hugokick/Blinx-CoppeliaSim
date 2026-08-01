@@ -151,17 +151,24 @@ def test_vision_quality_static_validation_rejects_out_of_bounds_sample_geometry(
         scene_builder._validate_spec(spec, scene_builder._FORMAL_SCENES["simulation/vision_quality_lab/scene_spec.json"])
 
 
-def test_vision_quality_build_refuses_before_simulator_connection_or_construction(monkeypatch):
-    touched = []
+def test_vision_quality_build_passes_preflight_before_simulator_connection(monkeypatch):
+    connections = []
 
-    def forbidden(*args, **kwargs):
-        touched.append((args, kwargs))
-        raise AssertionError("simulator or primitive construction was touched")
+    def stop_at_connection(*args, **kwargs):
+        connections.append((args, kwargs))
+        raise RuntimeError("connection sentinel")
 
-    monkeypatch.setattr(scene_builder, "RemoteAPIClient", forbidden)
-    monkeypatch.setattr(scene_builder, "_build_workspace", forbidden)
+    def forbidden_legacy_workspace(*_args, **_kwargs):
+        raise AssertionError("vision builder used the legacy workspace path")
 
-    with pytest.raises(RuntimeError, match="Task 10"):
+    monkeypatch.setattr(scene_builder, "RemoteAPIClient", stop_at_connection)
+    monkeypatch.setattr(
+        scene_builder,
+        "_build_workspace",
+        forbidden_legacy_workspace,
+    )
+
+    with pytest.raises(RuntimeError, match="connection sentinel"):
         scene_builder.build_scene(spec_path=SPEC_PATH, host="127.0.0.1", port=23000)
 
-    assert touched == []
+    assert connections == [((), {"host": "127.0.0.1", "port": 23000})]

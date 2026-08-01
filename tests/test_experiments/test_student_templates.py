@@ -4,6 +4,7 @@ from copy import deepcopy
 import hashlib
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import cv2
 import numpy as np
@@ -20,6 +21,7 @@ from student_programs.templates import (
     r1_06_digit_sort,
     r1_07_component_sort,
     r1_common,
+    v1_01_virtual_vision,
 )
 from student_programs.templates.r1_common import (
     MIN_VISUAL_CONFIDENCE,
@@ -42,6 +44,7 @@ TEMPLATES = (
     "r1_05_visual_stacking.py",
     "r1_06_digit_sort.py",
     "r1_07_component_sort.py",
+    "v1_01_virtual_vision.py",
 )
 
 
@@ -131,11 +134,18 @@ class FakeTool:
 
 
 class FakeContext:
-    def __init__(self, *, robot=None, tool=None, parameters=None):
+    def __init__(
+        self,
+        *,
+        robot=None,
+        tool=None,
+        parameters=None,
+        camera=None,
+    ):
         self.robot = robot or FakeRobot()
         self.tool = tool or FakeTool()
         self.experiment = FakeExperiment(parameters or {})
-        self.camera = FakeCamera()
+        self.camera = camera or FakeCamera()
         self.logs = []
         self.checkpoints = []
 
@@ -165,6 +175,67 @@ class FakeCamera:
             (),
             {"image_bgr": np.zeros((40, 40, 3), dtype=np.uint8)},
         )()
+
+
+class StrictProfileCamera:
+    def __init__(self):
+        self.resolutions = {
+            "standard": (512, 512),
+            "wide_dim": (256, 256),
+            "detail_bright": (768, 768),
+        }
+        self.applied = []
+        self.captured = []
+        self.current_profile = None
+        self.reset_calls = 0
+
+    def apply_profile(self, profile_id):
+        if profile_id not in self.resolutions:
+            raise AssertionError(f"unexpected profile: {profile_id}")
+        self.current_profile = profile_id
+        self.applied.append(profile_id)
+        return SimpleNamespace(
+            perspective_angle_deg={
+                "standard": 60.0,
+                "wide_dim": 75.0,
+                "detail_bright": 40.0,
+            }[profile_id],
+            camera_rig_z_m={
+                "standard": 0.70,
+                "wide_dim": 0.80,
+                "detail_bright": 0.60,
+            }[profile_id],
+        )
+
+    def capture(self):
+        if self.current_profile is None:
+            raise AssertionError("capture requires an applied profile")
+        width, height = self.resolutions[self.current_profile]
+        self.captured.append((self.current_profile, width, height))
+        return SimpleNamespace(width=width, height=height)
+
+    def reset_profile(self):
+        self.reset_calls += 1
+        self.current_profile = "standard"
+
+
+def test_v1_01_template_applies_captures_three_profiles_and_resets():
+    camera = StrictProfileCamera()
+    ctx = FakeContext(
+        parameters=_formal_parameters("V1-01"),
+        camera=camera,
+    )
+
+    v1_01_virtual_vision.main(ctx)
+
+    assert camera.applied == ["standard", "wide_dim", "detail_bright"]
+    assert camera.captured == [
+        ("standard", 512, 512),
+        ("wide_dim", 256, 256),
+        ("detail_bright", 768, 768),
+    ]
+    assert camera.reset_calls == 1
+    assert camera.current_profile == "standard"
 
 
 def _formal_parameters(experiment_id):

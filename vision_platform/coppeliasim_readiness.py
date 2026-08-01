@@ -21,7 +21,15 @@ def require_expected_scene(sim, scene_path: str | Path) -> None:
             "CoppeliaSim loaded an unexpected scene: "
             f"expected={scene_path}, reported={reported}"
         )
-    for sentinel in ("/VisionLab", "/BLX_base_link"):
+    expected_name = ntpath.normcase(
+        ntpath.basename(ntpath.normpath(str(scene_path)))
+    )
+    scene_root = (
+        "/VisionQualityLab"
+        if expected_name == "bl23_vision_quality_lab.ttt"
+        else "/VisionLab"
+    )
+    for sentinel in (scene_root, "/BLX_base_link"):
         sim.getObject(sentinel)
 
 

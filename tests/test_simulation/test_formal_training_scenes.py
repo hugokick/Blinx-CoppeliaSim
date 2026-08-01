@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import subprocess
@@ -18,7 +19,10 @@ ROOT = Path(__file__).resolve().parents[2]
 SCENES = (
     ROOT / "simulation" / "robot_basics",
     ROOT / "simulation" / "logistics_lab",
+    ROOT / "simulation" / "vision_quality_lab",
 )
+VISION_QUALITY = ROOT / "simulation" / "vision_quality_lab"
+PROFILES = VISION_QUALITY / "profiles.json"
 
 
 def test_formal_training_scene_contracts_pass():
@@ -34,6 +38,7 @@ def test_formal_training_scene_contracts_pass():
     assert [item["scene_id"] for item in reports] == [
         "robot-basics",
         "logistics-lab",
+        "vision-quality-lab",
     ]
     assert all(item["status"] == "PASS" for item in reports)
 
@@ -191,15 +196,18 @@ def _builder_project(tmp_path, monkeypatch, *, scene_id="robot-basics"):
         },
     )
 
-    directory_name = (
-        "robot_basics" if scene_id == "robot-basics" else "logistics_lab"
-    )
-    source_spec = SCENES[0 if scene_id == "robot-basics" else 1] / (
-        "scene_spec.json"
-    )
+    scene_sources = {
+        "robot-basics": ("robot_basics", SCENES[0]),
+        "logistics-lab": ("logistics_lab", SCENES[1]),
+        "vision-quality-lab": ("vision_quality_lab", VISION_QUALITY),
+    }
+    directory_name, source_directory = scene_sources[scene_id]
+    source_spec = source_directory / "scene_spec.json"
     spec_path = root / f"simulation/{directory_name}/scene_spec.json"
     spec_path.parent.mkdir(parents=True)
     spec_path.write_bytes(source_spec.read_bytes())
+    if scene_id == "vision-quality-lab":
+        (spec_path.parent / "profiles.json").write_bytes(PROFILES.read_bytes())
     spec = json.loads(spec_path.read_text(encoding="utf-8"))
     output = root / spec["output"]
     output.write_bytes(b"old-scene")
@@ -288,10 +296,278 @@ def _install_fake_sim(monkeypatch, sim, *, close_error=None):
     )
     monkeypatch.setattr(
         scene_builder,
+        "_build_vision_quality",
+        lambda *_args, **_kwargs: None,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        scene_builder,
         "_attach_logistics_camera_scope",
         lambda *_args, **_kwargs: 1,
     )
     return clients
+
+
+class _VisionPrimitiveSim:
+    primitiveshape_cuboid = 0
+    primitiveshape_cylinder = 1
+    colorcomponent_ambient_diffuse = 2
+    shapeintparam_static = 3
+    shapeintparam_respondable = 4
+    handle_world = -1
+
+    def __init__(self):
+        self._next = 100
+        self.nodes = {
+            1: {"alias": "VisionQualityLab", "parent": None, "kind": "dummy"},
+            2: {"alias": "DefaultLights", "parent": None, "kind": "dummy"},
+            3: {"alias": "LightA", "parent": 2, "kind": "light"},
+            4: {"alias": "LightB", "parent": 2, "kind": "light"},
+            5: {"alias": "BLX", "parent": None, "kind": "mesh"},
+            6: {"alias": "BLX_base", "parent": None, "kind": "mesh"},
+            7: {"alias": "BLX_tool_suction", "parent": None, "kind": "mesh"},
+        }
+        self.protected = {5, 6, 7}
+        self.primitive_handles = []
+        self.sensor_calls = []
+        self.light_calls = []
+        self.copied_light_paths = []
+        self.int_parameters = []
+        self.mutated_handles = []
+
+    def _new(self, kind, *, alias=""):
+        handle = self._next
+        self._next += 1
+        self.nodes[handle] = {"alias": alias, "parent": None, "kind": kind}
+        return handle
+
+    def _path(self, handle):
+        parts = []
+        current = handle
+        while current is not None:
+            parts.append(self.nodes[current]["alias"])
+            current = self.nodes[current]["parent"]
+        return "/" + "/".join(reversed(parts))
+
+    def _mutate(self, handle):
+        if handle in self.protected:
+            raise AssertionError("protected robot or mesh was modified")
+        self.mutated_handles.append(handle)
+
+    def createDummy(self, _size):
+        return self._new("dummy")
+
+    def createPrimitiveShape(self, primitive, size, options):
+        assert primitive in {self.primitiveshape_cuboid, self.primitiveshape_cylinder}
+        assert options == 0
+        assert len(size) == 3 and all(value > 0 for value in size)
+        handle = self._new("primitive")
+        self.primitive_handles.append(handle)
+        return handle
+
+    def createShape(self, *_args, **_kwargs):
+        raise AssertionError("custom meshes are forbidden")
+
+    def loadModel(self, *_args, **_kwargs):
+        raise AssertionError("external models are forbidden")
+
+    def createVisionSensor(self, options, int_params, float_params):
+        handle = self._new("vision_sensor")
+        self.sensor_calls.append((handle, options, list(int_params), list(float_params)))
+        return handle
+
+    def copyPasteObjects(self, handles, options):
+        assert options == 0
+        copied = []
+        for source in handles:
+            assert self.nodes[source]["kind"] == "light"
+            self.copied_light_paths.append(self._path(source))
+            copied.append(self._new("light", alias=self.nodes[source]["alias"]))
+        return copied
+
+    def groupShapes(self, parts, merge):
+        assert merge is False
+        assert parts
+        for handle in parts:
+            assert self.nodes[handle]["kind"] == "primitive"
+            self.nodes.pop(handle)
+        return self._new("compound")
+
+    def setObjectAlias(self, handle, alias):
+        self._mutate(handle)
+        self.nodes[handle]["alias"] = alias
+
+    def setObjectParent(self, handle, parent, _keep_in_place):
+        self._mutate(handle)
+        self.nodes[handle]["parent"] = parent
+
+    def setObjectPosition(self, handle, position, _relative_to):
+        self._mutate(handle)
+        self.nodes[handle]["position"] = tuple(position)
+
+    def setObjectPose(self, handle, pose, _relative_to):
+        self._mutate(handle)
+        self.nodes[handle]["pose"] = tuple(pose)
+
+    def setObjectOrientation(self, handle, orientation, _relative_to):
+        self._mutate(handle)
+        self.nodes[handle]["orientation"] = tuple(orientation)
+
+    def setShapeColor(self, handle, _name, _component, color):
+        self._mutate(handle)
+        self.nodes[handle]["color"] = tuple(color)
+
+    def setObjectInt32Param(self, handle, parameter, value):
+        self._mutate(handle)
+        self.int_parameters.append((handle, parameter, value))
+
+    def setLightParameters(self, handle, enabled, _reserved, diffuse, specular):
+        self._mutate(handle)
+        self.light_calls.append(
+            (handle, enabled, tuple(diffuse), tuple(specular))
+        )
+
+    def getObject(self, path):
+        for handle in tuple(self.nodes):
+            if self._path(handle) == path:
+                return handle
+        raise RuntimeError(f"missing path: {path}")
+
+
+def test_vision_quality_builder_creates_only_approved_primitives_and_paths():
+    spec = json.loads(
+        (VISION_QUALITY / "scene_spec.json").read_text(encoding="utf-8")
+    )
+    sim = _VisionPrimitiveSim()
+
+    scene_builder._build_vision_quality(sim, spec, 1)
+
+    expected = set(spec["required_paths"])
+    actual = {sim._path(handle) for handle in sim.nodes}
+    assert expected <= actual
+    assert {
+        f"/VisionQualityLab/Samples/ResolutionTarget/Stripe{index:02d}"
+        for index in range(1, 13)
+    } <= actual
+    assert len(sim.primitive_handles) >= 18
+    assert sim.copied_light_paths == [
+        "/DefaultLights/LightA",
+        "/DefaultLights/LightB",
+    ]
+    assert sim.sensor_calls[0][2][:2] == [512, 512]
+    assert sim.sensor_calls[0][1] & 1 == 1
+    assert sim.sensor_calls[0][3][:3] == pytest.approx(
+        [0.05, 2.0, math.radians(60)]
+    )
+    camera = sim.getObject("/VisionQualityLab/CameraRig/Camera")
+    assert sim.nodes[camera]["kind"] == "vision_sensor"
+    light_settings = {
+        sim._path(handle): (enabled, diffuse)
+        for handle, enabled, diffuse, _specular in sim.light_calls
+    }
+    assert light_settings["/DefaultLights/LightA"][0] == 0
+    assert light_settings["/DefaultLights/LightB"][0] == 0
+    assert light_settings[
+        "/VisionQualityLab/Lighting/KeyLight"
+    ] == (1, pytest.approx((0.8, 0.8, 0.8)))
+    assert light_settings[
+        "/VisionQualityLab/Lighting/FillLight"
+    ] == (1, pytest.approx((0.35, 0.35, 0.35)))
+    assert not (set(sim.mutated_handles) & sim.protected)
+    for handle in sim.primitive_handles:
+        assert (handle, sim.shapeintparam_static, 1) in sim.int_parameters
+        assert (handle, sim.shapeintparam_respondable, 0) in sim.int_parameters
+
+
+def test_vision_quality_frame_check_rejects_sample_beyond_far_clip():
+    spec = json.loads(
+        (VISION_QUALITY / "scene_spec.json").read_text(encoding="utf-8")
+    )
+    spec["samples"]["ReferenceRectangle"]["position_m"][2] = -1.25
+    spec["samples"]["ReferenceRectangle"]["size_m"][2] = 1.5
+    catalog = scene_builder.load_profile_catalog(PROFILES)
+
+    with pytest.raises(ValueError, match="clipping range"):
+        scene_builder._assert_samples_in_standard_frame(
+            spec,
+            catalog.require(catalog.baseline_profile_id),
+            near_clip_m=float(catalog.near_clip_m),
+            far_clip_m=float(catalog.far_clip_m),
+        )
+
+
+def test_vision_quality_fake_publish_manifest_binds_profile_catalog(
+    tmp_path,
+    monkeypatch,
+):
+    _, spec_path, _, _, _ = _builder_project(
+        tmp_path,
+        monkeypatch,
+        scene_id="vision-quality-lab",
+    )
+    sim = _FakeSim()
+    _install_fake_sim(monkeypatch, sim)
+
+    manifest = scene_builder.build_scene(
+        spec_path=spec_path,
+        host="127.0.0.1",
+        port=23005,
+    )
+
+    assert manifest["profile_catalog"] == {
+        "path": "simulation/vision_quality_lab/profiles.json",
+        "sha256": hashlib.sha256(PROFILES.read_bytes()).hexdigest(),
+    }
+
+
+def test_vision_quality_publish_builds_from_manifest_bound_profile_snapshot(
+    tmp_path,
+    monkeypatch,
+):
+    root, spec_path, _, _, _ = _builder_project(
+        tmp_path,
+        monkeypatch,
+        scene_id="vision-quality-lab",
+    )
+    spec = json.loads(spec_path.read_text(encoding="utf-8"))
+    profile_path = root / spec["profiles"]
+    original = profile_path.read_bytes()
+    changed = json.loads(original.decode("utf-8"))
+    changed["profiles"][0]["label"] = "transient replacement"
+    changed_bytes = json.dumps(changed).encode("utf-8")
+    sim = _FakeSim()
+    _install_fake_sim(monkeypatch, sim)
+    observed = []
+
+    def build_from_snapshot(_sim, _spec, _root, *, profile_catalog):
+        observed.append(
+            profile_catalog.require(
+                profile_catalog.baseline_profile_id
+            ).label
+        )
+        profile_path.write_bytes(changed_bytes)
+        assert scene_builder.load_profile_catalog(profile_path).require(
+            "standard"
+        ).label == "transient replacement"
+        profile_path.write_bytes(original)
+
+    monkeypatch.setattr(
+        scene_builder,
+        "_build_vision_quality",
+        build_from_snapshot,
+    )
+
+    manifest = scene_builder.build_scene(
+        spec_path=spec_path,
+        host="127.0.0.1",
+        port=23005,
+    )
+
+    original_catalog = scene_builder.load_profile_catalog(PROFILES)
+    assert observed == [original_catalog.require("standard").label]
+    assert manifest["profile_catalog"]["sha256"] == hashlib.sha256(
+        original
+    ).hexdigest()
 
 
 def _write_consistent_old_manifest(spec_path, output, manifest):
@@ -313,6 +589,12 @@ def _write_consistent_old_manifest(spec_path, output, manifest):
         "required_paths": spec["required_paths"],
         "protected_assets_unchanged": True,
     }
+    if spec["scene_id"] == "vision-quality-lab":
+        profile_path = root / spec["profiles"]
+        payload["profile_catalog"] = {
+            "path": spec["profiles"],
+            "sha256": _sha256(profile_path),
+        }
     _write_json(manifest, payload)
     return manifest.read_bytes()
 
@@ -875,6 +1157,128 @@ def test_builder_restores_valid_old_manifest_when_scene_replace_fails(
         ".staged-" in path.name or ".backup-" in path.name
         for path in output.parent.iterdir()
     )
+
+
+def test_vision_quality_builder_restores_only_profile_bound_old_manifest(
+    tmp_path, monkeypatch
+):
+    _, spec_path, output, manifest, _ = _builder_project(
+        tmp_path,
+        monkeypatch,
+        scene_id="vision-quality-lab",
+    )
+    old_manifest = _write_consistent_old_manifest(
+        spec_path,
+        output,
+        manifest,
+    )
+    sim = _FakeSim()
+    _install_fake_sim(monkeypatch, sim)
+    real_replace = os.replace
+
+    def fail_scene_replace(source, destination):
+        if Path(destination) == output:
+            raise PermissionError("scene replace denied")
+        real_replace(source, destination)
+
+    monkeypatch.setattr(scene_builder.os, "replace", fail_scene_replace)
+
+    with pytest.raises(PermissionError, match="scene replace denied"):
+        scene_builder.build_scene(
+            spec_path=spec_path,
+            host="127.0.0.1",
+            port=23000,
+        )
+
+    assert manifest.read_bytes() == old_manifest
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        lambda payload: payload.pop("profile_catalog"),
+        lambda payload: payload["profile_catalog"].__setitem__(
+            "path", "simulation/vision_quality_lab/wrong.json"
+        ),
+        lambda payload: payload["profile_catalog"].__setitem__(
+            "sha256", "0" * 64
+        ),
+        lambda payload: payload["profile_catalog"].__setitem__(
+            "unexpected", True
+        ),
+    ],
+)
+def test_vision_quality_builder_rejects_unbound_old_manifest_on_replace_failure(
+    tmp_path,
+    monkeypatch,
+    mutation,
+):
+    _, spec_path, output, manifest, _ = _builder_project(
+        tmp_path,
+        monkeypatch,
+        scene_id="vision-quality-lab",
+    )
+    _write_consistent_old_manifest(spec_path, output, manifest)
+    payload = json.loads(manifest.read_text(encoding="utf-8"))
+    mutation(payload)
+    _write_json(manifest, payload)
+    sim = _FakeSim()
+    _install_fake_sim(monkeypatch, sim)
+    real_replace = os.replace
+
+    def fail_scene_replace(source, destination):
+        if Path(destination) == output:
+            raise PermissionError("scene replace denied")
+        real_replace(source, destination)
+
+    monkeypatch.setattr(scene_builder.os, "replace", fail_scene_replace)
+
+    with pytest.raises(PermissionError, match="scene replace denied"):
+        scene_builder.build_scene(
+            spec_path=spec_path,
+            host="127.0.0.1",
+            port=23000,
+        )
+
+    assert output.read_bytes() == b"old-scene"
+    assert not manifest.exists()
+
+
+def test_vision_quality_builder_rejects_old_manifest_after_profile_change(
+    tmp_path,
+    monkeypatch,
+):
+    root, spec_path, output, manifest, _ = _builder_project(
+        tmp_path,
+        monkeypatch,
+        scene_id="vision-quality-lab",
+    )
+    _write_consistent_old_manifest(spec_path, output, manifest)
+    spec = json.loads(spec_path.read_text(encoding="utf-8"))
+    profile_path = root / spec["profiles"]
+    profile_payload = json.loads(profile_path.read_text(encoding="utf-8"))
+    profile_payload["profiles"][0]["label"] = "changed but valid"
+    _write_json(profile_path, profile_payload)
+    sim = _FakeSim()
+    _install_fake_sim(monkeypatch, sim)
+    real_replace = os.replace
+
+    def fail_scene_replace(source, destination):
+        if Path(destination) == output:
+            raise PermissionError("scene replace denied")
+        real_replace(source, destination)
+
+    monkeypatch.setattr(scene_builder.os, "replace", fail_scene_replace)
+
+    with pytest.raises(PermissionError, match="scene replace denied"):
+        scene_builder.build_scene(
+            spec_path=spec_path,
+            host="127.0.0.1",
+            port=23000,
+        )
+
+    assert output.read_bytes() == b"old-scene"
+    assert not manifest.exists()
 
 
 def test_builder_keeps_manifest_absent_when_scene_replace_state_is_uncertain(

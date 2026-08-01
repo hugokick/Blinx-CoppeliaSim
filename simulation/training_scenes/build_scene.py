@@ -21,6 +21,7 @@ from coppeliasim_zmqremoteapi_client import RemoteAPIClient
 
 from simulation.vision_lab.hashing import asset_sha256
 from vision_platform.vision_quality import load_profile_catalog
+from vision_platform.vision_quality.catalog import load_profile_catalog_bytes
 from vision_platform.coppelia_scene import stage_scene_for_coppeliasim
 
 
@@ -1004,6 +1005,293 @@ def _build_logistics(sim: Any, spec: dict[str, Any], root: int) -> None:
                 sim.setShapeColor(handle, "", transparency, [0.70])
 
 
+def _metres_as_millimetres(values: Any) -> list[float]:
+    return [float(value) * 1000.0 for value in values]
+
+
+def _build_resolution_target(
+    sim: Any,
+    spec: dict[str, Any],
+    parent: int,
+) -> int:
+    target = _dummy(sim, "ResolutionTarget", parent)
+    sim.setObjectPosition(
+        target,
+        [float(value) for value in spec["position_m"]],
+        parent,
+    )
+    width_m, height_m, depth_m = (
+        float(value) for value in spec["size_m"]
+    )
+    stripe_count = int(spec["stripe_count"])
+    stripe_width_m = width_m / stripe_count
+    for index in range(stripe_count):
+        center_x_m = (
+            -width_m / 2.0
+            + stripe_width_m * (index + 0.5)
+        )
+        _shape(
+            sim,
+            name=f"Stripe{index + 1:02d}",
+            shape="cuboid",
+            size_mm=_metres_as_millimetres(
+                [stripe_width_m, height_m, depth_m]
+            ),
+            position_mm=_metres_as_millimetres(
+                [center_x_m, 0.0, 0.0]
+            ),
+            color=[0.96, 0.96, 0.96]
+            if index % 2 == 0
+            else [0.03, 0.03, 0.03],
+            parent=target,
+            respondable=False,
+        )
+    return target
+
+
+def _build_triangle_prism(
+    sim: Any,
+    spec: dict[str, Any],
+    parent: int,
+) -> int:
+    center_x, center_y, center_z = (
+        float(value) for value in spec["position_m"]
+    )
+    width_m, height_m, depth_m = (
+        float(value) for value in spec["size_m"]
+    )
+    bands = 6
+    band_height_m = height_m / bands
+    parts = []
+    for index in range(bands):
+        band_width_m = width_m * (bands - index) / bands
+        band_y_m = (
+            center_y
+            - height_m / 2.0
+            + band_height_m * (index + 0.5)
+        )
+        parts.append(
+            _shape(
+                sim,
+                name=f"ReferenceTriangleBand{index + 1:02d}",
+                shape="cuboid",
+                size_mm=_metres_as_millimetres(
+                    [band_width_m, band_height_m, depth_m]
+                ),
+                position_mm=_metres_as_millimetres(
+                    [center_x, band_y_m, center_z]
+                ),
+                color=[float(value) for value in spec["color_rgb"]],
+                parent=parent,
+                respondable=False,
+            )
+        )
+    compound = int(sim.groupShapes(parts, False))
+    _alias(sim, compound, "ReferenceTriangle")
+    sim.setObjectParent(compound, parent, True)
+    _set_int_parameter(sim, compound, sim.shapeintparam_static, 1)
+    _set_int_parameter(sim, compound, sim.shapeintparam_respondable, 0)
+    return compound
+
+
+def _build_vision_lighting(
+    sim: Any,
+    catalog: Any,
+    parent: int,
+) -> tuple[int, int]:
+    lighting = _dummy(sim, "Lighting", parent)
+    profile = catalog.require(catalog.baseline_profile_id)
+    definitions = (
+        (
+            "/DefaultLights/LightA",
+            "KeyLight",
+            [0.18, -0.20, 0.78],
+            profile.key_diffuse_rgb,
+        ),
+        (
+            "/DefaultLights/LightB",
+            "FillLight",
+            [0.52, 0.18, 0.62],
+            profile.fill_diffuse_rgb,
+        ),
+    )
+    result = []
+    for source_path, alias, position, diffuse in definitions:
+        source = int(sim.getObject(source_path))
+        copied = sim.copyPasteObjects([source], 0)
+        if not isinstance(copied, (list, tuple)) or len(copied) != 1:
+            raise RuntimeError(f"could not copy scene light: {source_path}")
+        handle = int(copied[0])
+        sim.setLightParameters(
+            source,
+            0,
+            None,
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, 0.0],
+        )
+        _alias(sim, handle, alias)
+        sim.setObjectParent(handle, lighting, False)
+        sim.setObjectPosition(handle, position, sim.handle_world)
+        sim.setObjectOrientation(
+            handle,
+            [math.radians(180.0), 0.0, 0.0],
+            sim.handle_world,
+        )
+        sim.setLightParameters(
+            handle,
+            1,
+            None,
+            [float(value) for value in diffuse],
+            [0.0, 0.0, 0.0],
+        )
+        result.append(handle)
+    return int(result[0]), int(result[1])
+
+
+def _assert_samples_in_standard_frame(
+    spec: dict[str, Any],
+    profile: Any,
+    *,
+    near_clip_m: float,
+    far_clip_m: float,
+) -> None:
+    orientation = [float(value) for value in spec["camera"]["orientation_deg"]]
+    if any(
+        not math.isclose(actual, expected, abs_tol=1e-9)
+        for actual, expected in zip(orientation, (180.0, 0.0, 0.0))
+    ):
+        raise ValueError("vision-quality camera must point vertically down")
+    camera_x, camera_y, camera_z = (
+        float(value) for value in spec["camera"]["rig_position_m"]
+    )
+    half_angle = math.radians(float(profile.perspective_angle_deg)) / 2.0
+    for alias, sample in spec["samples"].items():
+        center_x, center_y, center_z = (
+            float(value) for value in sample["position_m"]
+        )
+        size_x, size_y, size_z = (
+            float(value) for value in sample["size_m"]
+        )
+        nearest_depth = camera_z - (center_z + size_z / 2.0)
+        farthest_depth = camera_z - (center_z - size_z / 2.0)
+        if not (
+            near_clip_m < nearest_depth
+            and farthest_depth < far_clip_m
+        ):
+            raise ValueError(f"{alias} is outside camera clipping range")
+        half_view = nearest_depth * math.tan(half_angle)
+        if (
+            abs(center_x - camera_x) + size_x / 2.0 >= half_view
+            or abs(center_y - camera_y) + size_y / 2.0 >= half_view
+        ):
+            raise ValueError(f"{alias} is outside the standard camera frame")
+
+
+def _build_vision_quality(
+    sim: Any,
+    spec: dict[str, Any],
+    root: int,
+    *,
+    profile_catalog: Any | None = None,
+) -> None:
+    if profile_catalog is None:
+        catalog_path = _project_file_from_relative(
+            spec["profiles"],
+            label="profiles",
+            must_exist=True,
+        )
+        profile_catalog = load_profile_catalog(catalog_path)
+    catalog = profile_catalog
+    standard = catalog.require(catalog.baseline_profile_id)
+    _assert_samples_in_standard_frame(
+        spec,
+        standard,
+        near_clip_m=float(catalog.near_clip_m),
+        far_clip_m=float(catalog.far_clip_m),
+    )
+
+    workspace = spec["workspace"]
+    _shape(
+        sim,
+        name="InspectionBoard",
+        shape="cuboid",
+        size_mm=_metres_as_millimetres(workspace["size_m"]),
+        position_mm=_metres_as_millimetres(workspace["center_m"]),
+        color=[0.86, 0.88, 0.90],
+        parent=root,
+        respondable=False,
+    )
+    samples = _dummy(sim, "Samples", root)
+    for alias in ("ReferenceRectangle", "ReferenceCircle"):
+        item = spec["samples"][alias]
+        _shape(
+            sim,
+            name=alias,
+            shape=item["shape"],
+            size_mm=_metres_as_millimetres(item["size_m"]),
+            position_mm=_metres_as_millimetres(item["position_m"]),
+            color=[float(value) for value in item["color_rgb"]],
+            parent=samples,
+            respondable=False,
+        )
+    _build_triangle_prism(
+        sim,
+        spec["samples"]["ReferenceTriangle"],
+        samples,
+    )
+    _build_resolution_target(
+        sim,
+        spec["samples"]["ResolutionTarget"],
+        samples,
+    )
+
+    rig = _dummy(sim, "CameraRig", root)
+    sim.setObjectPosition(
+        rig,
+        [float(value) for value in spec["camera"]["rig_position_m"]],
+        sim.handle_world,
+    )
+    options = 1 | 2 | 4 | 64 | 128
+    camera = int(
+        sim.createVisionSensor(
+            options,
+            [int(standard.resolution[0]), int(standard.resolution[1]), 0, 0],
+            [
+                float(catalog.near_clip_m),
+                float(catalog.far_clip_m),
+                math.radians(float(standard.perspective_angle_deg)),
+                0.02,
+                0.0,
+                0.0,
+                0.08,
+                0.08,
+                0.10,
+                0.0,
+                0.0,
+            ],
+        )
+    )
+    _alias(sim, camera, "Camera")
+    sim.setObjectParent(camera, rig, False)
+    sim.setObjectPosition(camera, [0.0, 0.0, 0.0], rig)
+    sim.setObjectOrientation(
+        camera,
+        [
+            math.radians(float(value))
+            for value in spec["camera"]["orientation_deg"]
+        ],
+        rig,
+    )
+    _build_vision_lighting(sim, catalog, root)
+    for path in (
+        catalog.sensor_path,
+        catalog.camera_rig_path,
+        catalog.key_light_path,
+        catalog.fill_light_path,
+    ):
+        sim.getObject(path)
+
+
 def _attach_logistics_camera_scope(sim: Any, root: int) -> int:
     script_text = """
 function sysCall_init()
@@ -1061,6 +1349,7 @@ def _recoverable_release(
     manifest_path: Path,
     formal: _FormalScene,
     template_hash: str,
+    profile_catalog: tuple[str, Path, str] | None = None,
 ) -> _RecoverableRelease | None:
     if not output.is_file() or not manifest_path.is_file():
         return None
@@ -1068,6 +1357,7 @@ def _recoverable_release(
         manifest = _load(manifest_path)
         template = manifest.get("template")
         scene = manifest.get("scene")
+        stored_profile = manifest.get("profile_catalog")
         if (
             type(manifest.get("schema_version")) is not int
             or manifest["schema_version"] != 1
@@ -1082,6 +1372,18 @@ def _recoverable_release(
             or scene.get("path") != formal.output_relative
         ):
             return None
+        if formal.scene_id == "vision-quality-lab":
+            if profile_catalog is None:
+                return None
+            profile_relative, profile_path, profile_hash = profile_catalog
+            if (
+                not isinstance(stored_profile, dict)
+                or set(stored_profile) != {"path", "sha256"}
+                or stored_profile.get("path") != profile_relative
+                or stored_profile.get("sha256") != profile_hash
+                or _sha256(profile_path) != profile_hash
+            ):
+                return None
         sha256 = scene.get("sha256")
         size = scene.get("size_bytes")
         if (
@@ -1138,10 +1440,6 @@ def build_scene(
     port: int,
 ) -> dict[str, Any]:
     spec_path, formal = _formal_spec_path(spec_path)
-    if formal.scene_id == "vision-quality-lab":
-        raise RuntimeError(
-            "vision-quality-lab primitive builders are unavailable until Task 10"
-        )
     spec = _load(spec_path)
     _validate_spec(spec, formal)
     if not isinstance(host, str) or not host.strip() or host != host.strip():
@@ -1188,6 +1486,23 @@ def build_scene(
     try:
         before = _protected_hashes()
         template_hash = _sha256(template)
+        profile_catalog_path: Path | None = None
+        profile_catalog_content: bytes | None = None
+        profile_catalog_hash: str | None = None
+        profile_catalog = None
+        if formal.scene_id == "vision-quality-lab":
+            profile_catalog_path = _project_file_from_relative(
+                spec["profiles"],
+                label="profiles",
+                must_exist=True,
+            )
+            profile_catalog_content = profile_catalog_path.read_bytes()
+            profile_catalog_hash = hashlib.sha256(
+                profile_catalog_content
+            ).hexdigest()
+            profile_catalog = load_profile_catalog_bytes(
+                profile_catalog_content
+            )
         token = uuid.uuid4().hex
         staged_scene = output.parent / (
             f".{output.stem}.staged-{token}.ttt"
@@ -1212,17 +1527,24 @@ def build_scene(
             sim.removeObjects([handle], False)
         root_name = formal.root_path.rsplit("/", 1)[-1]
         root = _dummy(sim, root_name)
-        _build_workspace(sim, spec["workspace"], root)
-        _camera(sim, spec["camera"], root)
         if formal.scene_id == "robot-basics":
+            _build_workspace(sim, spec["workspace"], root)
+            _camera(sim, spec["camera"], root)
             _build_basics(sim, spec, root)
         elif formal.scene_id == "logistics-lab":
+            _build_workspace(sim, spec["workspace"], root)
+            _camera(sim, spec["camera"], root)
             _build_logistics(sim, spec, root)
             _attach_logistics_camera_scope(sim, root)
-        else:
-            raise RuntimeError(
-                "vision-quality-lab primitive builders are not available yet"
+        elif formal.scene_id == "vision-quality-lab":
+            _build_vision_quality(
+                sim,
+                spec,
+                root,
+                profile_catalog=profile_catalog,
             )
+        else:
+            raise RuntimeError(f"unsupported formal scene: {formal.scene_id}")
         for path in formal.required_paths:
             sim.getObject(path)
 
@@ -1241,6 +1563,12 @@ def build_scene(
         after = _protected_hashes()
         if after != before or _sha256(template) != template_hash:
             raise RuntimeError("protected assets changed during scene build")
+        if (
+            profile_catalog_path is not None
+            and profile_catalog_content is not None
+            and profile_catalog_path.read_bytes() != profile_catalog_content
+        ):
+            raise RuntimeError("vision profile catalog changed during scene build")
 
         manifest = {
             "schema_version": 1,
@@ -1260,6 +1588,11 @@ def build_scene(
             "task_contracts": spec.get("tasks", {}),
             "protected_assets_unchanged": True,
         }
+        if profile_catalog_path is not None:
+            manifest["profile_catalog"] = {
+                "path": spec["profiles"],
+                "sha256": profile_catalog_hash,
+            }
         _write_exclusive(staged_manifest, manifest)
 
         old_release = _recoverable_release(
@@ -1267,6 +1600,12 @@ def build_scene(
             manifest_path,
             formal,
             template_hash,
+            (
+                (spec["profiles"], profile_catalog_path, profile_catalog_hash)
+                if profile_catalog_path is not None
+                and profile_catalog_hash is not None
+                else None
+            ),
         )
         if os.path.lexists(manifest_path):
             os.replace(manifest_path, backup_manifest)

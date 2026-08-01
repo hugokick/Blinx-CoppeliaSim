@@ -66,6 +66,11 @@ class CoppeliaSimCamera(CameraBackend):
         assert self._sensor_handle is not None
         timeout = self.default_timeout_s if timeout_s is None else float(timeout_s)
 
+        get_explicit = getattr(self._sim, "getExplicitHandling", None)
+        if callable(get_explicit) and int(
+            get_explicit(self._sensor_handle)
+        ) != 0:
+            self._sim.handleVisionSensor(self._sensor_handle)
         result = self._sim.getVisionSensorImg(self._sensor_handle)
         try:
             raw, resolution = result

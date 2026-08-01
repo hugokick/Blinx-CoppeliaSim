@@ -8,13 +8,15 @@ from vision_platform.errors import FrameFormatError, FrameTimeoutError
 
 
 class FakeSim:
-    def __init__(self, *, raw, resolution, depth=None):
+    def __init__(self, *, raw, resolution, depth=None, explicit=0):
         self.raw = raw
         self.resolution = list(resolution)
         self.depth = depth
+        self.explicit = explicit
         self.get_object_calls = []
         self.image_calls = []
         self.depth_calls = []
+        self.render_calls = []
 
     def getObject(self, path):
         self.get_object_calls.append(path)
@@ -23,6 +25,13 @@ class FakeSim:
     def getVisionSensorImg(self, handle):
         self.image_calls.append(handle)
         return self.raw, list(self.resolution)
+
+    def getExplicitHandling(self, handle):
+        assert handle == 42
+        return self.explicit
+
+    def handleVisionSensor(self, handle):
+        self.render_calls.append(handle)
 
     def getVisionSensorDepth(self, handle, options=0):
         self.depth_calls.append((handle, options))
@@ -65,6 +74,22 @@ def test_sensor_path_is_resolved_once_and_handle_is_cached():
     camera.read()
 
     assert sim.get_object_calls == ["/VisionLab/Camera"]
+    assert sim.image_calls == [42, 42]
+    assert sim.render_calls == []
+
+
+def test_explicit_sensor_is_rendered_immediately_before_each_read():
+    sim = FakeSim(
+        raw=bytes([1, 2, 3]),
+        resolution=[1, 1],
+        explicit=1,
+    )
+    camera = CoppeliaSimCamera(sim=sim, sensor_path="/VisionQualityLab/Camera")
+
+    camera.read()
+    camera.read()
+
+    assert sim.render_calls == [42, 42]
     assert sim.image_calls == [42, 42]
 
 

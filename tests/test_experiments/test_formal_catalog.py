@@ -10,6 +10,7 @@ from vision_platform.experiments.catalog import ExperimentCatalog
 ROOT = Path(__file__).resolve().parents[2]
 CONFIG_DIR = ROOT / "config" / "experiments"
 EXPERIMENT_IDS = ("R1-01", "R1-02", "R1-05", "R1-06", "R1-07")
+FORMAL_EXPERIMENT_IDS = (*EXPERIMENT_IDS, "V1-01")
 LOGISTICS_EXPERIMENT_IDS = ("R1-05", "R1-06", "R1-07")
 MEASURED_LOGISTICS_CALIBRATION = (
     ((363.0, 165.0), (45.0, -60.0), "pick"),
@@ -66,8 +67,12 @@ def test_first_batch_catalog_has_exact_order_and_hardware_boundary():
     names = catalog["experiments"]
     payloads = [_payload(Path(name).stem) for name in names]
 
-    assert names == [f"{experiment_id}.json" for experiment_id in EXPERIMENT_IDS]
-    assert [item["experiment_id"] for item in payloads] == list(EXPERIMENT_IDS)
+    assert names == [
+        f"{experiment_id}.json" for experiment_id in FORMAL_EXPERIMENT_IDS
+    ]
+    assert [item["experiment_id"] for item in payloads] == list(
+        FORMAL_EXPERIMENT_IDS
+    )
     assert all(
         item["hardware_status"] == "PENDING_HARDWARE" for item in payloads
     )
@@ -179,11 +184,11 @@ def test_formal_catalog_loads_through_strict_runtime_parser():
         project_root=ROOT,
     )
 
-    assert catalog.ids == EXPERIMENT_IDS
+    assert catalog.ids == FORMAL_EXPERIMENT_IDS
 
 
 def test_each_experiment_declares_existing_assets_and_acceptance_checks():
-    for experiment_id in EXPERIMENT_IDS:
+    for experiment_id in FORMAL_EXPERIMENT_IDS:
         experiment = _payload(experiment_id)
         assert experiment["acceptance"]["automated_checks"]
         assert experiment["acceptance"]["human_checks"]
@@ -198,7 +203,7 @@ def test_each_experiment_declares_existing_assets_and_acceptance_checks():
 def test_catalog_contains_no_grading_or_score_fields():
     banned_exact = {"grade", "grades", "grading", "rubric", "points", "marks"}
     banned_fragments = ("score", "评分", "分数")
-    for experiment_id in EXPERIMENT_IDS:
+    for experiment_id in FORMAL_EXPERIMENT_IDS:
         keys = (str(key).lower() for key in _all_keys(_payload(experiment_id)))
         assert all(
             key not in banned_exact

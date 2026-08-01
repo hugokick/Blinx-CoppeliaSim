@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "scene_id": "vision-quality-lab",
+  "generated_at": "2026-08-01T21:10:18.615505+00:00",
+  "generator": "simulation.training_scenes.build_scene",
+  "template": {
+    "path": "simulation/vision_lab/BL23_vision_lab.ttt",
+    "sha256": "5154dfc3132cd29aafcbe5de83c1a6b61960595681ac5c90d2d92a5b642bda55"
+  },
+  "scene": {
+    "path": "simulation/vision_quality_lab/BL23_vision_quality_lab.ttt",
+    "sha256": "ce4c0189bb486caa2bfbd557d0b5148775d846a80e07983423f1b29d8d9eb310",
+    "size_bytes": 11631816
+  },
+  "required_paths": [
+    "/VisionQualityLab",
+    "/VisionQualityLab/InspectionBoard",
+    "/VisionQualityLab/Samples",
+    "/VisionQualityLab/Samples/ReferenceRectangle",
+    "/VisionQualityLab/Samples/ReferenceCircle",
+    "/VisionQualityLab/Samples/ReferenceTriangle",
+    "/VisionQualityLab/Samples/ResolutionTarget",
+    "/VisionQualityLab/CameraRig",
+    "/VisionQualityLab/CameraRig/Camera",
+    "/VisionQualityLab/Lighting",
+    "/VisionQualityLab/Lighting/KeyLight",
+    "/VisionQualityLab/Lighting/FillLight"
+  ],
+  "task_contracts": {},
+  "protected_assets_unchanged": true,
+  "profile_catalog": {
+    "path": "simulation/vision_quality_lab/profiles.json",
+    "sha256": "795190fa66e96d11005c1c5977804b80f7e862b304cf2014e366212ff0b92efe"
+  }
+}

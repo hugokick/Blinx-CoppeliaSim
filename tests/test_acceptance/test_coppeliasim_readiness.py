@@ -6,6 +6,7 @@ import pytest
 from vision_platform.coppeliasim_readiness import (
     close_remote_client,
     main,
+    require_expected_scene,
     scene_paths_match,
     wait_for_scene,
 )
@@ -215,6 +216,28 @@ def test_readiness_returns_client_only_after_scene_and_sentinels_match(
     assert sim.object_calls == ["/VisionLab", "/BLX_base_link"]
     assert client.socket.close_calls == []
     assert client.context.term_calls == 0
+
+
+@pytest.mark.parametrize(
+    ("filename", "expected_root"),
+    (
+        ("BL23_vision_lab.ttt", "/VisionLab"),
+        ("BL23_robot_basics.ttt", "/VisionLab"),
+        ("BL23_logistics_lab.ttt", "/VisionLab"),
+        ("BL23_vision_quality_lab.ttt", "/VisionQualityLab"),
+    ),
+)
+def test_readiness_selects_scene_specific_root_without_weakening_robot_sentinel(
+    tmp_path: Path,
+    filename: str,
+    expected_root: str,
+):
+    scene_path = tmp_path / filename
+    sim = SimProbe(scene_path=scene_path.as_posix())
+
+    require_expected_scene(sim, scene_path)
+
+    assert sim.object_calls == [expected_root, "/BLX_base_link"]
 
 
 def test_wrong_scene_retries_with_a_fresh_released_client(tmp_path: Path):

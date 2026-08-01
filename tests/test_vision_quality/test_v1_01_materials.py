@@ -326,7 +326,7 @@ def test_v1_01_definition_loads_through_real_experiment_catalog(tmp_path):
     assert loaded.hardware_status == "PENDING_HARDWARE"
 
 
-def test_released_catalog_remains_exactly_five_r1_entries():
+def test_released_catalog_preserves_five_r1_entries_then_appends_v1_01():
     assert _load_strict_json(CATALOG) == {
         "schema_version": 1,
         "experiments": [
@@ -335,9 +335,9 @@ def test_released_catalog_remains_exactly_five_r1_entries():
             "R1-05.json",
             "R1-06.json",
             "R1-07.json",
+            "V1-01.json",
         ],
     }
-    assert "V1-01.json" not in _load_strict_json(CATALOG)["experiments"]
 
 
 def test_guide_profile_table_matches_profiles_and_definition_order():

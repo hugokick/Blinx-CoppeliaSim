@@ -346,7 +346,7 @@ def test_experiment_run_parser_uses_catalog_id_not_arbitrary_scene():
     assert not hasattr(args, "scene")
 
 
-def test_experiment_list_prints_five_formal_items(capsys):
+def test_experiment_list_prints_six_formal_items(capsys):
     code = main(["experiment-list"])
     payload = json.loads(capsys.readouterr().out)
 
@@ -358,11 +358,24 @@ def test_experiment_list_prints_five_formal_items(capsys):
         "R1-05",
         "R1-06",
         "R1-07",
+        "V1-01",
     ]
     assert all(
         item["hardware_status"] == "PENDING_HARDWARE"
         for item in payload["experiments"]
     )
+
+
+def test_experiment_list_and_show_include_v1_01(capsys):
+    assert main(["experiment-list"]) == 0
+    listed = json.loads(capsys.readouterr().out)
+    assert listed["experiments"][-1]["experiment_id"] == "V1-01"
+    assert main(["experiment-show", "--experiment", "V1-01"]) == 0
+    shown = json.loads(capsys.readouterr().out)
+    assert shown["student_template"].endswith(
+        "v1_01_virtual_vision.py"
+    )
+    assert shown["hardware_status"] == "PENDING_HARDWARE"
 
 
 def test_experiment_show_does_not_claim_hardware_pass(capsys):
