@@ -18,6 +18,7 @@ def test_retained_files_contains_complete_vision2d_kernel_delivery():
         "docs/superpowers/plans/2026-07-31-vision2d-algorithm-kernel-plan.md",
         "docs/superpowers/specs/2026-07-31-vision2d-algorithm-kernel-design.md",
         "vision_platform/vision2d/__init__.py",
+        "vision_platform/vision2d/curriculum.py",
         "vision_platform/vision2d/models.py",
         "vision_platform/vision2d/preprocessing.py",
         "vision_platform/vision2d/segmentation.py",
@@ -36,6 +37,7 @@ def test_retained_files_contains_complete_vision2d_kernel_delivery():
         "tests/test_vision2d/test_pipeline.py",
         "tests/test_vision2d/test_serialization.py",
         "tests/test_vision2d/test_compatibility.py",
+        "tests/test_vision2d/test_curriculum.py",
         "tests/test_vision2d/test_guides.py",
         "tests/test_vision2d/test_delivery.py",
     }

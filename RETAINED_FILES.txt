@@ -188,6 +188,7 @@ tests/test_vision2d/__init__.py
 tests/test_vision2d/synthetic_factory.py
 tests/test_vision2d/test_appearance.py
 tests/test_vision2d/test_compatibility.py
+tests/test_vision2d/test_curriculum.py
 tests/test_vision2d/test_delivery.py
 tests/test_vision2d/test_geometry.py
 tests/test_vision2d/test_guides.py
@@ -307,6 +308,7 @@ vision_platform/vision_quality/models.py
 vision_platform/vision_quality/results.py
 vision_platform/vision2d/__init__.py
 vision_platform/vision2d/appearance.py
+vision_platform/vision2d/curriculum.py
 vision_platform/vision2d/geometry.py
 vision_platform/vision2d/models.py
 vision_platform/vision2d/pipeline.py
