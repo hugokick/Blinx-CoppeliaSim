@@ -1,5 +1,6 @@
 # Blinx-CoppeliaSim clean-release whitelist
 # One repository-relative path per line. This file lists itself.
+.gitattributes
 .gitignore
 README.md
 RETAINED_FILES.txt

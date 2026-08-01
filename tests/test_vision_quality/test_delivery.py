@@ -14,6 +14,7 @@ def test_v1_01_delivery_is_complete_retained_and_isolated():
     ]
     retained = set(retained_lines)
     required = {
+        ".gitattributes",
         "config/experiments/V1-01.json",
         "docs/experiments/V1-01.md",
         "docs/superpowers/plans/2026-08-01-vision-quality-platform-v1-01-plan.md",

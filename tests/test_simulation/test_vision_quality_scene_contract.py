@@ -100,6 +100,26 @@ def test_profile_catalog_hash_is_a_nonzero_sha256():
     assert int(digest, 16) != 0
 
 
+def test_profile_catalog_hash_is_stable_after_a_windows_checkout():
+    attributes = (ROOT / ".gitattributes").read_text(encoding="utf-8")
+    rules = {
+        line.strip()
+        for line in attributes.splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    }
+    assert (
+        "simulation/vision_quality_lab/profiles.json text eol=lf"
+        in rules
+    )
+
+    profile_bytes = PROFILES_PATH.read_bytes()
+    manifest = _json(SCENE_DIR / "scene_manifest.json")
+    assert b"\r\n" not in profile_bytes
+    assert manifest["profile_catalog"]["sha256"] == hashlib.sha256(
+        profile_bytes
+    ).hexdigest()
+
+
 @pytest.mark.parametrize(
     ("alias", "field", "value", "message"),
     [
