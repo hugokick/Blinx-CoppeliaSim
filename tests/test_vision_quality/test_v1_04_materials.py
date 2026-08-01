@@ -100,7 +100,13 @@ def test_v1_04_definition_publishes_geometry_with_explicit_scale():
 def test_v1_04_is_registered_after_v1_03_and_loads_strictly():
     catalog = ExperimentCatalog.load(CATALOG, project_root=ROOT)
 
-    assert catalog.ids[-4:] == ("V1-01", "V1-02", "V1-03", "V1-04")
+    start = catalog.ids.index("V1-01")
+    assert catalog.ids[start : start + 4] == (
+        "V1-01",
+        "V1-02",
+        "V1-03",
+        "V1-04",
+    )
     assert catalog.require("V1-04").guide == GUIDE.resolve()
 
 

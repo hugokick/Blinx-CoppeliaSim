@@ -123,7 +123,8 @@ def test_v1_03_definition_publishes_pose_without_physical_scale():
 def test_v1_03_is_registered_after_v1_02_and_loads_strictly():
     catalog = ExperimentCatalog.load(CATALOG, project_root=ROOT)
 
-    assert catalog.ids[-3:] == ("V1-01", "V1-02", "V1-03")
+    start = catalog.ids.index("V1-01")
+    assert catalog.ids[start : start + 3] == ("V1-01", "V1-02", "V1-03")
     assert catalog.require("V1-03").student_template == TEMPLATE.resolve()
 
 

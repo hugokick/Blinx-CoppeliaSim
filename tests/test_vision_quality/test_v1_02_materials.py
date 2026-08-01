@@ -185,7 +185,8 @@ def test_v1_02_loads_through_real_catalog_and_reuses_formal_scene():
     catalog = ExperimentCatalog.load(CATALOG, project_root=ROOT)
     definition = catalog.require("V1-02")
 
-    assert catalog.ids[-2:] == ("V1-01", "V1-02")
+    start = catalog.ids.index("V1-01")
+    assert catalog.ids[start : start + 2] == ("V1-01", "V1-02")
     assert definition.scene == (
         ROOT / "simulation/vision_quality_lab/BL23_vision_quality_lab.ttt"
     ).resolve()

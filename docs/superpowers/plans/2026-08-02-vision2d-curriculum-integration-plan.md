@@ -64,7 +64,7 @@ Use this interpreter for all Python commands:
 - Verify: `tests/test_vision2d/**`
 - Verify: `docs/experiments/V1-02.md` through `V1-05.md`
 
-- [ ] **Step 1: Confirm clean integration state and exact tips**
+- [x] **Step 1: Confirm clean integration state and exact tips**
 
 ```powershell
 git status --short --branch
@@ -75,7 +75,7 @@ git rev-parse codex/v2-2-vision2d-algorithm-kernel
 Expected: clean branch containing this plan commit; design commit `399efa3` is
 an ancestor; algorithm tip is `f5bef91`.
 
-- [ ] **Step 2: Merge with history**
+- [x] **Step 2: Merge with history**
 
 ```powershell
 git merge --no-ff codex/v2-2-vision2d-algorithm-kernel
@@ -93,7 +93,7 @@ git add -- RETAINED_FILES.txt
 git commit --no-edit
 ```
 
-- [ ] **Step 3: Prove the merge contains the exact algorithm tip**
+- [x] **Step 3: Prove the merge contains the exact algorithm tip**
 
 ```powershell
 git merge-base --is-ancestor f5bef91 HEAD
@@ -102,7 +102,7 @@ git status --short
 
 Expected: ancestor check exits 0 and no conflict markers remain.
 
-- [ ] **Step 4: Re-run algorithm and integration baselines**
+- [x] **Step 4: Re-run algorithm and integration baselines**
 
 ```powershell
 .\.venv-vision\Scripts\python.exe -m pytest -q tests/test_vision2d
@@ -113,7 +113,7 @@ git diff --check
 Expected: algorithm tests and full static suite pass. Existing explicit online
 skips remain skips and are reported, not counted as online PASS.
 
-- [ ] **Step 5: Commit only if conflict resolution required an additional commit**
+- [x] **Step 5: Commit only if conflict resolution required an additional commit**
 
 Record the resulting merge hash in the implementation log; do not create an
 empty follow-up commit.
@@ -128,7 +128,7 @@ empty follow-up commit.
 - Modify: `tests/test_vision2d/test_delivery.py`
 - Modify: `RETAINED_FILES.txt`
 
-- [ ] **Step 1: Write failing exact-schema and ROI tests**
+- [x] **Step 1: Write failing exact-schema and ROI tests**
 
 Cover:
 
@@ -149,7 +149,7 @@ Run:
 
 Expected RED: import or missing API failure.
 
-- [ ] **Step 2: Implement immutable normalized configuration**
+- [x] **Step 2: Implement immutable normalized configuration**
 
 Create a frozen `CurriculumVision2DConfig` and public helpers:
 
@@ -162,7 +162,7 @@ The parser reads only `public_parameters["vision2d"]`, accepts no aliases or
 fallbacks, copies JSON values, and raises `Vision2DConfigError` with stable code
 `VISION2D_CONFIG_INVALID`.
 
-- [ ] **Step 3: Run focused GREEN and algorithm regression**
+- [x] **Step 3: Run focused GREEN and algorithm regression**
 
 ```powershell
 .\.venv-vision\Scripts\python.exe -m pytest -q `
@@ -170,7 +170,7 @@ fallbacks, copies JSON values, and raises `Vision2DConfigError` with stable code
   tests/test_vision2d
 ```
 
-- [ ] **Step 4: Register new formal files and commit**
+- [x] **Step 4: Register new formal files and commit**
 
 ```powershell
 git diff --check
@@ -188,7 +188,7 @@ git commit -m "feat(vision2d): add curriculum analysis configuration"
 - Modify: `tests/test_student_programs/test_protocol.py`
 - Modify: `tests/test_student_programs/test_sdk.py`
 
-- [ ] **Step 1: Write protocol RED tests**
+- [x] **Step 1: Write protocol RED tests**
 
 Require `vision2d.analyze` in `ALLOWED_COMMANDS`, verify its command message is
 accepted, and confirm plausible dangerous variants such as
@@ -202,12 +202,12 @@ rejected.
 
 Expected RED: command not allowed.
 
-- [ ] **Step 2: Add only the exact command**
+- [x] **Step 2: Add only the exact command**
 
 Update the immutable allowlist without changing schema version 1 or any existing
 command spelling.
 
-- [ ] **Step 3: Write SDK RED tests**
+- [x] **Step 3: Write SDK RED tests**
 
 Define the exact successful response contract and test:
 
@@ -226,12 +226,12 @@ Define the exact successful response contract and test:
 
 Expected RED: `StudentContext` has no `vision2d` property.
 
-- [ ] **Step 4: Implement `StudentVision2D` and result model**
+- [x] **Step 4: Implement `StudentVision2D` and result model**
 
 Do not expose NumPy images or accept parameters. Reuse `_copy_json_native` and
 add the minimum strict normalization needed for the exact response.
 
-- [ ] **Step 5: Run protocol/SDK regression and commit**
+- [x] **Step 5: Run protocol/SDK regression and commit**
 
 ```powershell
 .\.venv-vision\Scripts\python.exe -m pytest -q `
@@ -253,14 +253,14 @@ git commit -m "feat(student): expose controlled vision2d analysis"
 - Modify: `tests/test_student_programs/test_experiment_gateway.py`
 - Modify: `tests/test_student_programs/test_runner.py`
 
-- [ ] **Step 1: Write capability RED tests**
+- [x] **Step 1: Write capability RED tests**
 
 Require `vision2d.analysis` to be known only when a CoppeliaSim RGB camera and
 the paired visual profile capabilities are available. Verify replay, Hikvision,
 missing camera, missing sim and incomplete profile pairs are not accepted as a
 formal online analysis context.
 
-- [ ] **Step 2: Write gateway RED tests**
+- [x] **Step 2: Write gateway RED tests**
 
 Use deterministic fake frames and real algorithm code to require:
 
@@ -288,26 +288,26 @@ Run focused RED:
   tests/test_student_programs/test_experiment_gateway.py -k vision2d
 ```
 
-- [ ] **Step 3: Refactor capture internals without changing public capture**
+- [x] **Step 3: Refactor capture internals without changing public capture**
 
 Extract one private raw-frame capture path that returns validated image,
 metadata, encoded PNG and evidence record. Keep `camera.capture` output and its
 single-layer V1-01 bundle byte-for-byte compatible at the contract level.
 
-- [ ] **Step 4: Implement `vision2d.analyze` gateway dispatch**
+- [x] **Step 4: Implement `vision2d.analyze` gateway dispatch**
 
 Call the curriculum adapter and algorithm in the host process. Translate
 configuration failures to `VISION2D_CONFIG_INVALID`, profile mismatches to
 `VISION2D_PROFILE_MISMATCH`, and unexpected algorithm failures to
 `VISION2D_ANALYSIS_FAILED` while preserving the cause.
 
-- [ ] **Step 5: Route the command through the runner**
+- [x] **Step 5: Route the command through the runner**
 
 Add `vision2d.analyze` to the experiment-gateway dispatch set. The response is
 JSON-safe, so it must not use the special raw-byte `camera.capture` response
 path.
 
-- [ ] **Step 6: Run GREEN plus compatibility regression**
+- [x] **Step 6: Run GREEN plus compatibility regression**
 
 ```powershell
 .\.venv-vision\Scripts\python.exe -m pytest -q `
@@ -319,7 +319,7 @@ path.
   tests/test_vision_quality/test_v1_01_materials.py
 ```
 
-- [ ] **Step 7: Commit the host integration**
+- [x] **Step 7: Commit the host integration**
 
 ```powershell
 git diff --check
@@ -341,7 +341,7 @@ git commit -m "feat(student): run vision2d analysis through gateway"
 - Modify: `tests/test_experiments/test_student_templates.py`
 - Modify: `RETAINED_FILES.txt`
 
-- [ ] **Step 1: Write V1-02 materials RED tests**
+- [x] **Step 1: Write V1-02 materials RED tests**
 
 Require exact definition fields, formal scene/manifest reuse, capabilities,
 strict `vision2d` configuration, explicit pixel scale, three expected shapes,
@@ -361,30 +361,30 @@ camera.profile.reset
 
 Run and observe missing-file RED.
 
-- [ ] **Step 2: Create the strict V1-02 definition**
+- [x] **Step 2: Create the strict V1-02 definition**
 
 Use `version=2.2.0`, the existing vision-quality scene and manifest, capabilities
 `camera.rgb`, paired profiles, `vision2d.analysis`, `experiment.info`, and
 `scene.probe`. Publish the approved ROI and explicit simulated scale.
 
-- [ ] **Step 3: Extend the guide into a formal curriculum document**
+- [x] **Step 3: Extend the guide into a formal curriculum document**
 
 Preserve the algorithm guide's valid explanations. Add unified entry points,
 safety boundary, exact student steps, expected five-layer evidence, automated
 checks, human checks, error interpretation and hardware/teaching boundaries.
 
-- [ ] **Step 4: Implement the public-SDK-only template**
+- [x] **Step 4: Implement the public-SDK-only template**
 
 Read experiment info, validate the focus/profile expectations, apply standard,
 analyze once, log each target's pixel and millimetre dimensions, checkpoint the
 result, and reset profile in `finally` without hiding the primary exception.
 
-- [ ] **Step 5: Register V1-02 and retained paths**
+- [x] **Step 5: Register V1-02 and retained paths**
 
 Append `V1-02.json` after V1-01. Update formal catalog and delivery expectations
 without changing any R1/V1-01 contract.
 
-- [ ] **Step 6: Run GREEN and commit**
+- [x] **Step 6: Run GREEN and commit**
 
 ```powershell
 .\.venv-vision\Scripts\python.exe -m pytest -q `
@@ -408,7 +408,7 @@ git commit -m "feat(curriculum): add V1-02 size measurement lab"
 - Modify: `tests/test_acceptance/test_powershell_process_ownership.py`
 - Modify: `RETAINED_FILES.txt`
 
-- [ ] **Step 1: Write the explicitly enabled online RED test**
+- [x] **Step 1: Write the explicitly enabled online RED test**
 
 Run V1-02 through `vision_platform.cli experiment-run`. Require PASS,
 `PENDING_HARDWARE`, initial/final probe PASS, standard final profile, exactly one
@@ -420,13 +420,13 @@ Before implementation is complete, run it only against an owned CoppeliaSim
 process and confirm the expected contract failure. A connection failure is not
 an acceptable RED.
 
-- [ ] **Step 2: Extend the owned-process acceptance wrapper**
+- [x] **Step 2: Extend the owned-process acceptance wrapper**
 
 Add the V1-02 online test and experiment run to the existing wrapper. Update
 the exact JUnit test count, timeouts, JSON summary, cleanup assertions and
 process ownership tests. Do not remove V1-01 coverage.
 
-- [ ] **Step 3: Run owned online GREEN**
+- [x] **Step 3: Run owned online GREEN**
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File `
@@ -438,7 +438,7 @@ Expected: wrapper PASS; JUnit has the exact enabled tests and zero skips,
 failures or errors; V1-01 and V1-02 experiment runs PASS; port 23005 is free
 after cleanup.
 
-- [ ] **Step 4: Commit acceptance infrastructure**
+- [x] **Step 4: Commit acceptance infrastructure**
 
 ```powershell
 git diff --check
@@ -458,17 +458,17 @@ git commit -m "test(acceptance): verify V1-02 live analysis"
 - Create: `tests/test_vision_quality/test_v1_03_materials.py`
 - Modify: shared catalog/template tests and `RETAINED_FILES.txt`
 
-- [ ] **Step 1: Write materials and template RED tests**
+- [x] **Step 1: Write materials and template RED tests**
 
 Require pose focus, `pixel_scale_mm=null`, center/rotated-box/angle fields,
 circle angle null, circle undefined flag, and preservation of square ambiguity.
 
-- [ ] **Step 2: Add definition, formal guide and public template**
+- [x] **Step 2: Add definition, formal guide and public template**
 
 The template applies standard, analyzes once, logs center and angle, treats
 circle `None` as defined behavior rather than an error, checkpoints, and resets.
 
-- [ ] **Step 3: Register, run GREEN and commit**
+- [x] **Step 3: Register, run GREEN and commit**
 
 ```powershell
 .\.venv-vision\Scripts\python.exe -m pytest -q `
@@ -494,18 +494,18 @@ git commit -m "feat(curriculum): add V1-03 pose measurement lab"
 - Create: `tests/test_vision_quality/test_v1_04_materials.py`
 - Modify: shared catalog/template tests and `RETAINED_FILES.txt`
 
-- [ ] **Step 1: Write materials and template RED tests**
+- [x] **Step 1: Write materials and template RED tests**
 
 Require geometry focus, explicit simulated scale, pixel/mm perimeter and area,
 circularity, aspect ratio, finite results, evidence explanation and no accuracy
 certification language.
 
-- [ ] **Step 2: Add definition, formal guide and public template**
+- [x] **Step 2: Add definition, formal guide and public template**
 
 The template logs pixel and simulated physical geometry for all detections,
 checkpoints once, and restores standard in `finally`.
 
-- [ ] **Step 3: Register, run GREEN and commit**
+- [x] **Step 3: Register, run GREEN and commit**
 
 ```powershell
 .\.venv-vision\Scripts\python.exe -m pytest -q `
@@ -531,18 +531,18 @@ git commit -m "feat(curriculum): add V1-04 geometry measurement lab"
 - Create: `tests/test_vision_quality/test_v1_05_materials.py`
 - Modify: shared catalog/template tests and `RETAINED_FILES.txt`
 
-- [ ] **Step 1: Write materials and template RED tests**
+- [x] **Step 1: Write materials and template RED tests**
 
 Require appearance focus, no physical scale, expected color/shape sets,
 color/shape/vertex/contour/circularity fields, explicit preservation of
 `unknown`, and no dependency on the legacy `recognition/color_shape.py` path.
 
-- [ ] **Step 2: Add definition, formal guide and public template**
+- [x] **Step 2: Add definition, formal guide and public template**
 
 The template logs recognized and unknown labels without coercion, checkpoints
 once, and restores the profile in `finally`.
 
-- [ ] **Step 3: Register, run GREEN and commit**
+- [x] **Step 3: Register, run GREEN and commit**
 
 ```powershell
 .\.venv-vision\Scripts\python.exe -m pytest -q `
@@ -568,23 +568,23 @@ git commit -m "feat(curriculum): add V1-05 color shape lab"
 - Modify: `tests/test_vision_platform/test_vision_result_panel.py`
 - Modify: `tests/test_vision_platform/test_pyqt_smoke.py`
 
-- [ ] **Step 1: Write shared-entry RED tests**
+- [x] **Step 1: Write shared-entry RED tests**
 
 Require catalog/CLI/PyQt order through V1-05, `experiment-show` for all four,
 PowerShell validation for all IDs, and unchanged rejection of unknown IDs.
 
-- [ ] **Step 2: Write multi-layer UI RED tests**
+- [x] **Step 2: Write multi-layer UI RED tests**
 
 Load a five-layer recorded bundle. Require stable layer order, switching among
 raw/masks/annotated, readable structured result, profile plus curriculum config,
 `PENDING_HARDWARE`, and “not a course grade” boundary.
 
-- [ ] **Step 3: Make the minimum shared-entry changes**
+- [x] **Step 3: Make the minimum shared-entry changes**
 
 Extend only the existing experiment ID list and any label formatting needed for
 the nested profile. Do not create V1-specific duplicate windows or launchers.
 
-- [ ] **Step 4: Run UI/CLI/PowerShell regression and commit**
+- [x] **Step 4: Run UI/CLI/PowerShell regression and commit**
 
 ```powershell
 .\.venv-vision\Scripts\python.exe -m pytest -q `
@@ -609,7 +609,7 @@ git commit -m "feat(ui): publish V1-02 through V1-05 entry points"
 - Modify: `tests/test_vision_platform/test_pyqt_smoke.py`
 - Modify: delivery/retained tests as required
 
-- [ ] **Step 1: Write online RED tests for V1-03～V1-05**
+- [x] **Step 1: Write online RED tests for V1-03～V1-05**
 
 Reuse a helper that runs each formal template and loads its actual bundle.
 Require common command/layer/hash/probe contracts plus topic-specific fields:
@@ -618,13 +618,13 @@ Require common command/layer/hash/probe contracts plus topic-specific fields:
 - V1-04: positive pixel and simulated physical perimeter/area;
 - V1-05: three expected shapes and published color labels, contours non-empty.
 
-- [ ] **Step 2: Extend the owned-process wrapper to all five V1 experiments**
+- [x] **Step 2: Extend the owned-process wrapper to all five V1 experiments**
 
 Run the scene contract plus V1-01 through V1-05 online tests with exact JUnit
 count and zero skip. Run four new formal `experiment-run` commands into separate
 subdirectories. Preserve bounded timeouts and exact process cleanup.
 
-- [ ] **Step 3: Execute online acceptance**
+- [x] **Step 3: Execute online acceptance**
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File `
@@ -637,14 +637,14 @@ only the published ROI consistently across the four definitions, rerun all
 static material tests, and rerun online acceptance. Do not alter `.ttt` or relax
 algorithm unit tolerances.
 
-- [ ] **Step 4: Capture 100% and 125% PyQt screenshots from a real bundle**
+- [x] **Step 4: Capture 100% and 125% PyQt screenshots from a real bundle**
 
 Use the existing environment-variable screenshot harness, generalized from its
 V1-01 name if necessary. Capture at least the annotated layer and one mask from
 the online evidence. Inspect both images visually for labels, result text,
 layer selector and boundary text.
 
-- [ ] **Step 5: Commit online and UI acceptance**
+- [x] **Step 5: Commit online and UI acceptance**
 
 ```powershell
 git diff --check
@@ -668,20 +668,20 @@ release contract explicitly requires those paths.
 - Modify: this plan's checkboxes as Tasks are completed
 - Modify: `RETAINED_FILES.txt`
 
-- [ ] **Step 1: Write release-contract RED tests**
+- [x] **Step 1: Write release-contract RED tests**
 
 Require every new source, test, definition, guide, template, plan and spec in
 the delivery whitelist. Require no duplicate retained entries and no missing
 paths. Check all formal V1 definitions remain `PENDING_HARDWARE` and contain no
 grading fields.
 
-- [ ] **Step 2: Update delivery documents with executed evidence only**
+- [x] **Step 2: Update delivery documents with executed evidence only**
 
 Record exact static, online JUnit, experiment-run and UI results. Mark true
 hardware and human teaching acceptance pending. Do not copy old V1-01 counts as
 new evidence.
 
-- [ ] **Step 3: Run focused release tests**
+- [x] **Step 3: Run focused release tests**
 
 ```powershell
 .\.venv-vision\Scripts\python.exe -m pytest -q `
@@ -692,7 +692,7 @@ new evidence.
   tests/test_acceptance/test_delivery_contract.py
 ```
 
-- [ ] **Step 4: Run fresh full static regression**
+- [x] **Step 4: Run fresh full static regression**
 
 ```powershell
 .\.venv-vision\Scripts\python.exe -m pytest -q
@@ -701,7 +701,7 @@ new evidence.
 Record total passed/skipped counts. List every skipped online/hardware reason;
 do not call skips PASS.
 
-- [ ] **Step 5: Re-run final owned online acceptance**
+- [x] **Step 5: Re-run final owned online acceptance**
 
 Use a new output directory:
 
@@ -715,7 +715,7 @@ Inspect `acceptance-summary.json` and JUnit XML. Require overall PASS, exact
 test count, zero skips/failures/errors, all experiment summaries PASS, hardware
 pending, teaching pending, and free port after cleanup.
 
-- [ ] **Step 6: Audit protected files against the design baseline**
+- [x] **Step 6: Audit protected files against the design baseline**
 
 Compare `399efa3` to HEAD for:
 
@@ -730,7 +730,7 @@ vision_platform/recognition/color_shape.py
 
 Expected: zero changes.
 
-- [ ] **Step 7: Audit whitespace, branch and worktree**
+- [x] **Step 7: Audit whitespace, branch and worktree**
 
 ```powershell
 git diff --check
@@ -738,7 +738,7 @@ git status --short --branch
 git log --oneline --decorate -15
 ```
 
-- [ ] **Step 8: Commit final delivery evidence**
+- [x] **Step 8: Commit final delivery evidence**
 
 ```powershell
 git add -- README.md RETAINED_FILES.txt docs tests/test_acceptance `
@@ -748,13 +748,13 @@ git commit -m "docs: complete V1-02 through V1-05 delivery"
 
 If a listed file has no change, do not stage or fabricate a change.
 
-- [ ] **Step 9: Push the integration branch**
+- [x] **Step 9: Push the integration branch**
 
 ```powershell
 git push -u origin codex/v2-2-vision-curriculum-integration
 ```
 
-- [ ] **Step 10: Verify remote equality**
+- [x] **Step 10: Verify remote equality**
 
 ```powershell
 git fetch origin

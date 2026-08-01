@@ -139,6 +139,56 @@ V22_FIRST_BATCH_REQUIRED_RELEASE_PATHS = frozenset(
     }
 )
 
+V22_VISION2D_REQUIRED_RELEASE_PATHS = frozenset(
+    {
+        "config/experiments/V1-02.json",
+        "config/experiments/V1-03.json",
+        "config/experiments/V1-04.json",
+        "config/experiments/V1-05.json",
+        "docs/experiments/V1-02.md",
+        "docs/experiments/V1-03.md",
+        "docs/experiments/V1-04.md",
+        "docs/experiments/V1-05.md",
+        "docs/superpowers/plans/2026-07-31-vision2d-algorithm-kernel-plan.md",
+        "docs/superpowers/plans/2026-08-02-vision2d-curriculum-integration-plan.md",
+        "docs/superpowers/specs/2026-07-31-vision2d-algorithm-kernel-design.md",
+        "docs/superpowers/specs/2026-08-02-vision2d-curriculum-integration-design.md",
+        "student_programs/templates/v1_02_size_measurement.py",
+        "student_programs/templates/v1_03_pose_measurement.py",
+        "student_programs/templates/v1_04_geometry_measurement.py",
+        "student_programs/templates/v1_05_color_shape.py",
+        "tests/test_acceptance/test_coppeliasim_v1_02.py",
+        "tests/test_acceptance/test_coppeliasim_v1_03_to_v1_05.py",
+        "tests/test_vision2d/__init__.py",
+        "tests/test_vision2d/synthetic_factory.py",
+        "tests/test_vision2d/test_appearance.py",
+        "tests/test_vision2d/test_compatibility.py",
+        "tests/test_vision2d/test_curriculum.py",
+        "tests/test_vision2d/test_delivery.py",
+        "tests/test_vision2d/test_geometry.py",
+        "tests/test_vision2d/test_guides.py",
+        "tests/test_vision2d/test_models.py",
+        "tests/test_vision2d/test_pipeline.py",
+        "tests/test_vision2d/test_preprocessing.py",
+        "tests/test_vision2d/test_segmentation.py",
+        "tests/test_vision2d/test_serialization.py",
+        "tests/test_vision2d/test_synthetic_factory.py",
+        "tests/test_vision_quality/test_v1_02_materials.py",
+        "tests/test_vision_quality/test_v1_03_materials.py",
+        "tests/test_vision_quality/test_v1_04_materials.py",
+        "tests/test_vision_quality/test_v1_05_materials.py",
+        "vision_platform/vision2d/__init__.py",
+        "vision_platform/vision2d/appearance.py",
+        "vision_platform/vision2d/curriculum.py",
+        "vision_platform/vision2d/geometry.py",
+        "vision_platform/vision2d/models.py",
+        "vision_platform/vision2d/pipeline.py",
+        "vision_platform/vision2d/preprocessing.py",
+        "vision_platform/vision2d/segmentation.py",
+        "vision_platform/vision2d/serialization.py",
+    }
+)
+
 
 def _retained_release_paths() -> set[str]:
     return {
@@ -854,6 +904,48 @@ def test_retained_files_contains_every_first_batch_delivery():
     assert not any(path.startswith("artifacts/") for path in retained)
 
 
+def test_retained_files_contains_complete_vision2d_curriculum_delivery():
+    retained_lines = [
+        line.strip().replace("\\", "/")
+        for line in (ROOT / "RETAINED_FILES.txt")
+        .read_text(encoding="utf-8")
+        .splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    ]
+    retained = set(retained_lines)
+    missing = sorted(V22_VISION2D_REQUIRED_RELEASE_PATHS - retained)
+
+    assert not missing, "missing V2.2 vision2d paths: " + ", ".join(missing)
+    assert len(retained_lines) == len(retained)
+    assert all(
+        (ROOT / path).is_file()
+        for path in V22_VISION2D_REQUIRED_RELEASE_PATHS
+    )
+
+
+def test_formal_v1_definitions_stay_hardware_pending_without_grading_fields():
+    import json
+
+    forbidden = {"grade", "grading", "score", "scores", "rubric"}
+
+    def collect_keys(value):
+        if isinstance(value, dict):
+            for key, nested in value.items():
+                yield str(key).lower()
+                yield from collect_keys(nested)
+        elif isinstance(value, list):
+            for nested in value:
+                yield from collect_keys(nested)
+
+    for experiment_id in ("V1-01", "V1-02", "V1-03", "V1-04", "V1-05"):
+        payload = json.loads(
+            (ROOT / "config" / "experiments" / f"{experiment_id}.json")
+            .read_text(encoding="utf-8")
+        )
+        assert payload["hardware_status"] == "PENDING_HARDWARE"
+        assert forbidden.isdisjoint(collect_keys(payload))
+
+
 def test_first_batch_plan_release_list_uses_real_digit_label_paths():
     source = (
         ROOT
@@ -1079,6 +1171,56 @@ def test_v22_acceptance_report_records_exact_gates_and_boundaries():
         "PENDING_HARDWARE",
     )
 
+    for item in required:
+        assert item in source
+    assert "教师教学效果验收：PASS" not in source
+    assert "真机验收：PASS" not in source
+
+
+def test_entry_docs_cover_v1_02_to_v1_05_vision2d_workflow():
+    entry_docs = (
+        ROOT / "README.md",
+        ROOT / "docs" / "视觉仿真实训平台使用说明.md",
+    )
+    required = (
+        "V1-02",
+        "V1-03",
+        "V1-04",
+        "V1-05",
+        "ctx.vision2d.analyze()",
+        "原图",
+        "ROI 输入",
+        "前景掩膜",
+        "清理后掩膜",
+        "标注结果",
+        "PENDING_HARDWARE",
+        "PENDING_HUMAN_ACCEPTANCE",
+    )
+    for path in entry_docs:
+        source = path.read_text(encoding="utf-8")
+        missing = [item for item in required if item not in source]
+        assert not missing, f"{path.name} is missing: {missing}"
+
+
+def test_v22_vision2d_acceptance_report_records_executed_evidence():
+    source = (
+        ROOT / "docs" / "视觉仿真实训平台自动验收报告.md"
+    ).read_text(encoding="utf-8")
+    required = (
+        "V2.2 视觉实验公共底座与 V1-02～V1-05 验收增补",
+        "codex/v2-2-vision-curriculum-integration",
+        "artifacts/vision_lab/v2-2-c1-all-v1-20260802/",
+        "artifacts/vision_lab/v2-2-c1-final/",
+        "1237 passed",
+        "1769 passed, 17 skipped",
+        "6 passed, 0 skipped",
+        "V1-01～V1-05",
+        "v1-05-annotated-100.png",
+        "v1-05-cleaned-mask-100.png",
+        "v1-05-annotated-125.png",
+        "PENDING_HARDWARE",
+        "PENDING_HUMAN_ACCEPTANCE",
+    )
     for item in required:
         assert item in source
     assert "教师教学效果验收：PASS" not in source

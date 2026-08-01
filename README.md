@@ -37,8 +37,8 @@ powershell -ExecutionPolicy Bypass -File tools\vision_lab\run_acceptance.ps1
 
 ## 首批课程实验
 
-正式实验目录精确包含 `R1-01`、`R1-02`、`R1-05`、`R1-06` 和
-`R1-07`。可先列出目录：
+正式实验目录按顺序包含 `R1-01`、`R1-02`、`R1-05`、`R1-06`、
+`R1-07`、`V1-01`、`V1-02`、`V1-03`、`V1-04` 和 `V1-05`。可先列出目录：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools\vision_lab\python.ps1 `
@@ -62,6 +62,27 @@ powershell -ExecutionPolicy Bypass -File tools\vision_lab\run_experiment.ps1 `
 终态探针不是正式成绩，只用于复核场景是否到达预期状态；教学效果仍须
 教师人工验收。
 仿真结果也不覆盖真机、海康 MVS、急停、气路和物理抓取，这些项目均为
+`PENDING_HARDWARE`。
+
+### V1 二维视觉实验
+
+- `V1-02`：目标长短边与毫米尺寸测量；
+- `V1-03`：中心、旋转框与方向角测量；
+- `V1-04`：像素/毫米周长和面积测量；
+- `V1-05`：颜色、形状与轮廓识别。
+
+四个模板只调用受控教学 SDK 的 `ctx.vision2d.analyze()`，不能传入文件路径、
+任意算法参数或私有图像。每次分析记录固定顺序的“原图”“ROI 输入”
+“前景掩膜”“清理后掩膜”“标注结果”五层证据，可在 PyQt“视觉结果”页
+只读切换。例如直接运行颜色与形状实验：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\vision_lab\run_experiment.ps1 `
+  -Experiment V1-05
+```
+
+仿真分析 PASS 不是课程成绩；教师教学效果仍为
+`PENDING_HUMAN_ACCEPTANCE`，真实相机、真实机械臂及真实光学精度仍为
 `PENDING_HARDWARE`。
 
 ## 学生自编程
