@@ -434,6 +434,44 @@ def test_select_replaces_application_only_after_validation_and_returns_context(
         context.hardware_status = "PASS"  # type: ignore[misc]
 
 
+def test_snapshot_restores_previous_experiment_with_a_fresh_application(
+    tmp_path: Path,
+) -> None:
+    session, vision_session, _, created, _ = _session(
+        tmp_path,
+        catalog=_two_experiment_catalog(tmp_path),
+    )
+    previous = session.select("R1-01")
+    snapshot = session.capture_snapshot()
+    selected = session.select("R1-02")
+
+    restored = session.restore_snapshot(snapshot)
+
+    assert selected.experiment_id == "R1-02"
+    assert restored is not previous
+    assert restored.experiment_id == "R1-01"
+    assert session.current is restored
+    assert vision_session.application is created[-1]
+    assert created[-1].loaded == [restored.scene_path]
+
+
+def test_snapshot_before_first_selection_restores_a_fresh_base_application(
+    tmp_path: Path,
+) -> None:
+    session, vision_session, first, created, _ = _session(tmp_path)
+    snapshot = session.capture_snapshot()
+    session.select("R1-01")
+
+    restored = session.restore_snapshot(snapshot)
+
+    assert restored is None
+    assert session.current is None
+    assert vision_session.application is created[-1]
+    assert vision_session.application is not first
+    assert created[-1].config == session.base_config
+    assert created[-1].loaded == [session.base_config.coppelia_scene]
+
+
 def test_select_activates_group_before_capability_hash_and_publication(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

@@ -11,7 +11,16 @@ from pathlib import Path
 from typing import Any
 
 import cv2
-from PyQt5.QtCore import QObject, QThread, Qt, pyqtSignal, pyqtSlot
+from PyQt5.QtCore import (
+    QCoreApplication,
+    QEvent,
+    QMetaObject,
+    QObject,
+    QThread,
+    Qt,
+    pyqtSignal,
+    pyqtSlot,
+)
 from PyQt5.QtGui import QColor, QImage, QPainter, QPen, QPixmap
 from PyQt5.QtWidgets import (
     QApplication,
@@ -33,9 +42,14 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from vision_platform.student.experiment_gateway import (
+    FileBytesSeal,
+    validate_experiment_binding,
+)
 from vision_platform.student.protocol import RunState
 from vision_platform.student.runner import StudentProgramController
 from vision_platform.student.safety import StudentExecutionPolicy
+from vision_platform.ui.experiment_catalog_panel import ExperimentCatalogPanel
 from vision_platform.ui.student_program_panel import StudentProgramPanel
 from vision_platform.ui.view_model import (
     VisionLabSnapshot,
@@ -56,6 +70,220 @@ class _ActionOutcome:
 
 class _ViewModelBridge(QObject):
     updated = pyqtSignal(object)
+
+
+class _SessionBridge(QObject):
+    replaced = pyqtSignal(object)
+
+
+@dataclass(frozen=True)
+class _PreparedExperimentSelection:
+    context: Any
+    definition: Any
+    canonical_manifest: dict[str, Any]
+    manifest_seal: FileBytesSeal
+    template_path: Path
+    template_source: str
+    template_seal: FileBytesSeal
+
+
+@dataclass(frozen=True)
+class _ExperimentSelectionFailure:
+    error: BaseException
+    rollback_error: BaseException | None
+    session_restored: bool
+    restored_context: Any = None
+
+
+@dataclass(frozen=True)
+class _ExperimentSelectionTransaction:
+    experiment_id: str
+    session_snapshot: Any
+    controller_snapshot: Any
+    panel_snapshot: Any
+
+
+class _ExperimentSelectionControl:
+    """Thread-safe decision handle that outlives the worker QObject."""
+
+    def __init__(self) -> None:
+        self.cancel_requested = threading.Event()
+        self.decision_ready = threading.Event()
+        self.lock = threading.Lock()
+        self.commit_accepted: bool | None = None
+        self.commit_error: BaseException | None = None
+
+    def cancel(self) -> None:
+        self.cancel_requested.set()
+        self.reject_commit(RuntimeError("实验载入已因窗口关闭而取消"))
+
+    def accept_commit(self) -> bool:
+        with self.lock:
+            if self.commit_accepted is not None:
+                return False
+            self.commit_accepted = True
+            self.decision_ready.set()
+            return True
+
+    def reject_commit(self, error: BaseException) -> bool:
+        with self.lock:
+            if self.commit_accepted is not None:
+                return False
+            self.commit_accepted = False
+            self.commit_error = error
+            self.decision_ready.set()
+            return True
+
+    def decision(self) -> tuple[bool | None, BaseException | None]:
+        with self.lock:
+            return self.commit_accepted, self.commit_error
+
+
+def _prepare_experiment_selection(
+    *,
+    catalog: Any,
+    experiment_session: Any,
+    experiment_id: str,
+    before_select: Any | None = None,
+) -> _PreparedExperimentSelection:
+    definition = catalog.require(experiment_id)
+    if definition.experiment_id != experiment_id:
+        raise ValueError("实验目录返回了不匹配的实验定义")
+    initial_manifest = json.loads(
+        definition.scene_manifest.read_bytes().decode("utf-8"),
+        parse_constant=lambda value: (_ for _ in ()).throw(
+            ValueError(f"invalid JSON constant: {value}")
+        ),
+    )
+    if not isinstance(initial_manifest, dict):
+        raise ValueError("场景清单必须是 JSON 对象")
+    template_bytes = definition.student_template.read_bytes()
+    if before_select is not None:
+        before_select()
+    context = experiment_session.select(experiment_id)
+    if getattr(context, "experiment_id", None) != experiment_id:
+        raise ValueError("实验会话返回了不匹配的运行上下文")
+    fresh_manifest_bytes = definition.scene_manifest.read_bytes()
+    fresh_manifest = json.loads(
+        fresh_manifest_bytes.decode("utf-8"),
+        parse_constant=lambda value: (_ for _ in ()).throw(
+            ValueError(f"invalid JSON constant: {value}")
+        ),
+    )
+    if not isinstance(fresh_manifest, dict):
+        raise ValueError("场景清单必须是 JSON 对象")
+    canonical_manifest = validate_experiment_binding(
+        context,
+        definition,
+        fresh_manifest,
+        scene_manifest_file_bytes=fresh_manifest_bytes,
+    )
+    if canonical_manifest is None:  # pragma: no cover - contract
+        raise RuntimeError("实验绑定验证未返回规范场景清单")
+    fresh_template_bytes = definition.student_template.read_bytes()
+    if fresh_template_bytes != template_bytes:
+        raise RuntimeError("学生模板在实验切换期间发生变化")
+    template_source = fresh_template_bytes.decode("utf-8")
+    return _PreparedExperimentSelection(
+        context=context,
+        definition=definition,
+        canonical_manifest=canonical_manifest,
+        manifest_seal=FileBytesSeal.capture(
+            definition.scene_manifest,
+            content=fresh_manifest_bytes,
+        ),
+        template_path=definition.student_template,
+        template_source=template_source,
+        template_seal=FileBytesSeal.capture(
+            definition.student_template,
+            content=fresh_template_bytes,
+        ),
+    )
+
+
+class _ExperimentSelectWorker(QObject):
+    prepared = pyqtSignal(object)
+    succeeded = pyqtSignal(object)
+    failed = pyqtSignal(object)
+
+    def __init__(
+        self,
+        *,
+        catalog: Any,
+        experiment_session: Any,
+        experiment_id: str,
+        session_snapshot: Any,
+        control: _ExperimentSelectionControl,
+    ) -> None:
+        super().__init__()
+        self.catalog = catalog
+        self.experiment_session = experiment_session
+        self.experiment_id = experiment_id
+        self.session_snapshot = session_snapshot
+        self.control = control
+
+    def _restore_session(self) -> tuple[bool, Any, BaseException | None]:
+        try:
+            context = self.experiment_session.restore_snapshot(
+                self.session_snapshot
+            )
+        except BaseException as rollback_error:
+            return False, None, rollback_error
+        return True, context, None
+
+    @pyqtSlot()
+    def run(self) -> None:
+        selection_started = False
+
+        def mark_selection_started() -> None:
+            nonlocal selection_started
+            selection_started = True
+
+        try:
+            prepared = _prepare_experiment_selection(
+                catalog=self.catalog,
+                experiment_session=self.experiment_session,
+                experiment_id=self.experiment_id,
+                before_select=mark_selection_started,
+            )
+            if self.control.cancel_requested.is_set():
+                raise RuntimeError("实验载入已因窗口关闭而取消")
+        except BaseException as error:
+            restored, restored_context, rollback_error = (
+                self._restore_session()
+                if selection_started
+                else (False, None, None)
+            )
+            self.failed.emit(
+                _ExperimentSelectionFailure(
+                    error,
+                    rollback_error,
+                    restored,
+                    restored_context,
+                )
+            )
+            return
+
+        self.prepared.emit(prepared)
+        while not self.control.decision_ready.wait(timeout=0.05):
+            if self.control.cancel_requested.is_set():
+                self.control.reject_commit(
+                    RuntimeError("实验载入已因窗口关闭而取消")
+                )
+        accepted, commit_error = self.control.decision()
+        if accepted:
+            self.succeeded.emit(prepared)
+            return
+        error = commit_error or RuntimeError("实验载入提交被拒绝")
+        restored, restored_context, rollback_error = self._restore_session()
+        self.failed.emit(
+            _ExperimentSelectionFailure(
+                error,
+                rollback_error,
+                restored,
+                restored_context,
+            )
+        )
 
 
 class _ActionWorker(QObject):
@@ -170,6 +398,8 @@ class VisionLabWindow(QMainWindow):
         session: Any | None = None,
         view_model: VisionLabViewModel | None = None,
         output_dir: str | Path = DEFAULT_UI_OUTPUT,
+        experiment_catalog: Any | None = None,
+        experiment_session: Any | None = None,
     ) -> None:
         super().__init__()
         self.session = session
@@ -180,6 +410,11 @@ class VisionLabWindow(QMainWindow):
         self.output_dir = Path(output_dir).expanduser().resolve()
         self._thread: QThread | None = None
         self._worker: _ActionWorker | None = None
+        self._experiment_thread: QThread | None = None
+        self._experiment_worker: _ExperimentSelectWorker | None = None
+        self._experiment_control: _ExperimentSelectionControl | None = None
+        self._experiment_transaction: _ExperimentSelectionTransaction | None = None
+        self._session_bridge_error: BaseException | None = None
         self._lifecycle_lock = threading.RLock()
         self._closing = False
         self._close_complete = False
@@ -189,10 +424,12 @@ class VisionLabWindow(QMainWindow):
         self._cleanup_in_progress: set[str] = set()
         self._session_unsubscribe = None
         self._event_unsubscribe = None
+        self._event_subscription_application = None
         self._pending_event_unsubscribes = []
         self._view_unsubscribe = None
         self._student_panel_unsubscribe = None
         self._student_stop_pending_reported = False
+        self._experiment_switch_quarantined = False
         self.student_controller: StudentProgramController | None = None
         self.student_program_panel: QWidget | None = None
 
@@ -200,6 +437,18 @@ class VisionLabWindow(QMainWindow):
         self.setMinimumSize(1180, 760)
         self.resize(1440, 900)
         self._build_ui()
+        if experiment_catalog is not None and experiment_session is not None:
+            self.experiment_catalog = experiment_catalog
+            self.experiment_session = experiment_session
+            self.experiment_catalog_panel = ExperimentCatalogPanel(
+                catalog=experiment_catalog,
+                on_select=self._request_experiment_select,
+            )
+            self.tabs.insertTab(
+                0,
+                self.experiment_catalog_panel,
+                "实验目录",
+            )
         self._apply_design_system()
 
         self._bridge = _ViewModelBridge(self)
@@ -208,13 +457,35 @@ class VisionLabWindow(QMainWindow):
             self._bridge.updated.emit
         )
         if self.session is not None:
+            self._session_bridge = _SessionBridge(self)
+            self._session_bridge.replaced.connect(
+                self._session_application_replaced
+            )
             self._session_unsubscribe = self.session.subscribe(
-                self._replace_application
+                self._session_bridge.replaced.emit
             )
             self._replace_application(self.session.application)
         else:
             self._replace_application(self.application)
         self._render_snapshot(self.view_model.snapshot())
+
+    @pyqtSlot(object)
+    def _session_application_replaced(self, application: Any) -> None:
+        if self._lifecycle_is_closing():
+            return
+        try:
+            self._replace_application(application)
+        except BaseException as error:
+            self._session_bridge_error = error
+            control = self._experiment_control
+            if control is not None:
+                control.reject_commit(error)
+            self.view_model.set_error(
+                "EXPERIMENT_APPLICATION_REPLACE_FAILED",
+                str(error)[:2000],
+            )
+            return
+        self._session_bridge_error = None
 
     def _replace_application(self, application: Any) -> None:
         first_error: Exception | None = None
@@ -223,6 +494,7 @@ class VisionLabWindow(QMainWindow):
                 return
             previous_unsubscribe = self._event_unsubscribe
             self._event_unsubscribe = None
+            self._event_subscription_application = None
             if previous_unsubscribe is not None:
                 try:
                     previous_unsubscribe()
@@ -238,9 +510,12 @@ class VisionLabWindow(QMainWindow):
                     self._event_unsubscribe = event_bus.subscribe(
                         self.view_model.apply
                     )
+                    self._event_subscription_application = application
                 except Exception as error:
                     if first_error is None:
                         first_error = error
+            else:
+                self._event_subscription_application = application
         if first_error is not None:
             raise first_error
 
@@ -470,6 +745,372 @@ class VisionLabWindow(QMainWindow):
         self.student_program_panel = unavailable
         index = self.tabs.addTab(unavailable, "学生编程")
         self.tabs.setTabEnabled(index, False)
+
+    def _select_experiment(self, experiment_id: str) -> bool:
+        transaction = None
+        selection_started = False
+        try:
+            transaction = self._capture_experiment_transaction(experiment_id)
+
+            def mark_selection_started() -> None:
+                nonlocal selection_started
+                selection_started = True
+
+            prepared = _prepare_experiment_selection(
+                catalog=self.experiment_catalog,
+                experiment_session=self.experiment_session,
+                experiment_id=experiment_id,
+                before_select=mark_selection_started,
+            )
+            self._commit_prepared_experiment(prepared)
+        except BaseException as error:
+            rollback_error = None
+            restored_context = None
+            if selection_started and transaction is not None:
+                try:
+                    restored_context = self.experiment_session.restore_snapshot(
+                        transaction.session_snapshot
+                    )
+                except BaseException as failure:
+                    rollback_error = failure
+                self._restore_local_experiment_transaction(
+                    transaction,
+                    restored_context=restored_context,
+                    rollback_error=rollback_error,
+                )
+            try:
+                message = str(error)[:2000]
+            except BaseException:
+                message = "<unprintable>"
+            if rollback_error is not None:
+                try:
+                    rollback_message = str(rollback_error)[:1000]
+                except BaseException:
+                    rollback_message = "<unprintable>"
+                message = f"{message}；回滚失败：{rollback_message}"
+            self.view_model.set_error(
+                "EXPERIMENT_SELECT_FAILED",
+                f"实验载入失败：{message}",
+            )
+            return False
+
+        self.status_label.setText(
+            f"已载入 {prepared.definition.experiment_id}："
+            f"{prepared.definition.title}"
+        )
+        self.error_label.setText("错误码：—")
+        return True
+
+    def _capture_experiment_transaction(
+        self,
+        experiment_id: str,
+    ) -> _ExperimentSelectionTransaction:
+        controller = self.student_controller
+        panel = self.student_program_panel
+        if controller is None or not isinstance(panel, StudentProgramPanel):
+            raise RuntimeError("当前窗口没有可用的学生程序控制器")
+        self._ensure_experiment_switch_allowed()
+        return _ExperimentSelectionTransaction(
+            experiment_id=experiment_id,
+            session_snapshot=self.experiment_session.capture_snapshot(),
+            controller_snapshot=controller.capture_experiment_snapshot(),
+            panel_snapshot=panel.capture_template_snapshot(),
+        )
+
+    def _commit_prepared_experiment(
+        self,
+        prepared: _PreparedExperimentSelection,
+    ) -> None:
+        self._ensure_experiment_switch_allowed()
+        if self._session_bridge_error is not None:
+            raise RuntimeError("实验应用切换通知处理失败") from (
+                self._session_bridge_error
+            )
+        if self.session is not None and self.application is not self.session.application:
+            raise RuntimeError("实验应用尚未在界面线程完成接管")
+        controller = self.student_controller
+        panel = self.student_program_panel
+        if controller is None or not isinstance(panel, StudentProgramPanel):
+            raise RuntimeError("当前窗口没有可用的学生程序控制器")
+        controller.bind_experiment(
+            context=prepared.context,
+            definition=prepared.definition,
+            scene_manifest=prepared.canonical_manifest,
+            program_path=prepared.template_path,
+            scene_manifest_seal=prepared.manifest_seal,
+        )
+        panel.load_template(
+            prepared.template_path,
+            source=prepared.template_source,
+            controller_already_bound=True,
+            template_seal=prepared.template_seal,
+        )
+
+    def _restore_local_experiment_transaction(
+        self,
+        transaction: _ExperimentSelectionTransaction,
+        *,
+        restored_context: Any,
+        rollback_error: BaseException | None,
+    ) -> None:
+        controller = self.student_controller
+        panel = self.student_program_panel
+        local_errors = []
+        if controller is not None:
+            if rollback_error is None:
+                try:
+                    controller.restore_experiment_snapshot(
+                        transaction.controller_snapshot,
+                        restored_context=restored_context,
+                    )
+                except BaseException as error:
+                    local_errors.append(error)
+            else:
+                local_errors.append(rollback_error)
+            if local_errors:
+                try:
+                    controller.quarantine_experiment_binding(local_errors[0])
+                except BaseException as error:
+                    local_errors.append(error)
+        if isinstance(panel, StudentProgramPanel):
+            try:
+                panel.restore_template_snapshot(transaction.panel_snapshot)
+            except BaseException as error:
+                local_errors.append(error)
+                if controller is not None:
+                    try:
+                        controller.quarantine_experiment_binding(error)
+                    except BaseException as quarantine_error:
+                        local_errors.append(quarantine_error)
+        if local_errors:
+            self._enter_experiment_switch_quarantine(local_errors[0])
+
+    def _enter_experiment_switch_quarantine(
+        self,
+        error: BaseException,
+    ) -> None:
+        self._experiment_switch_quarantined = True
+        controller = self.student_controller
+        if (
+            controller is not None
+            and not controller.experiment_binding_quarantined
+        ):
+            try:
+                controller.quarantine_experiment_binding(error)
+            except BaseException:
+                pass
+        self._disable_operation_controls()
+
+    def _request_experiment_select(self, experiment_id: str) -> bool:
+        thread: QThread | None = None
+        worker: _ExperimentSelectWorker | None = None
+        control: _ExperimentSelectionControl | None = None
+        try:
+            with self._lifecycle_lock:
+                if (
+                    self._closing
+                    or self._close_complete
+                    or self._experiment_switch_quarantined
+                    or self._experiment_thread is not None
+                ):
+                    return False
+            transaction = self._capture_experiment_transaction(experiment_id)
+            thread = QThread(self)
+            control = _ExperimentSelectionControl()
+            thread.finished.connect(self._experiment_thread_finished)
+            thread.finished.connect(thread.deleteLater)
+            self._experiment_transaction = transaction
+            self._experiment_thread = thread
+            self._experiment_control = control
+            self._set_experiment_switch_busy(True)
+            thread.start()
+            worker = _ExperimentSelectWorker(
+                catalog=self.experiment_catalog,
+                experiment_session=self.experiment_session,
+                experiment_id=experiment_id,
+                session_snapshot=transaction.session_snapshot,
+                control=control,
+            )
+            worker.moveToThread(thread)
+            worker.prepared.connect(self._experiment_prepared)
+            worker.succeeded.connect(self._experiment_succeeded)
+            worker.failed.connect(self._experiment_failed)
+            worker.succeeded.connect(worker.deleteLater)
+            worker.failed.connect(worker.deleteLater)
+            worker.succeeded.connect(thread.quit, Qt.DirectConnection)
+            worker.failed.connect(thread.quit, Qt.DirectConnection)
+            self._experiment_worker = worker
+            QMetaObject.invokeMethod(worker, "run", Qt.QueuedConnection)
+            return True
+        except BaseException as error:
+            if control is not None:
+                control.cancel()
+            if worker is not None:
+                try:
+                    worker.deleteLater()
+                except RuntimeError:
+                    pass
+            if thread is not None:
+                try:
+                    if thread.isRunning():
+                        thread.quit()
+                        thread.wait(5000)
+                finally:
+                    thread.deleteLater()
+            self._experiment_transaction = None
+            self._experiment_thread = None
+            self._experiment_worker = None
+            self._experiment_control = None
+            self._set_experiment_switch_busy(False)
+            self.view_model.set_error(
+                "EXPERIMENT_SELECT_FAILED",
+                f"实验载入失败：{str(error)[:2000]}",
+            )
+            return False
+
+    @pyqtSlot(object)
+    def _experiment_prepared(
+        self,
+        prepared: _PreparedExperimentSelection,
+    ) -> None:
+        control = self._experiment_control
+        if control is None:
+            return
+        if self._lifecycle_is_closing():
+            control.reject_commit(RuntimeError("窗口正在关闭"))
+            return
+        try:
+            self._commit_prepared_experiment(prepared)
+        except BaseException as error:
+            control.reject_commit(error)
+            return
+        control.accept_commit()
+
+    @pyqtSlot(object)
+    def _experiment_succeeded(
+        self,
+        prepared: _PreparedExperimentSelection,
+    ) -> None:
+        if self._lifecycle_is_closing():
+            return
+        self.status_label.setText(
+            f"已载入 {prepared.definition.experiment_id}："
+            f"{prepared.definition.title}"
+        )
+        self.error_label.setText("错误码：—")
+        self.experiment_catalog_panel.show_selection_success(
+            prepared.definition.experiment_id
+        )
+
+    @pyqtSlot(object)
+    def _experiment_failed(
+        self,
+        failure: _ExperimentSelectionFailure,
+    ) -> None:
+        if self._lifecycle_is_closing():
+            return
+        transaction = self._experiment_transaction
+        rollback_error = failure.rollback_error
+        if failure.session_restored and rollback_error is None:
+            rollback_error = self._rollback_bridge_error()
+        if transaction is not None and (
+            failure.session_restored or rollback_error is not None
+        ):
+            self._restore_local_experiment_transaction(
+                transaction,
+                restored_context=failure.restored_context,
+                rollback_error=rollback_error,
+            )
+        try:
+            message = str(failure.error)[:2000]
+        except BaseException:
+            message = "<unprintable>"
+        if rollback_error is not None:
+            try:
+                rollback_message = str(rollback_error)[:1000]
+            except BaseException:
+                rollback_message = "<unprintable>"
+            message = f"{message}；回滚失败：{rollback_message}"
+        self.view_model.set_error(
+            "EXPERIMENT_SELECT_FAILED",
+            f"实验载入失败：{message}",
+        )
+        self.experiment_catalog_panel.show_selection_failure(
+            "实验载入失败，请查看窗口状态",
+            error=failure.error,
+        )
+
+    def _rollback_bridge_error(self) -> BaseException | None:
+        if self._session_bridge_error is not None:
+            return self._session_bridge_error
+        if self._pending_event_unsubscribes:
+            return RuntimeError(
+                "回滚应用仍有未完成的事件退订"
+            )
+        if self.session is None:
+            return None
+        current = self.session.application
+        if self.application is not current:
+            return RuntimeError(
+                "回滚应用尚未在界面线程完成接管"
+            )
+        if self._event_subscription_application is not current:
+            return RuntimeError(
+                "回滚应用事件订阅尚未完成接管"
+            )
+        return None
+
+    @pyqtSlot()
+    def _experiment_thread_finished(self) -> None:
+        thread = self.sender()
+        if thread is not self._experiment_thread:
+            return
+        self._experiment_thread = None
+        self._experiment_worker = None
+        self._experiment_control = None
+        self._experiment_transaction = None
+        if not self._lifecycle_is_closing() and not self._experiment_switch_quarantined:
+            self._set_experiment_switch_busy(False)
+
+    def _set_experiment_switch_busy(self, busy: bool) -> None:
+        panel = getattr(self, "experiment_catalog_panel", None)
+        if busy:
+            if panel is not None:
+                panel.set_selection_busy(True)
+            self._disable_operation_controls()
+            return
+        if self._lifecycle_is_closing() or self._experiment_switch_quarantined:
+            self._disable_operation_controls()
+            return
+        for control in (
+            self.camera_backend_combo,
+            self.robot_backend_combo,
+            self.mode_combo,
+            self.emergency_button,
+        ):
+            control.setEnabled(True)
+        self._set_controls_running(self._thread is not None)
+        if self.student_program_panel is not None:
+            self.student_program_panel.setEnabled(True)
+        if panel is not None:
+            panel.setEnabled(True)
+            panel.set_selection_busy(False)
+
+    def _ensure_experiment_switch_allowed(self) -> None:
+        if self._experiment_switch_quarantined:
+            raise RuntimeError("实验切换已进入安全隔离状态，不能继续操作")
+        if self._thread is not None:
+            raise RuntimeError("平台任务运行期间不能切换实验")
+        panel = self.student_program_panel
+        if (
+            isinstance(panel, StudentProgramPanel)
+            and panel.operation_in_progress
+        ):
+            raise RuntimeError("学生程序控制操作期间不能切换实验")
+        controller = self.student_controller
+        if controller is None:
+            raise RuntimeError("当前窗口没有可用的学生程序控制器")
+        controller.ensure_experiment_switch_allowed()
 
     def _apply_design_system(self) -> None:
         self.setStyleSheet(
@@ -781,6 +1422,9 @@ class VisionLabWindow(QMainWindow):
             control.setEnabled(False)
         if self.student_program_panel is not None:
             self.student_program_panel.setEnabled(False)
+        catalog_panel = getattr(self, "experiment_catalog_panel", None)
+        if catalog_panel is not None:
+            catalog_panel.setEnabled(False)
 
     def _selected_camera_backend(self) -> str:
         return ("sim", "replay", "hik")[self.camera_backend_combo.currentIndex()]
@@ -905,6 +1549,7 @@ class VisionLabWindow(QMainWindow):
                 return
             self._pending_event_unsubscribes.clear()
             self._event_unsubscribe = None
+            self._event_subscription_application = None
             self._cleanup_in_progress.add(cleanup_key)
 
         failed_callbacks = []
@@ -1003,6 +1648,46 @@ class VisionLabWindow(QMainWindow):
             ),
         )
 
+    @property
+    def owner_shutdown_complete(self) -> bool:
+        with self._lifecycle_lock:
+            return bool(
+                self._close_complete
+                and self._owner_close_error is None
+            )
+
+    def shutdown(self, *, timeout_ms: int = 5000) -> None:
+        """Idempotently close all workers before releasing the owner."""
+        if type(timeout_ms) is not int or timeout_ms < 0:
+            raise TypeError("timeout_ms must be a non-negative integer")
+        deadline = time.monotonic() + (timeout_ms / 1000.0)
+        while True:
+            with self._lifecycle_lock:
+                owner_error = self._owner_close_error
+                close_complete = self._close_complete
+            if owner_error is not None:
+                raise owner_error
+            if close_complete:
+                return
+
+            self.close()
+            QApplication.processEvents()
+            QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+            QApplication.processEvents()
+
+            with self._lifecycle_lock:
+                owner_error = self._owner_close_error
+                close_complete = self._close_complete
+            if owner_error is not None:
+                raise owner_error
+            if close_complete:
+                return
+            if time.monotonic() >= deadline:
+                raise RuntimeError(
+                    "window owner shutdown did not complete before timeout"
+                )
+            time.sleep(0.01)
+
     def closeEvent(self, event) -> None:
         with self._lifecycle_lock:
             if self._close_complete:
@@ -1010,6 +1695,22 @@ class VisionLabWindow(QMainWindow):
                 return
 
         try:
+            experiment_control = self._experiment_control
+            experiment_thread = self._experiment_thread
+            if experiment_control is not None:
+                experiment_control.cancel()
+            if experiment_thread is not None:
+                experiment_thread.quit()
+                if not bool(experiment_thread.wait(5000)):
+                    self._report_close_failure(
+                        "UI_EXPERIMENT_THREAD_STOP_TIMEOUT",
+                        RuntimeError(
+                            "experiment selection worker did not stop "
+                            "within 5 seconds"
+                        ),
+                    )
+                    event.ignore()
+                    return
             if self._worker is not None:
                 self._worker.cancel()
             thread = self._thread
@@ -1109,6 +1810,94 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _window_has_background_work(window: Any) -> bool:
+    for attribute in ("_experiment_thread", "_thread"):
+        thread = getattr(window, attribute, None)
+        if thread is None:
+            continue
+        is_running = getattr(thread, "isRunning", None)
+        if not callable(is_running) or bool(is_running()):
+            return True
+    panel = getattr(window, "student_program_panel", None)
+    if bool(getattr(panel, "operation_in_progress", False)):
+        return True
+    controller = getattr(window, "student_controller", None)
+    wait_for_quiescence = getattr(controller, "wait_for_quiescence", None)
+    if callable(wait_for_quiescence):
+        try:
+            if not bool(wait_for_quiescence(0)):
+                return True
+        except BaseException:
+            return True
+    return False
+
+
+def _close_direct_owner(session: Any, application: Any) -> None:
+    owner = session if session is not None else application
+    if owner is None:
+        return
+    close = getattr(owner, "close", None)
+    if not callable(close):
+        raise RuntimeError("owned application resource has no close method")
+    close()
+
+
+def _shutdown_main_owner(
+    *,
+    window: Any,
+    session: Any,
+    application: Any,
+) -> None:
+    if window is None:
+        _close_direct_owner(session, application)
+        return
+
+    if getattr(window, "owner_shutdown_complete", False) is True:
+        return
+    shutdown = getattr(window, "shutdown", None)
+    if callable(shutdown):
+        shutdown()
+        if getattr(window, "owner_shutdown_complete", False) is not True:
+            raise RuntimeError(
+                "window shutdown returned before owner cleanup completed"
+            )
+        return
+
+    close = getattr(window, "close", None)
+    if not callable(close):
+        if _window_has_background_work(window):
+            raise RuntimeError(
+                "window has background work but no safe shutdown method"
+            )
+        _close_direct_owner(session, application)
+        return
+
+    try:
+        accepted = close()
+    except BaseException as close_error:
+        if _window_has_background_work(window):
+            raise
+        try:
+            _close_direct_owner(session, application)
+        except BaseException as owner_error:
+            raise close_error from owner_error
+        raise
+    if accepted is False:
+        if _window_has_background_work(window):
+            raise RuntimeError(
+                "window close was rejected while background work is active"
+            )
+        _close_direct_owner(session, application)
+        return
+    completion = getattr(window, "owner_shutdown_complete", None)
+    if completion is False:
+        if _window_has_background_work(window):
+            raise RuntimeError(
+                "window accepted close before background work completed"
+            )
+        _close_direct_owner(session, application)
+
+
 def main(argv=None) -> int:
     from vision_platform.application import VisionLabApplication
     from vision_platform.config import load_config
@@ -1126,16 +1915,91 @@ def main(argv=None) -> int:
     def factory():
         return VisionLabApplication.from_config(config)
 
-    application = factory()
-    session = VisionLabSession(application=application, factory=factory)
-    qt_application = QApplication.instance() or QApplication(sys.argv)
-    window = VisionLabWindow(
-        application=application,
-        session=session,
-        output_dir=args.output,
-    )
-    window.show()
-    return int(qt_application.exec_())
+    application = None
+    session = None
+    window = None
+    result: int | None = None
+    primary_error: BaseException | None = None
+    try:
+        application = factory()
+        session = VisionLabSession(application=application, factory=factory)
+        experiment_catalog = None
+        experiment_session = None
+        window_holder: dict[str, VisionLabWindow] = {}
+        if args.camera == "sim" and args.robot == "sim":
+            from vision_platform.experiments.catalog import ExperimentCatalog
+            from vision_platform.experiments.session import ExperimentSession
+
+            experiment_catalog = ExperimentCatalog.load(
+                PROJECT_ROOT / "config" / "experiments" / "catalog.json",
+                project_root=PROJECT_ROOT,
+            )
+
+            def student_is_idle() -> bool:
+                selected_window = window_holder.get("window")
+                if selected_window is None:
+                    return False
+                try:
+                    if getattr(selected_window, "_thread", None) is not None:
+                        return False
+                    panel = getattr(
+                        selected_window,
+                        "student_program_panel",
+                        None,
+                    )
+                    if bool(getattr(panel, "operation_in_progress", False)):
+                        return False
+                    controller = getattr(
+                        selected_window,
+                        "student_controller",
+                        None,
+                    )
+                    if controller is None:
+                        return False
+                    controller.ensure_experiment_switch_allowed()
+                except (AttributeError, RuntimeError):
+                    return False
+                return True
+
+            experiment_session = ExperimentSession(
+                catalog=experiment_catalog,
+                vision_session=session,
+                base_config=config,
+                application_factory=VisionLabApplication.from_config,
+                student_is_idle=student_is_idle,
+            )
+        qt_application = QApplication.instance() or QApplication(sys.argv)
+        window = VisionLabWindow(
+            application=application,
+            session=session,
+            output_dir=args.output,
+            experiment_catalog=experiment_catalog,
+            experiment_session=experiment_session,
+        )
+        window_holder["window"] = window
+        window.show()
+        result = int(qt_application.exec_())
+    except BaseException as error:
+        primary_error = error
+
+    cleanup_error: BaseException | None = None
+    try:
+        _shutdown_main_owner(
+            window=window,
+            session=session,
+            application=application,
+        )
+    except BaseException as error:
+        cleanup_error = error
+
+    if primary_error is not None:
+        if cleanup_error is not None:
+            raise primary_error from cleanup_error
+        raise primary_error
+    if cleanup_error is not None:
+        raise cleanup_error
+    assert result is not None
+    return result
 
 
 if __name__ == "__main__":

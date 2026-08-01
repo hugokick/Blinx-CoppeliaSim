@@ -3,6 +3,7 @@ from __future__ import annotations
 import errno
 import hashlib
 import json
+from dataclasses import dataclass
 from itertools import count
 from math import isfinite
 from pathlib import Path
@@ -18,6 +19,77 @@ from vision_platform.experiments.models import (
     ExperimentRunContext,
 )
 from vision_platform.experiments.probes import probe_experiment
+
+
+@dataclass(frozen=True)
+class FileBytesSeal:
+    """An immutable exact-byte handoff seal for one small catalog file."""
+
+    path: Path
+    size: int
+    sha256: str
+    content: bytes
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.path, Path):
+            raise TypeError("path must be a pathlib.Path")
+        if not self.path.is_absolute():
+            raise ValueError("path must be absolute")
+        if self.path != self.path.expanduser().resolve():
+            raise ValueError("path must be resolved")
+        if type(self.size) is not int or self.size < 0:
+            raise TypeError("size must be a non-negative integer")
+        if type(self.sha256) is not str or (
+            len(self.sha256) != 64
+            or any(
+                character not in "0123456789abcdef"
+                for character in self.sha256
+            )
+        ):
+            raise ValueError("sha256 must be a lowercase SHA-256 digest")
+        if type(self.content) is not bytes:
+            raise TypeError("content must be exact bytes")
+        if self.size != len(self.content):
+            raise ValueError("size does not match content")
+        if hashlib.sha256(self.content).hexdigest() != self.sha256:
+            raise ValueError("sha256 does not match content")
+
+    @classmethod
+    def capture(
+        cls,
+        path: Path,
+        *,
+        content: bytes | None = None,
+    ) -> FileBytesSeal:
+        if not isinstance(path, Path):
+            raise TypeError("path must be a pathlib.Path")
+        selected = path.expanduser().resolve()
+        exact = selected.read_bytes() if content is None else content
+        if type(exact) is not bytes:
+            raise TypeError("content must be exact bytes")
+        return cls(
+            path=selected,
+            size=len(exact),
+            sha256=hashlib.sha256(exact).hexdigest(),
+            content=exact,
+        )
+
+    def read_verified(self, expected_path: Path) -> bytes:
+        if not isinstance(expected_path, Path):
+            raise TypeError("expected_path must be a pathlib.Path")
+        selected = expected_path.expanduser().resolve()
+        if selected != self.path:
+            raise ValueError("sealed file path does not match expected path")
+        current = selected.read_bytes()
+        if (
+            len(current) != self.size
+            or hashlib.sha256(current).hexdigest() != self.sha256
+            or current != self.content
+        ):
+            raise RuntimeError(
+                "sealed file changed during experiment handoff"
+            )
+        return current
 
 
 def _sha256(path: Path) -> str:
@@ -55,6 +127,39 @@ def _json_values_equal(left: Any, right: Any) -> bool:
     return left == right
 
 
+def validate_scene_manifest_file_bytes(
+    scene_manifest: Mapping[str, Any],
+    file_bytes: bytes,
+) -> dict[str, Any]:
+    """Match a canonical manifest to one already-read exact file value."""
+    try:
+        if type(file_bytes) is not bytes:
+            raise TypeError("file_bytes must be exact bytes")
+        copied_manifest = _copy_json_native(
+            scene_manifest,
+            path="scene_manifest",
+        )
+        if not isinstance(copied_manifest, dict):
+            raise ValueError("scene_manifest must be a mapping")
+        file_manifest = json.loads(
+            file_bytes.decode("utf-8"),
+            parse_constant=lambda value: (_ for _ in ()).throw(
+                ValueError(f"invalid JSON constant: {value}")
+            ),
+        )
+        copied_file_manifest = _copy_json_native(
+            file_manifest,
+            path="scene_manifest file",
+        )
+    except BaseException as error:
+        raise _invalid_binding(
+            f"scene manifest cannot be validated: {type(error).__name__}"
+        ) from error
+    if not _json_values_equal(copied_manifest, copied_file_manifest):
+        raise _invalid_binding("scene_manifest does not match its file")
+    return copied_manifest
+
+
 def _is_probe_transport_error(error: BaseException) -> bool:
     pending: list[BaseException] = [error]
     seen: set[int] = set()
@@ -86,6 +191,8 @@ def validate_experiment_binding(
     context: ExperimentRunContext | None,
     definition: ExperimentDefinition | None,
     scene_manifest: Mapping[str, Any] | None,
+    *,
+    scene_manifest_file_bytes: bytes | None = None,
 ) -> dict[str, Any] | None:
     supplied = (
         context is not None,
@@ -118,29 +225,22 @@ def validate_experiment_binding(
             )
 
     try:
-        copied_manifest = _copy_json_native(
-            scene_manifest,
-            path="scene_manifest",
-        )
-        if not isinstance(copied_manifest, dict):
-            raise ValueError("scene_manifest must be a mapping")
-        file_manifest = json.loads(
-            definition.scene_manifest.read_text(encoding="utf-8"),
-            parse_constant=lambda value: (_ for _ in ()).throw(
-                ValueError(f"invalid JSON constant: {value}")
-            ),
-        )
-        copied_file_manifest = _copy_json_native(
-            file_manifest,
-            path="scene_manifest file",
-        )
+        if scene_manifest_file_bytes is None:
+            manifest_file_bytes = definition.scene_manifest.read_bytes()
+        elif type(scene_manifest_file_bytes) is bytes:
+            manifest_file_bytes = scene_manifest_file_bytes
+        else:
+            raise TypeError(
+                "scene_manifest_file_bytes must be exact bytes"
+            )
     except BaseException as error:
         raise _invalid_binding(
             f"scene manifest cannot be validated: {type(error).__name__}"
         ) from error
-
-    if not _json_values_equal(copied_manifest, copied_file_manifest):
-        raise _invalid_binding("scene_manifest does not match its file")
+    copied_manifest = validate_scene_manifest_file_bytes(
+        scene_manifest,
+        manifest_file_bytes,
+    )
     schema_version = copied_manifest.get("schema_version")
     if type(schema_version) is not int or schema_version != 1:
         raise _invalid_binding("scene_manifest schema_version must be 1")

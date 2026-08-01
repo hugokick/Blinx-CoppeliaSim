@@ -204,6 +204,10 @@ class FakeController:
         self.emit_state(RunState.LOADED)
         return self.loaded_path
 
+    @property
+    def program_path(self):
+        return self.loaded_path
+
     def validate(self, program_path=None):
         self.validate_calls.append(
             None if program_path is None else Path(program_path)
@@ -1136,3 +1140,148 @@ def test_ui_file_error_is_rendered_without_escaping_qt_slot(
 
     assert "STUDENT_FILE_OPEN_FAILED" in panel.console.toPlainText()
     assert controller.loaded_path is None
+
+
+def test_load_template_reads_utf8_and_syncs_controller_before_ui(
+    qtbot,
+    tmp_path,
+):
+    template = tmp_path / "模板.py"
+    source = "def main(ctx):\n    ctx.log('中文模板')\n"
+    template.write_text(source, encoding="utf-8")
+    controller = FakeController()
+    panel = StudentProgramPanel(controller=controller)
+    qtbot.addWidget(panel)
+
+    panel.load_template(template)
+
+    assert panel.editor.toPlainText() == source
+    assert panel.program_path == template.resolve()
+    assert panel.path_label.text() == str(template.resolve())
+    assert panel.pending_program_path is None
+    assert controller.loaded_path == template.resolve()
+    assert panel.editor.document().isModified() is False
+
+
+def test_load_template_commits_prevalidated_source_without_a_second_read(
+    qtbot,
+    tmp_path,
+):
+    template = tmp_path / "模板.py"
+    source = "def main(ctx):\n    ctx.log('选择前快照')\n"
+    template.write_text(source, encoding="utf-8")
+    controller = FakeController()
+    controller.loaded_path = template.resolve()
+    controller.state = RunState.LOADED
+    panel = StudentProgramPanel(controller=controller)
+    qtbot.addWidget(panel)
+    template.write_bytes(b"\xff\xfe")
+
+    panel.load_template(
+        template,
+        source=source,
+        controller_already_bound=True,
+    )
+
+    assert panel.editor.toPlainText() == source
+    assert panel.program_path == template.resolve()
+    assert controller.load_calls == []
+    assert panel.editor.document().isModified() is False
+
+
+def test_load_template_rejects_changed_sealed_bytes_before_editor_write(
+    qtbot,
+    tmp_path,
+):
+    from vision_platform.student.experiment_gateway import FileBytesSeal
+
+    old_path = (tmp_path / "old.py").resolve()
+    old_source = "def main(ctx):\n    ctx.log('old')\n"
+    old_path.write_text(old_source, encoding="utf-8")
+    template = (tmp_path / "template.py").resolve()
+    source = "def main(ctx):\n    ctx.log('sealed')\n"
+    template.write_text(source, encoding="utf-8")
+    seal = FileBytesSeal.capture(template)
+    controller = FakeController()
+    controller.loaded_path = template
+    controller.state = RunState.LOADED
+    panel = StudentProgramPanel(controller=controller)
+    qtbot.addWidget(panel)
+    panel.editor.setPlainText(old_source)
+    panel.program_path = old_path
+    panel.path_label.setText(str(old_path))
+    template.write_text(
+        "def main(ctx):\n    ctx.log('changed')\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(RuntimeError, match="changed"):
+        panel.load_template(
+            template,
+            source=source,
+            controller_already_bound=True,
+            template_seal=seal,
+        )
+
+    assert panel.editor.toPlainText() == old_source
+    assert panel.program_path == old_path
+    assert panel.path_label.text() == str(old_path)
+
+
+def test_template_snapshot_restores_source_path_and_modified_state(
+    qtbot,
+    tmp_path,
+):
+    original = (tmp_path / "original.py").resolve()
+    replacement = (tmp_path / "replacement.py").resolve()
+    controller = FakeController()
+    panel = StudentProgramPanel(controller=controller)
+    qtbot.addWidget(panel)
+    panel.editor.setPlainText("def main(ctx):\n    ctx.log('original')\n")
+    panel.editor.document().setModified(True)
+    panel.program_path = original
+    panel.path_label.setText(str(original))
+    panel.console.setPlainText("切换前日志")
+    snapshot = panel.capture_template_snapshot()
+    panel.editor.setPlainText("def main(ctx):\n    ctx.log('replacement')\n")
+    panel.program_path = replacement
+    panel.path_label.setText(str(replacement))
+    panel.console.append("已载入新模板")
+
+    panel.restore_template_snapshot(snapshot)
+
+    assert panel.editor.toPlainText() == (
+        "def main(ctx):\n    ctx.log('original')\n"
+    )
+    assert panel.editor.document().isModified() is True
+    assert panel.program_path == original
+    assert panel.path_label.text() == str(original)
+    assert panel.console.toPlainText() == "切换前日志"
+
+
+def test_load_template_failure_preserves_previous_editor_and_path(
+    qtbot,
+    tmp_path,
+):
+    old_path = (tmp_path / "old.py").resolve()
+    old_source = "def main(ctx):\n    ctx.log('old')\n"
+    old_path.write_text(old_source, encoding="utf-8")
+    template = tmp_path / "new.py"
+    template.write_text(
+        "def main(ctx):\n    ctx.log('new')\n",
+        encoding="utf-8",
+    )
+    controller = FakeController()
+    panel = StudentProgramPanel(controller=controller)
+    qtbot.addWidget(panel)
+    panel.editor.setPlainText(old_source)
+    panel.program_path = old_path
+    panel.path_label.setText(str(old_path))
+    controller.emit_state(RunState.RUNNING)
+
+    with pytest.raises(RuntimeError, match="idle controller"):
+        panel.load_template(template)
+
+    assert panel.editor.toPlainText() == old_source
+    assert panel.program_path == old_path
+    assert panel.path_label.text() == str(old_path)

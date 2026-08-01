@@ -115,6 +115,43 @@ def _gateway(tmp_path, *, application, evidence):
     )
 
 
+def test_file_bytes_seal_requires_exact_absolute_metadata(tmp_path):
+    from vision_platform.student.experiment_gateway import FileBytesSeal
+
+    path = (tmp_path / "manifest.json").resolve()
+    content = b'{"schema_version":1}'
+    path.write_bytes(content)
+    digest = hashlib.sha256(content).hexdigest()
+
+    seal = FileBytesSeal.capture(path)
+
+    assert seal.path == path
+    assert seal.size == len(content)
+    assert seal.sha256 == digest
+    assert seal.content == content
+    with pytest.raises(TypeError, match="path"):
+        FileBytesSeal(
+            path=str(path),
+            size=len(content),
+            sha256=digest,
+            content=content,
+        )
+    with pytest.raises(ValueError, match="absolute"):
+        FileBytesSeal(
+            path=path.relative_to(tmp_path),
+            size=len(content),
+            sha256=digest,
+            content=content,
+        )
+    with pytest.raises(ValueError, match="sha256"):
+        FileBytesSeal(
+            path=path,
+            size=len(content),
+            sha256="f" * 64,
+            content=content,
+        )
+
+
 def test_gateway_captures_png_and_records_same_bytes(tmp_path):
     evidence = FakeEvidence()
     gateway = _gateway(

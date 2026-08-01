@@ -170,6 +170,7 @@ tests/test_vision_platform/test_coppeliasim_placement_verifier.py
 tests/test_vision_platform/test_coppeliasim_scene_staging.py
 tests/test_vision_platform/test_coppeliasim_suction.py
 tests/test_vision_platform/test_environment_contract.py
+tests/test_vision_platform/test_experiment_catalog_panel.py
 tests/test_vision_platform/test_hikvision_camera.py
 tests/test_vision_platform/test_models.py
 tests/test_vision_platform/test_motion_safety.py
@@ -237,6 +238,7 @@ vision_platform/tasks/classify.py
 vision_platform/tasks/coppeliasim_verifier.py
 vision_platform/tasks/state_machine.py
 vision_platform/ui/__init__.py
+vision_platform/ui/experiment_catalog_panel.py
 vision_platform/ui/pyqt_app.py
 vision_platform/ui/simui_panel.py
 vision_platform/ui/student_program_panel.py

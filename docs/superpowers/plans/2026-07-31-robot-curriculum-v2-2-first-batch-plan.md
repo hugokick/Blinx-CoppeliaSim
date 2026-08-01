@@ -4700,7 +4700,7 @@ git commit -m "feat(cli): run formal robot curriculum experiments"
 - Modify: `tests/test_vision_platform/test_student_program_panel.py`
 - Modify: `tests/test_vision_platform/test_pyqt_smoke.py`
 
-- [ ] **Step 1: 写目录面板失败测试**
+- [x] **Step 1: 写目录面板失败测试**
 
 Create `tests/test_vision_platform/test_experiment_catalog_panel.py`:
 
@@ -4759,7 +4759,7 @@ def test_catalog_panel_shows_hardware_boundary_and_selects(qtbot):
     assert "相机" in panel.capabilities_label.text()
 ```
 
-- [ ] **Step 2: 写控制器重新绑定失败测试**
+- [x] **Step 2: 写控制器重新绑定失败测试**
 
 Append to `tests/test_student_programs/test_runner.py`:
 
@@ -4800,7 +4800,7 @@ def test_bind_experiment_is_rejected_while_running(tmp_path):
     controller.wait(timeout_s=3)
 ```
 
-- [ ] **Step 3: 运行新增 UI 测试并确认先失败**
+- [x] **Step 3: 运行新增 UI 测试并确认先失败**
 
 Run:
 
@@ -4813,7 +4813,7 @@ python -m pytest `
 
 Expected: FAIL，指出面板或 `bind_experiment` 不存在。
 
-- [ ] **Step 4: 实现实验目录面板**
+- [x] **Step 4: 实现实验目录面板**
 
 Create `vision_platform/ui/experiment_catalog_panel.py`:
 
@@ -4897,7 +4897,7 @@ class ExperimentCatalogPanel(QWidget):
         self.on_select(self._definition().experiment_id)
 ```
 
-- [ ] **Step 5: 实现控制器安全重新绑定**
+- [x] **Step 5: 实现控制器安全重新绑定**
 
 Add this public method to `StudentProgramController`:
 
@@ -4931,7 +4931,7 @@ Add this public method to `StudentProgramController`:
         return self._program_path
 ```
 
-- [ ] **Step 6: 让学生编程面板装载所选模板**
+- [x] **Step 6: 让学生编程面板装载所选模板**
 
 Add to `StudentProgramPanel`:
 
@@ -4949,7 +4949,7 @@ Add to `StudentProgramPanel`:
 
 该方法使用 V2.1 面板现有编辑器、路径字段和 dirty 状态方法，不弹出文件选择框。
 
-- [ ] **Step 7: 集成到主窗口**
+- [x] **Step 7: 集成到主窗口**
 
 给 `VisionLabWindow.__init__()` 增加可选参数：
 
@@ -4995,7 +4995,7 @@ if experiment_catalog is not None and experiment_session is not None:
 
 补充 `json` 和 `ExperimentCatalogPanel` 导入。V2.1 原有页面、对象名和按钮行为不变。
 
-- [ ] **Step 8: 增加主窗口离屏回归断言**
+- [x] **Step 8: 增加主窗口离屏回归断言**
 
 Append to `tests/test_vision_platform/test_pyqt_smoke.py`:
 
@@ -5011,7 +5011,7 @@ def test_pyqt_window_without_experiment_services_remains_compatible(qtbot):
 
 并在 `tests/test_vision_platform/test_student_program_panel.py` 增加 `load_template` 测试，断言 UTF-8 内容进入编辑器、控制器收到路径、dirty 为 false。
 
-- [ ] **Step 9: 运行全部 PyQt 离屏测试**
+- [x] **Step 9: 运行全部 PyQt 离屏测试**
 
 Run:
 
@@ -5022,7 +5022,7 @@ python -m pytest tests/test_vision_platform/test_*panel.py tests/test_vision_pla
 
 Expected: 全部 PASS，原视觉页和 V2.1 学生编程页测试不退化。
 
-- [ ] **Step 10: 提交 PyQt 实验目录**
+- [x] **Step 10: 提交 PyQt 实验目录**
 
 Run:
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -18,6 +19,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from vision_platform.student.experiment_gateway import FileBytesSeal
 from vision_platform.student.protocol import RunState
 from vision_platform.student.validator import validate_program
 
@@ -26,6 +28,16 @@ _ACTIVE_STATES = frozenset({RunState.RUNNING, RunState.PAUSED})
 _TERMINAL_STATES = frozenset(
     {RunState.PASSED, RunState.FAILED, RunState.CANCELLED}
 )
+
+
+@dataclass(frozen=True)
+class StudentTemplateSnapshot:
+    source: str
+    program_path: Path | None
+    pending_program_path: Path | None
+    modified: bool
+    path_label: str
+    console: str
 
 
 class _SnapshotBridge(QObject):
@@ -235,6 +247,89 @@ class StudentProgramPanel(QWidget):
             self.program_path = Path(loaded).resolve()
             self._pending_program_path = None
         self.console.append(f"已载入：{self.program_path}")
+        self._apply_state(self.controller.state)
+
+    def load_template(
+        self,
+        path: str | Path,
+        *,
+        source: str | None = None,
+        controller_already_bound: bool = False,
+        template_seal: FileBytesSeal | None = None,
+    ) -> None:
+        """Commit one verified catalog template without a file chooser."""
+        selected = Path(path).expanduser().resolve()
+        if type(controller_already_bound) is not bool:
+            raise TypeError("controller_already_bound must be a boolean")
+        if (
+            controller_already_bound
+            and source is None
+            and template_seal is None
+        ):
+            raise ValueError(
+                "prevalidated source is required for an existing binding"
+            )
+        if source is not None and type(source) is not str:
+            raise TypeError("source must be UTF-8 text")
+        if template_seal is not None:
+            if type(template_seal) is not FileBytesSeal:
+                raise TypeError("template_seal must be a FileBytesSeal")
+            current_template_bytes = template_seal.read_verified(selected)
+            try:
+                sealed_source = current_template_bytes.decode("utf-8")
+            except UnicodeDecodeError as error:
+                raise ValueError("sealed template must be UTF-8 text") from error
+            if source is not None and source != sealed_source:
+                raise RuntimeError(
+                    "sealed template source does not match exact bytes"
+                )
+            source = sealed_source
+        elif source is None:
+            source = selected.read_text(encoding="utf-8")
+
+        if controller_already_bound:
+            bound_path = self.controller.program_path
+            if (
+                bound_path is None
+                or Path(bound_path).expanduser().resolve() != selected
+                or self.controller.state is not RunState.LOADED
+            ):
+                raise RuntimeError(
+                    "controller template binding is not coherent"
+                )
+            loaded = selected
+        else:
+            loaded = Path(self.controller.load(selected)).resolve()
+        self.editor.setPlainText(source)
+        self.editor.document().setModified(False)
+        self.program_path = loaded
+        self._pending_program_path = None
+        self.path_label.setText(str(loaded))
+        self.console.append(f"已载入实验模板：{loaded}")
+        self._apply_state(self.controller.state)
+
+    def capture_template_snapshot(self) -> StudentTemplateSnapshot:
+        return StudentTemplateSnapshot(
+            source=self.editor.toPlainText(),
+            program_path=self.program_path,
+            pending_program_path=self._pending_program_path,
+            modified=self.editor.document().isModified(),
+            path_label=self.path_label.text(),
+            console=self.console.toPlainText(),
+        )
+
+    def restore_template_snapshot(
+        self,
+        snapshot: StudentTemplateSnapshot,
+    ) -> None:
+        if not isinstance(snapshot, StudentTemplateSnapshot):
+            raise TypeError("snapshot must be StudentTemplateSnapshot")
+        self.editor.setPlainText(snapshot.source)
+        self.editor.document().setModified(snapshot.modified)
+        self.program_path = snapshot.program_path
+        self._pending_program_path = snapshot.pending_program_path
+        self.path_label.setText(snapshot.path_label)
+        self.console.setPlainText(snapshot.console)
         self._apply_state(self.controller.state)
 
     @pyqtSlot()

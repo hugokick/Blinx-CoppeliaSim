@@ -3462,3 +3462,235 @@ def test_reap_gives_cooperative_exit_grace_before_terminate(tmp_path):
     assert controller._reap_child(force=True) is True
     assert process.join_timeouts[0] > 0
     assert process.terminate_calls == 0
+
+
+def test_bind_experiment_clears_previous_program_when_idle(tmp_path):
+    controller, _, _ = make_controller(
+        tmp_path,
+        "def main(ctx):\n    ctx.robot.home()\n",
+    )
+    manifest = {"scene_id": "robot-basics", "nested": {"value": 1}}
+
+    controller.bind_experiment(
+        context=SimpleNamespace(experiment_id="R1-01"),
+        definition=SimpleNamespace(experiment_id="R1-01"),
+        scene_manifest=manifest,
+    )
+    manifest["nested"]["value"] = 99
+
+    assert controller.state is RunState.EMPTY
+    assert controller.program_path is None
+    assert controller._validation is None
+    assert controller._result is None
+    assert controller._evidence is None
+    assert controller._experiment_gateway is None
+    assert controller._scene_manifest["nested"]["value"] == 1
+
+
+def test_bind_experiment_atomically_loads_optional_program_when_idle(tmp_path):
+    controller, _, _ = make_controller(
+        tmp_path,
+        "def main(ctx):\n    ctx.robot.home()\n",
+    )
+    template = tmp_path / "catalog-template.py"
+    template.write_text("def main(ctx):\n    pass\n", encoding="utf-8")
+    context = SimpleNamespace(experiment_id="R1-05")
+    definition = SimpleNamespace(experiment_id="R1-05")
+    snapshots = []
+    controller.subscribe(snapshots.append)
+
+    controller.bind_experiment(
+        context=context,
+        definition=definition,
+        scene_manifest={"scene_id": "visual-positioning"},
+        program_path=template,
+    )
+
+    assert controller._experiment_context is context
+    assert controller._experiment_definition is definition
+    assert controller.program_path == template.resolve()
+    assert controller.state is RunState.LOADED
+    assert [snapshot.state for snapshot in snapshots] == [RunState.LOADED]
+
+
+def test_bind_experiment_rejects_changed_sealed_manifest_before_mutation(
+    tmp_path,
+):
+    from vision_platform.student.experiment_gateway import FileBytesSeal
+
+    context, definition, manifest = experiment_bundle(tmp_path)
+    controller, _, original_program = make_controller(
+        tmp_path,
+        "def main(ctx):\n    pass\n",
+    )
+    original_context = controller._experiment_context
+    original_manifest = controller._scene_manifest
+    seal = FileBytesSeal.capture(definition.scene_manifest)
+    replacement = dict(manifest)
+    replacement["handoff_generation"] = "changed"
+    definition.scene_manifest.write_text(
+        json.dumps(replacement),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(RuntimeError, match="changed"):
+        controller.bind_experiment(
+            context=context,
+            definition=definition,
+            scene_manifest=manifest,
+            program_path=definition.student_template,
+            scene_manifest_seal=seal,
+        )
+
+    assert controller._experiment_context is original_context
+    assert controller._scene_manifest is original_manifest
+    assert controller.program_path == original_program.resolve()
+    assert controller.state is RunState.LOADED
+
+
+def test_experiment_binding_snapshot_restores_one_coherent_idle_state(tmp_path):
+    context, definition, manifest = experiment_bundle(tmp_path)
+    controller, session, original_program = make_controller(
+        tmp_path,
+        "def main(ctx):\n    pass\n",
+        experiment_context=context,
+        experiment_definition=definition,
+        scene_manifest=manifest,
+    )
+    snapshot = controller.capture_experiment_snapshot()
+    replacement_program = tmp_path / "replacement.py"
+    replacement_program.write_text(
+        "def main(ctx):\n    ctx.robot.home()\n",
+        encoding="utf-8",
+    )
+    controller.bind_experiment(
+        context=SimpleNamespace(experiment_id="R1-05"),
+        definition=SimpleNamespace(experiment_id="R1-05"),
+        scene_manifest={"generation": "replacement"},
+        program_path=replacement_program,
+    )
+    replacement_application = session._replace_application()
+    restored_context = SimpleNamespace(experiment_id="R1-01")
+    snapshots = []
+    controller.subscribe(snapshots.append)
+
+    controller.restore_experiment_snapshot(
+        snapshot,
+        restored_context=restored_context,
+    )
+
+    assert controller._experiment_context is restored_context
+    assert controller._experiment_definition is definition
+    assert controller._scene_manifest == manifest
+    assert controller.program_path == original_program.resolve()
+    assert controller.state is RunState.LOADED
+    assert controller._application is replacement_application
+    assert [item.state for item in snapshots] == [RunState.LOADED]
+
+
+def test_experiment_binding_quarantine_clears_binding_and_blocks_later_apis(
+    tmp_path,
+):
+    controller, _, _ = make_controller(
+        tmp_path,
+        "def main(ctx):\n    pass\n",
+    )
+    candidate = tmp_path / "candidate.py"
+    candidate.write_text("def main(ctx):\n    pass\n", encoding="utf-8")
+
+    controller.quarantine_experiment_binding(
+        RuntimeError("scene-rollback-failed")
+    )
+
+    assert controller.experiment_binding_quarantined is True
+    assert controller.program_path is None
+    assert controller._experiment_context is None
+    assert controller._experiment_definition is None
+    assert controller._scene_manifest is None
+    assert controller.state is RunState.EMPTY
+    with pytest.raises(RuntimeError, match="隔离"):
+        controller.load(candidate)
+    with pytest.raises(RuntimeError, match="隔离"):
+        controller.bind_experiment(
+            context=SimpleNamespace(experiment_id="R1-05"),
+            definition=SimpleNamespace(experiment_id="R1-05"),
+            scene_manifest={},
+            program_path=candidate,
+        )
+
+
+@pytest.mark.parametrize(
+    "state",
+    (RunState.RUNNING, RunState.PAUSED, RunState.RESETTING),
+)
+def test_bind_experiment_is_rejected_before_mutation_while_active(
+    tmp_path,
+    state,
+):
+    controller, _, program = make_controller(
+        tmp_path,
+        "def main(ctx):\n    pass\n",
+    )
+    old_context = controller._experiment_context
+    with controller._condition:
+        controller._state = state
+
+    with pytest.raises(RuntimeError, match="运行期间"):
+        controller.bind_experiment(
+            context=SimpleNamespace(experiment_id="R1-01"),
+            definition=SimpleNamespace(experiment_id="R1-01"),
+            scene_manifest={"scene_id": "robot-basics"},
+        )
+
+    assert controller.program_path == program.resolve()
+    assert controller._experiment_context is old_context
+
+
+def test_bind_experiment_rejects_a_still_live_backend_action(tmp_path):
+    controller, _, program = make_controller(
+        tmp_path,
+        "def main(ctx):\n    pass\n",
+    )
+    current = threading.current_thread()
+    with controller._condition:
+        controller._backend_action_threads[current] = "late-action"
+
+    try:
+        with pytest.raises(RuntimeError, match="运行期间"):
+            controller.bind_experiment(
+                context=SimpleNamespace(experiment_id="R1-01"),
+                definition=SimpleNamespace(experiment_id="R1-01"),
+                scene_manifest={"scene_id": "robot-basics"},
+            )
+    finally:
+        with controller._condition:
+            controller._backend_action_threads.pop(current, None)
+
+    assert controller.program_path == program.resolve()
+
+
+def test_bind_experiment_preserves_backend_quarantine_until_safe_reset(
+    tmp_path,
+):
+    controller, _, program = make_controller(
+        tmp_path,
+        "def main(ctx):\n    pass\n",
+    )
+    with controller._condition:
+        controller._backend_quarantined = True
+        controller._backend_quarantine_error = {
+            "code": "STUDENT_BACKEND_CONNECTION_QUARANTINED"
+        }
+
+    with pytest.raises(RuntimeError, match="隔离"):
+        controller.bind_experiment(
+            context=SimpleNamespace(experiment_id="R1-01"),
+            definition=SimpleNamespace(experiment_id="R1-01"),
+            scene_manifest={"scene_id": "robot-basics"},
+        )
+
+    assert controller.program_path == program.resolve()
+    assert controller._backend_quarantined is True
+    assert controller._backend_quarantine_error == {
+        "code": "STUDENT_BACKEND_CONNECTION_QUARANTINED"
+    }

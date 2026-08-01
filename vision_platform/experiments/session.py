@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 from copy import deepcopy
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 from threading import RLock
 from typing import Any, Callable
@@ -20,6 +20,13 @@ from vision_platform.experiments.scene_setup import (
     validate_scene_group_path,
 )
 from vision_platform.session import VisionLabSession
+
+
+@dataclass(frozen=True)
+class ExperimentSessionSnapshot:
+    """Stable restoration target for an experiment or the startup scene."""
+
+    experiment_id: str | None
 
 
 def _sha256(path: Path) -> str:
@@ -100,6 +107,37 @@ class ExperimentSession:
     def select(self, experiment_id: str) -> ExperimentRunContext:
         with self._lock:
             return self._select_locked(experiment_id)
+
+    def capture_snapshot(self) -> ExperimentSessionSnapshot:
+        with self._lock:
+            experiment_id = (
+                None
+                if self.current is None
+                else self.current.experiment_id
+            )
+            return ExperimentSessionSnapshot(experiment_id=experiment_id)
+
+    def restore_snapshot(
+        self,
+        snapshot: ExperimentSessionSnapshot,
+    ) -> ExperimentRunContext | None:
+        if not isinstance(snapshot, ExperimentSessionSnapshot):
+            raise TypeError("snapshot must be ExperimentSessionSnapshot")
+        with self._lock:
+            if snapshot.experiment_id is not None:
+                return self._select_locked(snapshot.experiment_id)
+            return self._restore_base_locked()
+
+    def _restore_base_locked(self) -> None:
+        if not self.student_is_idle():
+            raise RuntimeError("学生程序运行、暂停或清理期间不能恢复启动场景")
+        self.current = None
+        self.vision_session.replace_application(
+            lambda: self.application_factory(self.base_config),
+            scene_path=self.base_config.coppelia_scene,
+            validate=None,
+        )
+        return None
 
     def _select_locked(self, experiment_id: str) -> ExperimentRunContext:
         if not self.student_is_idle():

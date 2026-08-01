@@ -8,6 +8,7 @@ import queue
 import threading
 import time
 from collections.abc import Mapping, Sequence
+from copy import deepcopy
 from dataclasses import dataclass
 from math import ceil, isfinite
 from pathlib import Path
@@ -20,8 +21,10 @@ from vision_platform.experiments.models import (
 )
 from vision_platform.student.evidence import StudentRunEvidence
 from vision_platform.student.experiment_gateway import (
+    FileBytesSeal,
     StudentExperimentGateway,
     validate_experiment_binding,
+    validate_scene_manifest_file_bytes,
 )
 from vision_platform.student.protocol import (
     CommandMessage,
@@ -61,6 +64,7 @@ _PROTOCOL_ERROR_CODES = frozenset(
         "PROTOCOL_VERSION_UNSUPPORTED",
     }
 )
+_USE_SNAPSHOT_CONTEXT = object()
 
 
 class _FrozenDict(dict):
@@ -122,6 +126,35 @@ class StudentRunSnapshot:
                 "tcp_mm",
                 (values[0], values[1], values[2]),
             )
+
+
+@dataclass(frozen=True)
+class StudentExperimentSnapshot:
+    """One idle controller state that can be restored after scene rollback."""
+
+    context: Any
+    definition: Any
+    scene_manifest: Mapping[str, Any] | None
+    program_path: Path | None
+    validation: ValidationResult | None
+    state: RunState
+    evidence: Any
+    experiment_gateway: Any
+    result: StudentRunResult | None
+    error: Mapping[str, Any] | None
+    cleanup_errors: tuple[Mapping[str, Any], ...]
+    last_pose: tuple[float, float, float] | None
+    safety_violation_count: int
+    command_count: int
+    current_command: str | None
+    started_monotonic: float | None
+    active_command_started: float | None
+    active_command_name: str | None
+    step_permits: int
+    stop_requested: bool
+    requested_status: str | None
+    requested_error: Mapping[str, Any] | None
+    done_is_set: bool
 
 
 class _StopCommandLoop(Exception):
@@ -511,6 +544,8 @@ class StudentProgramController:
         self._backend_action_threads: dict[threading.Thread, str] = {}
         self._backend_quarantined = False
         self._backend_quarantine_error: dict[str, Any] | None = None
+        self._experiment_binding_quarantined = False
+        self._experiment_binding_quarantine_error: dict[str, Any] | None = None
         self._client_timeout_settings: list[_TimeoutSetting] = []
         self._client_timeout_bounded = False
 
@@ -518,6 +553,16 @@ class StudentProgramController:
     def state(self) -> RunState:
         with self._condition:
             return self._state
+
+    @property
+    def program_path(self) -> Path | None:
+        with self._condition:
+            return self._program_path
+
+    @property
+    def experiment_binding_quarantined(self) -> bool:
+        with self._condition:
+            return self._experiment_binding_quarantined
 
     @property
     def command_count(self) -> int:
@@ -556,9 +601,224 @@ class StudentProgramController:
 
         return unsubscribe
 
+    def ensure_experiment_switch_allowed(self) -> None:
+        """Reject a scene switch while any run-owned work can touch it."""
+        with self._condition:
+            self._require_experiment_binding_safe_locked()
+            if self._backend_quarantined:
+                raise RuntimeError(
+                    "学生程序后端处于隔离状态，安全复位前不能切换实验"
+                )
+            run_threads = (self._command_thread, self._watchdog_thread)
+            blocked = bool(
+                self._state in _ACTIVE_STATES
+                or self._state is RunState.RESETTING
+                or self._starting
+                or self._terminalizing
+                or self.process_is_alive
+                or self._active_backend_actions_locked()
+                or any(
+                    thread is not None and thread.is_alive()
+                    for thread in run_threads
+                )
+            )
+            if blocked:
+                raise RuntimeError("学生程序运行期间不能重新绑定实验")
+
+    def _require_experiment_binding_safe_locked(self) -> None:
+        if self._experiment_binding_quarantined:
+            raise RuntimeError("实验绑定处于安全隔离状态，不能继续操作")
+
+    def quarantine_experiment_binding(self, error: BaseException) -> None:
+        message = _safe_text(error)
+        with self._condition:
+            self._experiment_context = None
+            self._experiment_definition = None
+            self._scene_manifest = None
+            self._program_path = None
+            self._validation = None
+            self._evidence = None
+            self._experiment_gateway = None
+            self._result = None
+            self._error = None
+            self._cleanup_errors = []
+            self._last_pose = None
+            self._safety_violation_count = 0
+            self._command_count = 0
+            self._current_command = None
+            self._started_monotonic = None
+            self._active_command_started = None
+            self._active_command_name = None
+            self._step_permits = 0
+            self._stop_requested = False
+            self._requested_status = None
+            self._requested_error = None
+            self._done.clear()
+            self._experiment_binding_quarantined = True
+            self._experiment_binding_quarantine_error = {
+                "code": "EXPERIMENT_SWITCH_QUARANTINED",
+                "message": message,
+            }
+            self._state = RunState.EMPTY
+            self._condition.notify_all()
+        self._emit_snapshot()
+
+    def capture_experiment_snapshot(self) -> StudentExperimentSnapshot:
+        with self._condition:
+            self.ensure_experiment_switch_allowed()
+            return StudentExperimentSnapshot(
+                context=self._experiment_context,
+                definition=self._experiment_definition,
+                scene_manifest=(
+                    None
+                    if self._scene_manifest is None
+                    else deepcopy(dict(self._scene_manifest))
+                ),
+                program_path=self._program_path,
+                validation=self._validation,
+                state=self._state,
+                evidence=self._evidence,
+                experiment_gateway=self._experiment_gateway,
+                result=self._result,
+                error=deepcopy(self._error),
+                cleanup_errors=tuple(deepcopy(self._cleanup_errors)),
+                last_pose=self._last_pose,
+                safety_violation_count=self._safety_violation_count,
+                command_count=self._command_count,
+                current_command=self._current_command,
+                started_monotonic=self._started_monotonic,
+                active_command_started=self._active_command_started,
+                active_command_name=self._active_command_name,
+                step_permits=self._step_permits,
+                stop_requested=self._stop_requested,
+                requested_status=self._requested_status,
+                requested_error=deepcopy(self._requested_error),
+                done_is_set=self._done.is_set(),
+            )
+
+    def restore_experiment_snapshot(
+        self,
+        snapshot: StudentExperimentSnapshot,
+        *,
+        restored_context: Any = _USE_SNAPSHOT_CONTEXT,
+    ) -> None:
+        if not isinstance(snapshot, StudentExperimentSnapshot):
+            raise TypeError("snapshot must be StudentExperimentSnapshot")
+        if snapshot.state in _ACTIVE_STATES or snapshot.state is RunState.RESETTING:
+            raise ValueError("active experiment snapshots cannot be restored")
+        manifest = (
+            None
+            if snapshot.scene_manifest is None
+            else deepcopy(dict(snapshot.scene_manifest))
+        )
+        application = self._session.application
+        guard = self._new_guard(application)
+        with self._condition:
+            self.ensure_experiment_switch_allowed()
+            self._experiment_context = (
+                snapshot.context
+                if restored_context is _USE_SNAPSHOT_CONTEXT
+                else restored_context
+            )
+            self._experiment_definition = snapshot.definition
+            self._scene_manifest = manifest
+            self._application = application
+            self._guard = guard
+            self._program_path = snapshot.program_path
+            self._validation = snapshot.validation
+            self._evidence = snapshot.evidence
+            self._experiment_gateway = snapshot.experiment_gateway
+            self._result = snapshot.result
+            self._error = deepcopy(snapshot.error)
+            self._cleanup_errors = [
+                deepcopy(item) for item in snapshot.cleanup_errors
+            ]
+            self._last_pose = snapshot.last_pose
+            self._safety_violation_count = snapshot.safety_violation_count
+            self._command_count = snapshot.command_count
+            self._current_command = snapshot.current_command
+            self._started_monotonic = snapshot.started_monotonic
+            self._active_command_started = snapshot.active_command_started
+            self._active_command_name = snapshot.active_command_name
+            self._step_permits = snapshot.step_permits
+            self._stop_requested = snapshot.stop_requested
+            self._requested_status = snapshot.requested_status
+            self._requested_error = deepcopy(snapshot.requested_error)
+            if snapshot.done_is_set:
+                self._done.set()
+            else:
+                self._done.clear()
+            self._state = snapshot.state
+            self._condition.notify_all()
+        self._emit_snapshot()
+
+    def bind_experiment(
+        self,
+        *,
+        context: Any,
+        definition: Any,
+        scene_manifest: Mapping[str, Any],
+        program_path: str | Path | None = None,
+        scene_manifest_seal: FileBytesSeal | None = None,
+    ) -> None:
+        if scene_manifest_seal is not None:
+            if type(scene_manifest_seal) is not FileBytesSeal:
+                raise TypeError(
+                    "scene_manifest_seal must be a FileBytesSeal"
+                )
+            current_manifest_bytes = scene_manifest_seal.read_verified(
+                definition.scene_manifest
+            )
+            validate_scene_manifest_file_bytes(
+                scene_manifest,
+                current_manifest_bytes,
+            )
+        manifest = deepcopy(dict(scene_manifest))
+        selected_program = (
+            None
+            if program_path is None
+            else Path(program_path).expanduser().resolve()
+        )
+        application = self._session.application
+        guard = self._new_guard(application)
+        with self._condition:
+            self.ensure_experiment_switch_allowed()
+            self._experiment_context = context
+            self._experiment_definition = definition
+            self._scene_manifest = manifest
+            self._application = application
+            self._guard = guard
+            self._program_path = selected_program
+            self._validation = None
+            self._evidence = None
+            self._experiment_gateway = None
+            self._result = None
+            self._error = None
+            self._cleanup_errors = []
+            self._last_pose = None
+            self._safety_violation_count = 0
+            self._command_count = 0
+            self._current_command = None
+            self._started_monotonic = None
+            self._active_command_started = None
+            self._active_command_name = None
+            self._step_permits = 0
+            self._stop_requested = False
+            self._requested_status = None
+            self._requested_error = None
+            self._done.clear()
+            self._state = (
+                RunState.EMPTY
+                if selected_program is None
+                else RunState.LOADED
+            )
+            self._condition.notify_all()
+        self._emit_snapshot()
+
     def load(self, program_path: str | Path) -> Path:
         selected = Path(program_path).expanduser().resolve()
         with self._condition:
+            self._require_experiment_binding_safe_locked()
             if (
                 self._state in _ACTIVE_STATES
                 or self._state in _TERMINAL_STATES
@@ -587,6 +847,7 @@ class StudentProgramController:
                 self.load(selected)
 
         with self._condition:
+            self._require_experiment_binding_safe_locked()
             if self._state not in {RunState.LOADED, RunState.VALIDATED}:
                 raise RuntimeError("validate requires LOADED state")
             selected = self._program_path
@@ -607,6 +868,7 @@ class StudentProgramController:
         if type(paused) is not bool:
             raise TypeError("paused must be a boolean")
         with self._condition:
+            self._require_experiment_binding_safe_locked()
             if self._state is not RunState.VALIDATED or self._starting:
                 raise RuntimeError("start requires VALIDATED state")
             self._application = self._session.application
