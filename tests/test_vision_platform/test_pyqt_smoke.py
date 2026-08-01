@@ -21,6 +21,7 @@ from vision_platform.student.protocol import RunState
 from vision_platform.student.runner import StudentProgramController
 from vision_platform.ui.pyqt_app import VisionLabWindow
 from vision_platform.ui.student_program_panel import StudentProgramPanel
+from vision_platform.ui.vision_result_panel import VisionResultPanel
 
 
 class FakeEventBus:
@@ -238,6 +239,8 @@ def test_pyqt_window_adds_disabled_student_tab_without_full_session(qtbot):
         == "当前窗口未配置学生程序会话"
     )
     assert window.student_controller is None
+    assert window.vision_result_panel is None
+    assert "视觉结果" not in labels
     assert (
         window.subtitle_label.text()
         == "仿真标定 · 视觉识别 · 学生编程 · 六轴机械臂分类闭环"
@@ -271,14 +274,100 @@ def test_pyqt_window_builds_student_workspace_from_session_config(
     assert student_index >= 0
     assert window.tabs.isTabEnabled(student_index) is True
     assert isinstance(window.student_program_panel, StudentProgramPanel)
+    assert isinstance(window.vision_result_panel, VisionResultPanel)
     assert isinstance(window.student_controller, StudentProgramController)
     assert window.student_controller._session is session
     assert (
         window.student_controller._output_root
         == (tmp_path / "student-runs").resolve()
     )
+    assert [
+        window.tabs.tabText(index)
+        for index in range(window.tabs.count())
+    ] == ["标定", "识别结果", "验收", "学生编程", "视觉结果"]
+    assert len(window.student_controller._handlers) == 2
 
-    window.close()
+    window.shutdown(timeout_ms=1000)
+    assert window.vision_result_panel._unsubscribe is None
+    assert window.student_controller._handlers == []
+
+
+def test_pyqt_student_workspace_setup_failure_releases_partial_subscription(
+    qtbot,
+    tmp_path,
+    monkeypatch,
+):
+    controllers = []
+    real_controller = pyqt_app.StudentProgramController
+
+    def recording_controller(*args, **kwargs):
+        controller = real_controller(*args, **kwargs)
+        controllers.append(controller)
+        return controller
+
+    def fail_result_panel(*, controller):
+        raise RuntimeError("result panel setup failed")
+
+    monkeypatch.setattr(
+        pyqt_app,
+        "StudentProgramController",
+        recording_controller,
+    )
+    monkeypatch.setattr(pyqt_app, "VisionResultPanel", fail_result_panel)
+    application = FullStudentApplication(tmp_path)
+    session = FakeSession(application)
+
+    window = VisionLabWindow(application=application, session=session)
+    qtbot.addWidget(window)
+
+    assert len(controllers) == 1
+    assert controllers[0]._handlers == []
+    assert window.student_controller is None
+    assert window._student_panel_unsubscribe is None
+    assert window.vision_result_panel is None
+    student_index = window.tabs.indexOf(window.student_program_panel)
+    assert window.tabs.isTabEnabled(student_index) is False
+
+
+def test_pyqt_setup_cleanup_failure_is_retained_for_shutdown_retry(
+    qtbot,
+    tmp_path,
+    monkeypatch,
+):
+    panels = []
+
+    class FailingOncePanel:
+        def __init__(self, *, controller):
+            self.release_calls = 0
+            self._unsubscribe = controller.subscribe(lambda snapshot: None)
+            panels.append(self)
+
+        def release_subscription(self):
+            self.release_calls += 1
+            if self.release_calls == 1:
+                raise RuntimeError("temporary unsubscribe failure")
+            self._unsubscribe()
+
+    def fail_result_panel(*, controller):
+        raise RuntimeError("result panel setup failed")
+
+    monkeypatch.setattr(pyqt_app, "StudentProgramPanel", FailingOncePanel)
+    monkeypatch.setattr(pyqt_app, "VisionResultPanel", fail_result_panel)
+    application = FullStudentApplication(tmp_path)
+    session = FakeSession(application)
+
+    window = VisionLabWindow(application=application, session=session)
+    qtbot.addWidget(window)
+
+    assert panels[0].release_calls == 1
+    assert len(window.student_controller._handlers) == 1
+    assert window._student_panel_unsubscribe is not None
+
+    window.shutdown(timeout_ms=1000)
+
+    assert panels[0].release_calls == 2
+    assert window.student_controller._handlers == []
+    assert window._student_panel_unsubscribe is None
 
 
 def test_student_toolbar_buttons_fit_supported_minimum_window(
@@ -441,7 +530,7 @@ def test_pyqt_close_keeps_owner_alive_until_student_backend_is_quiescent(
     assert session.close_calls == 0
     assert application.close_calls == 0
     assert len(session.handlers) == 1
-    assert len(controller.handlers) == 1
+    assert len(controller.handlers) == 2
     assert window._closing is False
     assert (
         window.view_model.snapshot().error_code
@@ -473,7 +562,7 @@ def test_pyqt_close_keeps_owner_alive_until_student_backend_is_quiescent(
     assert controller.cancel_calls == 1
     assert controller.quiescence_timeouts[-1:] == [0]
     assert controller.handlers == []
-    assert controller.unsubscribe_calls == 1
+    assert controller.unsubscribe_calls == 2
     assert session.handlers == []
     assert session.close_calls == 1
     assert application.close_calls == 1
@@ -1276,6 +1365,17 @@ def test_pyqt_window_inserts_catalog_first_and_binds_selected_template(
     qtbot.addWidget(window)
 
     assert window.tabs.tabText(0) == "实验目录"
+    assert [
+        window.tabs.tabText(index)
+        for index in range(window.tabs.count())
+    ] == [
+        "实验目录",
+        "标定",
+        "识别结果",
+        "验收",
+        "学生编程",
+        "视觉结果",
+    ]
     assert window.experiment_catalog_panel.experiment_combo.count() == 5
     window.experiment_catalog_panel.experiment_combo.setCurrentIndex(2)
     qtbot.mouseClick(

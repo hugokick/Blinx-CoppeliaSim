@@ -51,6 +51,7 @@ from vision_platform.student.runner import StudentProgramController
 from vision_platform.student.safety import StudentExecutionPolicy
 from vision_platform.ui.experiment_catalog_panel import ExperimentCatalogPanel
 from vision_platform.ui.student_program_panel import StudentProgramPanel
+from vision_platform.ui.vision_result_panel import VisionResultPanel
 from vision_platform.ui.view_model import (
     VisionLabSnapshot,
     VisionLabViewModel,
@@ -428,10 +429,12 @@ class VisionLabWindow(QMainWindow):
         self._pending_event_unsubscribes = []
         self._view_unsubscribe = None
         self._student_panel_unsubscribe = None
+        self._vision_result_unsubscribe = None
         self._student_stop_pending_reported = False
         self._experiment_switch_quarantined = False
         self.student_controller: StudentProgramController | None = None
         self.student_program_panel: QWidget | None = None
+        self.vision_result_panel: QWidget | None = None
 
         self.setWindowTitle("BL23 机器人视觉虚拟仿真实验台")
         self.setMinimumSize(1180, 760)
@@ -726,16 +729,38 @@ class VisionLabWindow(QMainWindow):
                     execution_policy=policy,
                     output_root=student_output,
                 )
-                panel = StudentProgramPanel(controller=controller)
-            except Exception as error:
-                setup_error = error
-            else:
                 self.student_controller = controller
+                panel = StudentProgramPanel(controller=controller)
                 self.student_program_panel = panel
                 self._student_panel_unsubscribe = (
                     panel.release_subscription
                 )
+                result_panel = VisionResultPanel(controller=controller)
+                self.vision_result_panel = result_panel
+                self._vision_result_unsubscribe = (
+                    result_panel.release_subscription
+                )
+            except Exception as error:
+                setup_error = error
+                cleanup_errors: list[Exception] = []
+                self._attempt_unsubscribe(
+                    "_vision_result_unsubscribe",
+                    cleanup_errors,
+                )
+                self._attempt_unsubscribe(
+                    "_student_panel_unsubscribe",
+                    cleanup_errors,
+                )
+                if (
+                    self._vision_result_unsubscribe is None
+                    and self._student_panel_unsubscribe is None
+                ):
+                    self.student_controller = None
+                    self.student_program_panel = None
+                    self.vision_result_panel = None
+            else:
                 self.tabs.addTab(panel, "学生编程")
+                self.tabs.addTab(result_panel, "视觉结果")
                 return
 
         unavailable = QLabel("当前窗口未配置学生程序会话")
@@ -1592,6 +1617,7 @@ class VisionLabWindow(QMainWindow):
         with self._lifecycle_lock:
             cleanup_pending = (
                 self._student_panel_unsubscribe is not None
+                or self._vision_result_unsubscribe is not None
                 or self._session_unsubscribe is not None
                 or self._event_unsubscribe is not None
                 or bool(self._pending_event_unsubscribes)
@@ -1755,6 +1781,7 @@ class VisionLabWindow(QMainWindow):
 
         errors: list[Exception] = []
         error_reported = False
+        self._attempt_unsubscribe("_vision_result_unsubscribe", errors)
         self._attempt_unsubscribe("_student_panel_unsubscribe", errors)
         self._attempt_unsubscribe("_session_unsubscribe", errors)
         self._attempt_owner_close(errors)
