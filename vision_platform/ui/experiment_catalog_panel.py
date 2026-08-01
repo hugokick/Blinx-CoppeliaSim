@@ -19,6 +19,9 @@ _CAPABILITY_LABELS = {
     "robot.move_world": "世界坐标运动",
     "tool.suction": "吸盘",
     "camera.rgb": "RGB 相机",
+    "camera.profile": "相机配置",
+    "lighting.profile": "光照配置",
+    "vision2d.analysis": "二维视觉分析",
     "experiment.info": "实验参数",
     "scene.probe": "场景探针",
 }

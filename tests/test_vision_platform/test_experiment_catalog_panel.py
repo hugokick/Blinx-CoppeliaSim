@@ -1,10 +1,15 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from pathlib import Path
 
 from PyQt5.QtCore import Qt
 
+from vision_platform.experiments.catalog import ExperimentCatalog
 from vision_platform.ui.experiment_catalog_panel import ExperimentCatalogPanel
+
+
+ROOT = Path(__file__).resolve().parents[2]
 
 
 def _definition(
@@ -63,6 +68,29 @@ def test_catalog_panel_shows_hardware_boundary_and_selects(qtbot):
     assert selected == ["R1-05"]
     assert "相机" in panel.capabilities_label.text()
     assert "学生解释码垛顺序" in panel.human_checks.toPlainText()
+
+
+def test_catalog_panel_preserves_formal_order_through_v1_05(qtbot):
+    catalog = ExperimentCatalog.load(
+        ROOT / "config" / "experiments" / "catalog.json",
+        project_root=ROOT,
+    )
+    panel = ExperimentCatalogPanel(catalog=catalog, on_select=lambda _id: None)
+    qtbot.addWidget(panel)
+
+    visible_ids = tuple(
+        panel.experiment_combo.itemData(index)
+        for index in range(panel.experiment_combo.count())
+    )
+    assert visible_ids[-5:] == (
+        "V1-01",
+        "V1-02",
+        "V1-03",
+        "V1-04",
+        "V1-05",
+    )
+    panel.experiment_combo.setCurrentIndex(panel.experiment_combo.count() - 1)
+    assert "二维视觉分析" in panel.capabilities_label.text()
 
 
 def test_catalog_panel_empty_catalog_is_stably_disabled(qtbot):

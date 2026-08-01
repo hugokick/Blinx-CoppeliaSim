@@ -15,6 +15,7 @@ ACCEPTANCE = ROOT / "tools" / "vision_lab" / "run_acceptance.ps1"
 VISION_QUALITY_ACCEPTANCE = (
     ROOT / "tools" / "vision_lab" / "run_vision_quality_acceptance.ps1"
 )
+EXPERIMENT_LAUNCHER = ROOT / "tools" / "vision_lab" / "run_experiment.ps1"
 POWERSHELL = "powershell.exe"
 
 
@@ -686,6 +687,36 @@ def test_all_coppeliasim_launchers_share_exact_owned_cleanup_helper():
         assert "ProcessStartTimeUtcTicks" in source
         assert "Stop-Process -Name" not in source
         assert ".WaitForExit(" not in source
+
+
+def test_experiment_launcher_publishes_all_formal_v1_ids_and_rejects_unknown():
+    source = EXPERIMENT_LAUNCHER.read_text(encoding="utf-8")
+
+    validate_set = source.split("[ValidateSet(", 1)[1].split(")]", 1)[0]
+    for experiment_id in ("V1-01", "V1-02", "V1-03", "V1-04", "V1-05"):
+        assert f"'{experiment_id}'" in validate_set
+
+    completed = subprocess.run(
+        [
+            POWERSHELL,
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(EXPERIMENT_LAUNCHER),
+            "-Experiment",
+            "V1-99",
+        ],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+
+    assert completed.returncode != 0
+    assert "V1-99" in completed.stderr + completed.stdout
 
 
 def test_vision_quality_acceptance_wrapper_is_fail_closed_and_owned():

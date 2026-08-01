@@ -50,6 +50,36 @@ def _record_two_layer_bundle(tmp_path):
     return evidence.directory
 
 
+def _record_five_layer_bundle(tmp_path):
+    program = tmp_path / "five-layer-student.py"
+    program.write_text("def main(ctx):\n    pass\n", encoding="utf-8")
+    evidence = StudentRunEvidence.create(
+        output_root=tmp_path / "five-layer-runs",
+        program_path=program,
+        robot_backend="sim",
+        run_id="vision-five-layer-run",
+    )
+    raw = np.zeros((24, 32, 3), dtype=np.uint8)
+    layers = {
+        "raw": ("原图", raw),
+        "roi-input": ("ROI 输入", raw + 20),
+        "foreground-mask": ("前景掩膜", raw + 40),
+        "cleaned-mask": ("清理后掩膜", raw + 60),
+        "annotated": ("标注结果", raw + 80),
+    }
+    bundle = make_result_bundle(
+        bundle_id="vision2d-000001",
+        experiment_id="V1-05",
+        source_snapshot_id="frame-000001",
+        status="PASS",
+        layers=layers,
+        result={"experiment_id": "V1-05", "count": 3},
+        profile={"profile_id": "standard", "resolution": [32, 24]},
+    )
+    record_vision_bundle(evidence, bundle)
+    return evidence.directory
+
+
 class FakeController:
     def __init__(self):
         self.state = RunState.EMPTY
@@ -107,6 +137,31 @@ def test_panel_loads_latest_bundle_and_switches_layers(qtbot, tmp_path):
     panel.layer_combo.setCurrentIndex(1)
     assert panel.layer_combo.currentData() == "annotated"
     assert not panel.preview_label.pixmap().isNull()
+
+
+def test_panel_preserves_five_layer_order_and_switches_each_layer(qtbot, tmp_path):
+    run = _record_five_layer_bundle(tmp_path)
+    panel = VisionResultPanel()
+    qtbot.addWidget(panel)
+
+    panel.load_run(run)
+
+    assert tuple(
+        panel.layer_combo.itemData(index)
+        for index in range(panel.layer_combo.count())
+    ) == (
+        "raw",
+        "roi-input",
+        "foreground-mask",
+        "cleaned-mask",
+        "annotated",
+    )
+    assert "图层：5" in panel.metrics_label.text()
+    assert '"experiment_id": "V1-05"' in panel.result_text.toPlainText()
+    for index in range(panel.layer_combo.count()):
+        panel.layer_combo.setCurrentIndex(index)
+        assert panel.preview_label.pixmap() is not None
+        assert not panel.preview_label.pixmap().isNull()
 
 
 def test_panel_contains_invalid_bundle_error(qtbot, tmp_path):
