@@ -6,6 +6,7 @@ from vision_platform.vision2d.models import (
     Vision2DConfig,
     Vision2DResult,
 )
+from vision_platform.vision2d.pipeline import analyze_image
 
 __all__ = [
     "PixelScale",
@@ -15,3 +16,5 @@ __all__ = [
     "Vision2DConfig",
     "Vision2DResult",
 ]
+
+__all__.append("analyze_image")
