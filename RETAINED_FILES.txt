@@ -13,6 +13,7 @@ config/experiments/R1-06.json
 config/experiments/R1-07.json
 config/experiments/V1-01.json
 config/experiments/V1-02.json
+config/experiments/V1-03.json
 config/experiments/catalog.json
 config/replay_manifest.json
 config/vision_lab.default.json
@@ -137,6 +138,7 @@ student_programs/templates/r1_07_component_sort.py
 student_programs/templates/r1_common.py
 student_programs/templates/v1_01_virtual_vision.py
 student_programs/templates/v1_02_size_measurement.py
+student_programs/templates/v1_03_pose_measurement.py
 tests/test_acceptance/__init__.py
 tests/test_acceptance/conftest.py
 tests/test_acceptance/test_coppeliasim_calibration.py
@@ -235,6 +237,7 @@ tests/test_vision_quality/test_evidence.py
 tests/test_vision_quality/test_results.py
 tests/test_vision_quality/test_v1_01_materials.py
 tests/test_vision_quality/test_v1_02_materials.py
+tests/test_vision_quality/test_v1_03_materials.py
 tools/vision_lab/bootstrap.ps1
 tools/vision_lab/launch_coppeliasim.ps1
 tools/vision_lab/process_ownership.ps1

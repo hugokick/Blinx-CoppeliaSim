@@ -13,8 +13,11 @@ def test_retained_files_contains_complete_vision2d_kernel_delivery():
     required = {
         "docs/experiments/V1-02.md",
         "config/experiments/V1-02.json",
+        "config/experiments/V1-03.json",
         "student_programs/templates/v1_02_size_measurement.py",
+        "student_programs/templates/v1_03_pose_measurement.py",
         "tests/test_vision_quality/test_v1_02_materials.py",
+        "tests/test_vision_quality/test_v1_03_materials.py",
         "docs/experiments/V1-03.md",
         "docs/experiments/V1-04.md",
         "docs/experiments/V1-05.md",

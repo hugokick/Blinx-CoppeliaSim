@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "experiment_id": "V1-03",
+  "pack_id": "V1",
+  "title": "物体定位与旋转角测量",
+  "version": "2.2.0",
+  "scene": "simulation/vision_quality_lab/BL23_vision_quality_lab.ttt",
+  "scene_manifest": "simulation/vision_quality_lab/scene_manifest.json",
+  "student_template": "student_programs/templates/v1_03_pose_measurement.py",
+  "guide": "docs/experiments/V1-03.md",
+  "capabilities": [
+    "camera.rgb",
+    "camera.profile",
+    "lighting.profile",
+    "vision2d.analysis",
+    "experiment.info",
+    "scene.probe"
+  ],
+  "workspace": {
+    "x_mm": [20, 140],
+    "y_mm": [-90, 90],
+    "z_mm": [10, 140],
+    "safe_z_mm": 100
+  },
+  "public_parameters": {
+    "baseline_profile_id": "standard",
+    "allowed_profile_ids": ["standard", "wide_dim", "detail_bright"],
+    "camera_path": "/VisionQualityLab/CameraRig/Camera",
+    "analysis_focus": "pose",
+    "expected_target_count": 3,
+    "expected_shapes": ["circle", "rectangle", "triangle"],
+    "vision2d": {
+      "profile_id": "standard",
+      "roi_px": [180, 180, 335, 340],
+      "min_area_ratio": 0.002,
+      "max_area_ratio": 0.05,
+      "saturation_min": 60,
+      "value_min": 40,
+      "pixel_scale_mm": null
+    }
+  },
+  "acceptance": {
+    "probe_kind": "vision_profile_observation",
+    "automated_checks": [
+      "standard_profile",
+      "three_targets",
+      "pose_fields",
+      "angle_semantics",
+      "five_layer_evidence"
+    ],
+    "human_checks": [
+      "学生解释图像中心与旋转框",
+      "学生说明圆形角度未定义和方形角度歧义"
+    ]
+  },
+  "hardware_status": "PENDING_HARDWARE"
+}
