@@ -1950,10 +1950,13 @@ git commit -m "feat(ui): display reusable vision result evidence"
 - Modify: `config/experiments/catalog.json`
 - Modify: `tools/vision_lab/run_experiment.ps1`
 - Modify: `tests/test_simulation/test_formal_training_scenes.py`
+- Modify: `tests/test_simulation/test_vision_quality_scene_contract.py`
 - Modify: `tests/test_experiments/test_formal_catalog.py`
 - Modify: `tests/test_experiments/test_student_templates.py`
 - Modify: `tests/test_experiments/test_cli.py`
 - Modify: `tests/test_acceptance/test_delivery_contract.py`
+- Modify: `vision_platform/coppeliasim_readiness.py`
+- Modify: `tests/test_acceptance/test_coppeliasim_readiness.py`
 - Create: `tests/test_acceptance/test_coppeliasim_vision_quality_scene.py`
 
 - [ ] **Step 1: Add static builder tests before scene generation**
@@ -2036,7 +2039,7 @@ def test_vision_quality_scene_required_paths_profiles_and_frames(request):
     ).require("V1-01")
     client = RemoteAPIClient(host=host, port=port)
     sim = client.require("sim")
-    loaded = Path(sim.getStringParam(sim.stringparam_scene_path)).resolve()
+    loaded = Path(sim.getStringParam(sim.stringparam_scene_path_and_name)).resolve()
     assert loaded == definition.scene.resolve()
     manifest = json.loads(definition.scene_manifest.read_text(encoding="utf-8"))
     report = validate_scene_contract(
@@ -2077,10 +2080,10 @@ def test_vision_quality_scene_required_paths_profiles_and_frames(request):
     finally:
         controller.reset()
         camera.close()
-        client.close()
+        close_remote_client(client)
 ```
 
-Do not mark the test as passed when the marker is skipped.
+Import and use the existing `close_remote_client()` compatibility helper because the installed ZMQ `RemoteAPIClient` does not expose `client.close()`. Do not mark the test as passed when the marker is skipped.
 
 - [ ] **Step 5: Launch a dedicated build port and publish the scene**
 
@@ -2146,15 +2149,19 @@ Expected: all tests pass and the formal list contains six stable entries.
 
 - [ ] **Step 7: Validate the generated files and run the explicit online test**
 
+First add RED cases to `tests/test_acceptance/test_coppeliasim_readiness.py` proving that `require_expected_scene()` requires `/VisionQualityLab` and `/BLX_base_link` when the expected filename is `BL23_vision_quality_lab.ttt`, while preserving the existing `/VisionLab` and `/BLX_base_link` sentinels for the protected template and all existing R1 launches. Implement the smallest scene-aware sentinel selection in `vision_platform/coppeliasim_readiness.py`; do not weaken exact scene-path matching.
+
+The generic `simulation.training_scenes.verify_scene` CLI is intentionally R1-specific: it requires `--scene` and `--report`, and its camera schema is not the vision-quality schema. Validate the checked-in generated scene with the formal contract regression below instead; the explicit online test then calls `validate_scene_contract()` again before any profile change.
+
 ```powershell
 $port = 23005
 $scene = 'simulation/vision_quality_lab/BL23_vision_quality_lab.ttt'
+.\.venv-vision\Scripts\python.exe -m pytest `
+  tests/test_simulation/test_formal_training_scenes.py::test_formal_training_scene_contracts_pass -q
+if ($LASTEXITCODE -ne 0) { throw 'vision quality scene contract failed' }
 $launch = & '.\tools\vision_lab\launch_coppeliasim.ps1' `
   -Scene $scene -Port $port -Hidden
 try {
-  .\.venv-vision\Scripts\python.exe -m simulation.training_scenes.verify_scene `
-    --spec simulation/vision_quality_lab/scene_spec.json
-  if ($LASTEXITCODE -ne 0) { throw 'vision quality scene verification failed' }
   .\.venv-vision\Scripts\python.exe -m pytest `
     tests/test_acceptance/test_coppeliasim_vision_quality_scene.py `
     -m coppeliasim -q `
@@ -2195,7 +2202,10 @@ git add simulation/training_scenes/build_scene.py `
   simulation/vision_quality_lab/scene_manifest.json `
   config/experiments/catalog.json tools/vision_lab/run_experiment.ps1 `
   tests/test_simulation/test_formal_training_scenes.py `
+  tests/test_simulation/test_vision_quality_scene_contract.py `
   tests/test_experiments tests/test_acceptance/test_delivery_contract.py `
+  vision_platform/coppeliasim_readiness.py `
+  tests/test_acceptance/test_coppeliasim_readiness.py `
   tests/test_acceptance/test_coppeliasim_vision_quality_scene.py
 git commit -m "feat(simulation): publish vision quality lab scene"
 ```
