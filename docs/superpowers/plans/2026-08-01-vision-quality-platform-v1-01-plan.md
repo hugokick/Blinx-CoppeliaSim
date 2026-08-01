@@ -1285,10 +1285,12 @@ git commit -m "feat(vision-quality): record reusable vision result bundles"
 - Modify: `vision_platform/experiments/capabilities.py`
 - Modify: `vision_platform/student/experiment_gateway.py`
 - Modify: `vision_platform/student/runner.py`
+- Modify: `vision_platform/vision_quality/catalog.py`
 - Modify: `vision_platform/vision_quality/controller.py`
 - Modify: `tests/test_experiments/test_capabilities.py`
 - Modify: `tests/test_student_programs/test_experiment_gateway.py`
 - Modify: `tests/test_student_programs/test_runner.py`
+- Modify: `tests/test_vision_quality/test_catalog.py`
 
 - [ ] **Step 1: Write capability and gateway failures first**
 
@@ -1311,6 +1313,10 @@ def test_replay_or_missing_sim_rejects_profile_capabilities():
     report = check_capabilities(application, ("camera.profile", "lighting.profile"))
     assert report.missing == ("camera.profile", "lighting.profile")
 ```
+
+Add `0 skipped` RED cases proving `camera.profile` and `lighting.profile` are an indivisible declaration: either name requested alone is missing with a stable reason, while the pair is ready from configuration and presence checks only. Use sentinel `sim` and camera objects whose scene/Remote API methods raise if called, proving capability checking does not resolve handles, inspect a concrete camera type or touch the Remote API.
+
+Add to `tests/test_vision_quality/test_catalog.py` `0 skipped` RED cases for `load_profile_catalog_bytes(content)`: valid UTF-8 bytes produce the same immutable catalog as the path loader; invalid UTF-8, duplicate object keys and non-finite constants are rejected by the same strict parser; and `load_profile_catalog(path)` calls `read_bytes()` exactly once before delegating.
 
 Add to `tests/test_student_programs/test_experiment_gateway.py` a `FakeProfileController` with `current/apply/reset` counters. Extend the existing `FakeEvidence` with a faithful `record_json_artifact(name, payload)` recorder so the new bundle path is tested without bypassing the public evidence API. Construct `StudentExperimentGateway(..., profile_controller=fake)` and test:
 
@@ -1347,7 +1353,9 @@ def test_gateway_dispatches_only_allowed_profile_ids_and_records_profile_capture
     assert reset["profile_id"] == "standard"
 ```
 
-Add rejection tests for extra arguments, unallowed IDs, profile commands in R1 experiments, controller absence and non-JSON controller output.
+Add rejection tests for extra arguments, unallowed IDs, profile commands in R1 experiments, controller absence and non-JSON controller output. Add `0 skipped` RED cases proving the factory parses the exact bytes whose manifest hash it verified even if the catalog path is replaced immediately after `read_bytes()`; `public_parameters.baseline_profile_id` must be an exact string equal to `catalog.baseline_profile_id`; and missing, non-string or mismatched baselines reject the binding. Exercise the production controller error path through the gateway so its stable `.code` is not rewritten to a generic student error.
+
+Treat the recorded raw snapshot as independent failure evidence. Add a `0 skipped` RED case that makes bundle JSON recording fail after `record_snapshot()`: the `camera.capture` command must fail, the raw snapshot and its metadata must remain, and no `vision-bundle-*.json`, synthetic `vision_bundle_path` or otherwise falsely complete bundle may remain.
 
 - [ ] **Step 2: Add runner tests for cleanup ordering and failure**
 
@@ -1370,20 +1378,25 @@ def test_terminal_cleanup_resets_vision_before_tool_and_robot(tmp_path):
 
 Test that reset failure is included as stage `vision.profile.reset`, changes a would-be PASS to FAILED and preserves `PENDING_HARDWARE`.
 
+Add `0 skipped` startup RED coverage with a `BlockingSim.getObject`: after the client timeout is bounded, controller/gateway construction must run through the existing bounded backend-action path at stage `vision.profile.controller`; timeout or transport failure quarantines the connection, completes the run as FAILED and returns from the caller's `start()` thread within the test deadline.
+
+Add `0 skipped` production-exception integration coverage using the real `VisionProfileController`, gateway and runner rather than a synthetic `RuntimeError`. Force an apply `BaseException` together with rollback setter/readback failures and prove the runner recognizes the structured rollback marker through direct attributes, notes, `BaseExceptionGroup`, `__cause__` and `__context__`, quarantines the backend and does not run later backend cleanup. Parameterize ordinary controller failures to prove `VISION_PROFILE_ID_INVALID`, `VISION_PROFILE_NOT_ALLOWED`, `VISION_PROFILE_APPLY_FAILED`, `VISION_PROFILE_RESET_FAILED` and the other existing `VISION_PROFILE_*` codes survive as student error `.code` values.
+
 - [ ] **Step 3: Run and verify missing integration**
 
 ```powershell
 .\.venv-vision\Scripts\python.exe -m pytest `
   tests/test_experiments/test_capabilities.py `
   tests/test_student_programs/test_experiment_gateway.py `
-  tests/test_student_programs/test_runner.py -q
+  tests/test_student_programs/test_runner.py `
+  tests/test_vision_quality/test_catalog.py -q
 ```
 
-Expected: new capability, dispatch and cleanup assertions fail.
+Expected: new capability, byte-binding, dispatch, startup, rollback and cleanup assertions fail with `0 skipped`.
 
 - [ ] **Step 4: Implement profile controller construction and dispatch**
 
-In `capabilities.py`, add both names to `_KNOWN`. Mark them available only when:
+In `capabilities.py`, add both names to `_KNOWN`. Materialize the requested capabilities before evaluating them and require `camera.profile` and `lighting.profile` to be declared together. If only one is present, report that declared member missing with a stable paired-capability reason. Mark the complete pair available only when:
 
 ```python
 application.config.camera_backend == "sim"
@@ -1391,28 +1404,79 @@ and application.sim is not None
 and application.camera is not None
 ```
 
-Use stable missing reasons. Do not call arbitrary scene objects during capability checking.
+Use stable missing reasons and pure data/presence checks. Do not call scene objects or any Remote API method, and do not require a concrete camera class, sensor handle or light handle here; the bounded startup controller gate owns those checks.
 
-In `controller.py`, add:
+In `catalog.py`, add a bytes entry point and make both module-level loaders share one strict parser and validation path:
+
+```python
+def load_profile_catalog_bytes(content: bytes) -> VisionProfileCatalog:
+    if type(content) is not bytes:
+        raise TypeError("profile catalog content must be bytes")
+    payload = json.loads(
+        content.decode("utf-8", errors="strict"),
+        parse_constant=_reject_nonfinite,
+        object_pairs_hook=_reject_duplicate_keys,
+    )
+    return _catalog_from_payload(payload)
+
+
+def load_profile_catalog(path: str | Path) -> VisionProfileCatalog:
+    selected = Path(path).expanduser().resolve()
+    return load_profile_catalog_bytes(selected.read_bytes())
+```
+
+Move the existing exact-field, fixed-path, range, duplicate-profile and baseline validation behind `_catalog_from_payload()`. The path loader must perform exactly one `read_bytes()` and delegate; it must not decode or reopen independently. Invalid UTF-8, duplicate JSON keys and non-finite constants therefore have identical behavior for path and bytes callers.
+
+In `controller.py`, add a `VisionPlatformError`-compatible profile exception type (and narrower subclasses if useful) so every public controller/factory failure has a stable `.code`. Replace string-only `RuntimeError`/`ValueError` signaling without renaming the existing codes, including `VISION_PROFILE_CONTEXT_REQUIRED`, `VISION_PROFILE_BACKEND_UNAVAILABLE`, `VISION_PROFILE_CATALOG_INVALID`, `VISION_PROFILE_CATALOG_AMBIGUOUS`, `VISION_PROFILE_OBJECT_MISSING`, `VISION_PROFILE_ID_INVALID`, `VISION_PROFILE_NOT_ALLOWED`, `VISION_PROFILE_READBACK_MISMATCH`, `VISION_PROFILE_APPLY_FAILED`, `VISION_PROFILE_ROLLBACK_FAILED` and `VISION_PROFILE_RESET_FAILED`.
+
+Add the factory using the verified bytes directly:
 
 ```python
 def controller_for_experiment(application, definition, scene_manifest):
     required = {"camera.profile", "lighting.profile"}
-    if not required <= set(definition.capabilities):
+    declared = set(definition.capabilities)
+    if not required & declared:
         return None
-    if application.config.camera_backend != "sim" or application.sim is None:
-        raise RuntimeError("VISION_PROFILE_BACKEND_UNAVAILABLE")
+    if not required <= declared:
+        raise VisionProfileError(
+            "VISION_PROFILE_CONTEXT_REQUIRED",
+            "vision profile capabilities must be declared together",
+        )
+    if (
+        application.config.camera_backend != "sim"
+        or application.sim is None
+        or application.camera is None
+    ):
+        raise VisionProfileError(
+            "VISION_PROFILE_BACKEND_UNAVAILABLE",
+            "vision profile backend is unavailable",
+        )
     profile_path = definition.scene.parent / "profiles.json"
     entry = scene_manifest.get("profile_catalog")
     if not isinstance(entry, Mapping):
-        raise ValueError("VISION_PROFILE_CONTEXT_REQUIRED")
+        raise VisionProfileError(
+            "VISION_PROFILE_CONTEXT_REQUIRED",
+            "vision profile catalog binding is required",
+        )
     expected_relative = profile_path.relative_to(definition.scene.parents[2]).as_posix()
     if entry.get("path") != expected_relative:
-        raise ValueError("VISION_PROFILE_CONTEXT_REQUIRED")
+        raise VisionProfileError(
+            "VISION_PROFILE_CONTEXT_REQUIRED",
+            "vision profile catalog path is invalid",
+        )
     content = profile_path.read_bytes()
     if hashlib.sha256(content).hexdigest() != entry.get("sha256"):
-        raise ValueError("VISION_PROFILE_CONTEXT_REQUIRED")
-    catalog = load_profile_catalog(profile_path)
+        raise VisionProfileError(
+            "VISION_PROFILE_CONTEXT_REQUIRED",
+            "vision profile catalog digest is invalid",
+        )
+    catalog = load_profile_catalog_bytes(content)
+    baseline = definition.public_parameters.get("baseline_profile_id")
+    if type(baseline) is not str or baseline != catalog.baseline_profile_id:
+        raise VisionProfileError(
+            "VISION_PROFILE_CONTEXT_REQUIRED",
+            "baseline_profile_id does not match the verified catalog",
+        )
     allowed = definition.public_parameters.get("allowed_profile_ids")
     return VisionProfileController(
         sim=application.sim,
@@ -1422,7 +1486,9 @@ def controller_for_experiment(application, definition, scene_manifest):
     )
 ```
 
-Do not assume `parents[2]` silently: verify it is the project root by checking `config/experiments` and `simulation` children; otherwise reject the binding.
+Do not assume `parents[2]` silently: verify it is the project root by checking `config/experiments` and `simulation` children; otherwise reject the binding. Hash `content` and pass those same bytes to `load_profile_catalog_bytes()`; never call the path loader or otherwise reopen the verified file.
+
+Every rollback-failure escape branch, including one that re-raises `KeyboardInterrupt`, `SystemExit` or another `BaseException`, must attach the exact structured attribute `vision_profile_rollback_failure = "VISION_PROFILE_ROLLBACK_FAILED"`. Preserve the original exception identity where control-flow semantics require it, retain diagnostic notes, and keep all rollback errors in the nested `BaseExceptionGroup`/cause graph. For ordinary exceptions, raise the stable `VisionPlatformError`-compatible `VISION_PROFILE_ROLLBACK_FAILED` error with the same marker. The runner detector must walk the structured marker, `.code`, notes, `__cause__`, `__context__` and nested exception groups; message-string matching may remain only as backward compatibility, not the primary contract. `_exception_error()` and gateway/runner boundaries must preserve profile `.code` and structured details instead of replacing them with generic codes.
 
 In `StudentExperimentGateway.__init__`, accept optional injected `profile_controller`; otherwise call `controller_for_experiment`. Change `dispatch()` to validate arguments per command:
 
@@ -1446,6 +1512,8 @@ In `_capture()`, when a profile controller exists:
 4. call `record_vision_bundle()` and return `vision_bundle_path`;
 5. verify captured width/height equal the profile resolution.
 
+Record the raw snapshot before constructing or recording its bundle. If bundle construction or JSON recording fails, propagate the command failure and retain that raw snapshot as independent failure evidence; do not delete it, return success, manufacture `vision_bundle_path` or leave a `vision-bundle-*.json` artifact. JSON remains the last bundle write, so an artifact on disk always denotes a complete bundle.
+
 For experiments without a controller, preserve the exact previous return and evidence fields.
 
 Add `reset_environment()`:
@@ -1459,7 +1527,9 @@ def reset_environment(self) -> dict[str, object] | None:
 
 - [ ] **Step 5: Route commands and invoke cleanup in the runner**
 
-In `StudentProgramController._dispatch`, include all three profile command names in the gateway-only set. In `_cleanup()`, call the gateway reset through the existing bounded backend-action mechanism before `tool.off`; record stage `vision.profile.reset`. A timeout or rollback failure must quarantine the backend using the same policy as other stuck CoppeliaSim actions.
+In `StudentProgramController.start()`, call `_bound_client_timeout()` before any gateway/controller construction can resolve a scene object. Construct `StudentExperimentGateway` (and therefore `controller_for_experiment`) through the existing `_dispatch_backend_action_bounded(stage="vision.profile.controller", ...)`. An `_BackendActionStuck` or transport failure must quarantine the backend, set `_starting` false, complete the run as FAILED and return promptly from `start()`; ordinary validation/controller errors must also complete and return while preserving any `VisionPlatformError.code`. Reuse the existing backend-action deadline, registration and quarantine machinery; do not add another worker-thread architecture.
+
+In `StudentProgramController._dispatch`, include all three profile command names in the gateway-only set. Detect the shared structured rollback marker across the full exception graph for production command failures. In `_cleanup()`, call the gateway reset through the existing bounded backend-action mechanism before `tool.off`; record stage `vision.profile.reset`. A timeout or rollback failure must quarantine the backend using the same policy as other stuck CoppeliaSim actions.
 
 Do not add profile commands to the robot motion guard; they remain experiment-gateway commands.
 
@@ -1470,18 +1540,20 @@ Do not add profile commands to the robot motion guard; they remain experiment-ga
   tests/test_experiments/test_capabilities.py `
   tests/test_student_programs/test_experiment_gateway.py `
   tests/test_student_programs/test_runner.py `
+  tests/test_vision_quality/test_catalog.py `
   tests/test_student_programs -q
 ```
 
-Expected: all selected tests pass.
+Expected: all selected tests pass with `0 skipped`. Record exact pass and skip counts. If a separate full static suite skips live CoppeliaSim cases, report those skips as unexecuted live coverage; skipped live tests are not PASS and do not satisfy this Task's zero-skip focused gate.
 
 - [ ] **Step 7: Commit Task 6**
 
 ```powershell
 git add vision_platform/experiments/capabilities.py `
   vision_platform/student/experiment_gateway.py vision_platform/student/runner.py `
+  vision_platform/vision_quality/catalog.py `
   vision_platform/vision_quality/controller.py tests/test_experiments `
-  tests/test_student_programs
+  tests/test_student_programs tests/test_vision_quality/test_catalog.py
 git commit -m "feat(student): guard V1-01 profile execution"
 ```
 
