@@ -21,6 +21,7 @@ ALLOWED_COMMANDS = frozenset(
         "robot.pose",
         "tool.on",
         "tool.off",
+        "vision2d.analyze",
     }
 )
 

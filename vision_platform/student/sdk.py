@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from itertools import count
 from math import isfinite
 import re
+from types import MappingProxyType
 from typing import Any, Mapping
 
 import cv2
@@ -16,6 +17,9 @@ from vision_platform.student.protocol import CommandMessage, ResponseMessage
 _PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 _PROFILE_ID = re.compile(r"[a-z][a-z0-9_]{0,31}\Z")
 _SNAPSHOT_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,79}\Z")
+_VISION_BUNDLE_NAME = re.compile(
+    r"vision-bundle-[A-Za-z0-9][A-Za-z0-9_.-]*\.json\Z"
+)
 _VISION_PROFILE_FIELDS = frozenset(
     {
         "profile_id",
@@ -33,6 +37,17 @@ _PUBLIC_EXPERIMENT_FIELDS = frozenset(
         "scene_sha256",
         "public_parameters",
         "hardware_status",
+    }
+)
+_VISION2D_RESULT_FIELDS = frozenset(
+    {
+        "snapshot_id",
+        "vision_bundle_path",
+        "profile_id",
+        "status",
+        "image_size",
+        "targets",
+        "rejected_targets",
     }
 )
 
@@ -181,6 +196,117 @@ class StudentVisionProfile:
     camera_rig_z_m: float
     key_diffuse_rgb: tuple[float, float, float]
     fill_diffuse_rgb: tuple[float, float, float]
+
+
+@dataclass(frozen=True)
+class StudentVision2DResult:
+    snapshot_id: str
+    vision_bundle_path: str
+    profile_id: str
+    status: str
+    image_size: tuple[int, int]
+    targets: tuple[Mapping[str, Any], ...]
+    rejected_targets: tuple[Mapping[str, Any], ...]
+
+
+def _freeze_json_native(value: Any) -> Any:
+    if isinstance(value, dict):
+        return MappingProxyType(
+            {key: _freeze_json_native(nested) for key, nested in value.items()}
+        )
+    if type(value) is list:
+        return tuple(_freeze_json_native(nested) for nested in value)
+    return value
+
+
+def _vision2d_items(value: Any, *, field: str) -> tuple[Mapping[str, Any], ...]:
+    if type(value) is not list:
+        raise RuntimeError(
+            f"PROTOCOL_RESPONSE_INVALID: vision2d.analyze {field}"
+        )
+    items: list[Mapping[str, Any]] = []
+    for index, item in enumerate(value):
+        if not isinstance(item, Mapping):
+            raise RuntimeError(
+                f"PROTOCOL_RESPONSE_INVALID: vision2d.analyze {field}"
+            )
+        copied = _copy_json_native(
+            item,
+            path=f"vision2d.analyze.{field}[{index}]",
+        )
+        if not isinstance(copied, dict):
+            raise RuntimeError(
+                f"PROTOCOL_RESPONSE_INVALID: vision2d.analyze {field}"
+            )
+        items.append(_freeze_json_native(copied))
+    return tuple(items)
+
+
+def _vision2d_result(value: Any) -> StudentVision2DResult:
+    if not isinstance(value, Mapping):
+        raise RuntimeError("PROTOCOL_RESPONSE_INVALID: vision2d.analyze")
+    if set(value) != _VISION2D_RESULT_FIELDS:
+        raise RuntimeError(
+            "PROTOCOL_RESPONSE_INVALID: vision2d.analyze fields"
+        )
+
+    snapshot_id = value["snapshot_id"]
+    if (
+        type(snapshot_id) is not str
+        or _SNAPSHOT_ID_PATTERN.fullmatch(snapshot_id) is None
+    ):
+        raise RuntimeError("PROTOCOL_RESPONSE_INVALID: snapshot_id")
+
+    bundle_path = value["vision_bundle_path"]
+    if (
+        type(bundle_path) is not str
+        or len(bundle_path) > 80
+        or _VISION_BUNDLE_NAME.fullmatch(bundle_path) is None
+        or "/" in bundle_path
+        or "\\" in bundle_path
+    ):
+        raise RuntimeError(
+            "PROTOCOL_RESPONSE_INVALID: vision2d.analyze bundle"
+        )
+
+    profile_id = value["profile_id"]
+    if (
+        type(profile_id) is not str
+        or _PROFILE_ID.fullmatch(profile_id) is None
+    ):
+        raise RuntimeError("PROTOCOL_RESPONSE_INVALID: profile_id")
+
+    status = value["status"]
+    if type(status) is not str or status not in {
+        "PASS",
+        "PARTIAL",
+        "NO_TARGETS",
+        "REJECTED",
+    }:
+        raise RuntimeError("PROTOCOL_RESPONSE_INVALID: vision2d.analyze status")
+
+    image_size = value["image_size"]
+    if (
+        type(image_size) is not list
+        or len(image_size) != 2
+        or any(type(component) is not int for component in image_size)
+        or any(component <= 0 or component > 4096 for component in image_size)
+    ):
+        raise RuntimeError(
+            "PROTOCOL_RESPONSE_INVALID: vision2d.analyze image_size"
+        )
+
+    return StudentVision2DResult(
+        snapshot_id=snapshot_id,
+        vision_bundle_path=bundle_path,
+        profile_id=profile_id,
+        status=status,
+        image_size=(image_size[0], image_size[1]),
+        targets=_vision2d_items(value["targets"], field="targets"),
+        rejected_targets=_vision2d_items(
+            value["rejected_targets"], field="rejected_targets"
+        ),
+    )
 
 
 def _profile_error(field: str) -> RuntimeError:
@@ -394,6 +520,14 @@ class StudentExperiment:
         return result
 
 
+class StudentVision2D:
+    def __init__(self, rpc: _Rpc) -> None:
+        self._rpc = rpc
+
+    def analyze(self) -> StudentVision2DResult:
+        return _vision2d_result(self._rpc.call("vision2d.analyze"))
+
+
 class StudentContext:
     def __init__(self, connection: Any) -> None:
         self._rpc = _Rpc(connection)
@@ -401,6 +535,7 @@ class StudentContext:
         self.tool = StudentTool(self._rpc)
         self.camera = StudentCamera(self._rpc)
         self.experiment = StudentExperiment(self._rpc)
+        self.vision2d = StudentVision2D(self._rpc)
 
     def log(self, message: str) -> None:
         self._rpc.call("context.log", message=str(message))

@@ -132,6 +132,27 @@ def _profile_value(**overrides):
     return value
 
 
+def _vision2d_value(**overrides):
+    value = {
+        "snapshot_id": "frame-000001",
+        "vision_bundle_path": "vision-bundle-V1-02-frame-000001.json",
+        "profile_id": "standard",
+        "status": "PASS",
+        "image_size": [512, 512],
+        "targets": [
+            {
+                "detection_id": "det-001",
+                "center_px": [201.5, 202.5],
+                "shape": "circle",
+                "quality_flags": ["ANGLE_UNDEFINED_FOR_CIRCLE"],
+            }
+        ],
+        "rejected_targets": [],
+    }
+    value.update(overrides)
+    return value
+
+
 def test_student_context_emits_whitelisted_commands() -> None:
     connection = FakeConnection()
     ctx = StudentContext(connection)
@@ -303,6 +324,70 @@ def test_student_camera_decodes_png_into_irreversibly_read_only_bgr():
     with pytest.raises(ValueError):
         frame.image_bgr[0, 0, 0] = 255
     assert connection.sent[0]["name"] == "camera.capture"
+
+
+def test_student_vision2d_returns_frozen_validated_analysis():
+    source = _vision2d_value()
+    connection = ScriptedConnection([source])
+
+    result = StudentContext(connection).vision2d.analyze()
+
+    assert result.snapshot_id == "frame-000001"
+    assert result.vision_bundle_path.endswith(".json")
+    assert result.profile_id == "standard"
+    assert result.status == "PASS"
+    assert result.image_size == (512, 512)
+    assert result.targets[0]["detection_id"] == "det-001"
+    assert result.rejected_targets == ()
+    assert connection.sent[0]["name"] == "vision2d.analyze"
+    assert connection.sent[0]["args"] == {}
+
+    with pytest.raises(TypeError):
+        result.targets[0]["shape"] = "student-change"
+    with pytest.raises(AttributeError):
+        result.targets.append({})
+    assert source["targets"][0]["shape"] == "circle"
+
+
+@pytest.mark.parametrize(
+    ("value", "message"),
+    [
+        ([], "vision2d.analyze"),
+        (_vision2d_value(extra=True), "fields"),
+        (
+            {
+                key: nested
+                for key, nested in _vision2d_value().items()
+                if key != "status"
+            },
+            "fields",
+        ),
+        (_vision2d_value(snapshot_id="../escape"), "snapshot_id"),
+        (_vision2d_value(vision_bundle_path="../bundle.json"), "bundle"),
+        (_vision2d_value(vision_bundle_path="bundle.txt"), "bundle"),
+        (_vision2d_value(profile_id="Wide-Dim"), "profile_id"),
+        (_vision2d_value(status="OK"), "status"),
+        (_vision2d_value(image_size=[512]), "image_size"),
+        (_vision2d_value(image_size=[True, 512]), "image_size"),
+        (_vision2d_value(image_size=[0, 512]), "image_size"),
+        (_vision2d_value(targets={}), "targets"),
+        (_vision2d_value(targets=[1]), "targets"),
+        (_vision2d_value(rejected_targets={}), "rejected_targets"),
+        (
+            _vision2d_value(targets=[{"area_px2": float("nan")}]),
+            "targets",
+        ),
+        (
+            _vision2d_value(targets=[{"bad": object()}]),
+            "targets",
+        ),
+    ],
+)
+def test_student_vision2d_rejects_invalid_analysis_response(value, message):
+    connection = ScriptedConnection([value])
+
+    with pytest.raises(RuntimeError, match=message):
+        StudentContext(connection).vision2d.analyze()
 
 
 @pytest.mark.parametrize(

@@ -133,6 +133,7 @@ def test_allowed_commands_are_exactly_the_public_student_api():
             "robot.pose",
             "tool.on",
             "tool.off",
+            "vision2d.analyze",
         }
     )
 
@@ -150,3 +151,14 @@ def test_v1_01_profile_commands_are_exactly_whitelisted():
     } <= ALLOWED_COMMANDS
     assert "sim.setObjectInt32Param" not in ALLOWED_COMMANDS
     assert "camera.profile.set_arbitrary" not in ALLOWED_COMMANDS
+
+
+def test_v1_02_vision2d_analysis_is_exactly_whitelisted():
+    assert "vision2d.analyze" in ALLOWED_COMMANDS
+    assert "vision2d.configure" not in ALLOWED_COMMANDS
+    assert "vision2d.analyze_file" not in ALLOWED_COMMANDS
+    assert "opencv.execute" not in ALLOWED_COMMANDS
+
+    command = CommandMessage("000001", "vision2d.analyze", {})
+
+    assert command.to_dict()["args"] == {}

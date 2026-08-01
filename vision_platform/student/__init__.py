@@ -8,6 +8,7 @@ from vision_platform.student.runner import (
     StudentProgramController,
     StudentRunResult,
 )
+from vision_platform.student.sdk import StudentVision2DResult
 
 __all__ = [
     "ALLOWED_COMMANDS",
@@ -16,4 +17,5 @@ __all__ = [
     "RunState",
     "StudentProgramController",
     "StudentRunResult",
+    "StudentVision2DResult",
 ]
