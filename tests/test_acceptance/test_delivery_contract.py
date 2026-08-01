@@ -828,6 +828,7 @@ def test_formal_experiment_catalog_resolves_every_delivery_path():
         "V1-02",
         "V1-03",
         "V1-04",
+        "V1-05",
     )
     for item in catalog.definitions:
         assert item.scene.is_file()

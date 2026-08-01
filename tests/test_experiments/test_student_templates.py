@@ -25,6 +25,7 @@ from student_programs.templates import (
     v1_02_size_measurement,
     v1_03_pose_measurement,
     v1_04_geometry_measurement,
+    v1_05_color_shape,
 )
 from student_programs.templates.r1_common import (
     MIN_VISUAL_CONFIDENCE,
@@ -51,6 +52,7 @@ TEMPLATES = (
     "v1_02_size_measurement.py",
     "v1_03_pose_measurement.py",
     "v1_04_geometry_measurement.py",
+    "v1_05_color_shape.py",
 )
 
 
