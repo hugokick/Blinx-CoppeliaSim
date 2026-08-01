@@ -158,6 +158,20 @@ class _SceneSnapshot:
     fill_light: _LightState
 
 
+@dataclass(frozen=True)
+class PublishedVisionProfileInspection:
+    profile: AppliedVisionProfile | None
+    resolution: tuple[int, int]
+    perspective_angle_deg: float
+    near_clip_m: float
+    far_clip_m: float
+    camera_rig_position_m: tuple[float, float, float]
+    key_light_state: int
+    key_diffuse_rgb: tuple[float, float, float]
+    fill_light_state: int
+    fill_diffuse_rgb: tuple[float, float, float]
+
+
 class VisionProfileController:
     """Control an allowlisted CoppeliaSim profile atomically.
 
@@ -191,6 +205,88 @@ class VisionProfileController:
             self._fill_light_handle = sim.getObject(catalog.fill_light_path)
         except Exception as error:
             raise VisionProfileError("VISION_PROFILE_OBJECT_MISSING") from error
+
+    @classmethod
+    def inspect(
+        cls,
+        *,
+        sim: Any,
+        catalog: VisionProfileCatalog,
+    ) -> AppliedVisionProfile:
+        """Read one published profile without constructing a command controller."""
+
+        inspection = cls.inspect_readback(sim=sim, catalog=catalog)
+        if inspection.profile is None:
+            raise VisionProfileError("VISION_PROFILE_READBACK_MISMATCH")
+        return inspection.profile
+
+    @classmethod
+    def inspect_readback(
+        cls,
+        *,
+        sim: Any,
+        catalog: VisionProfileCatalog,
+    ) -> PublishedVisionProfileInspection:
+        """Read one immutable scene snapshot and match it to the catalog."""
+
+        if not isinstance(catalog, VisionProfileCatalog):
+            raise VisionProfileTypeError("VISION_PROFILE_CATALOG_INVALID")
+        cls._validate_catalog_ambiguity(catalog)
+
+        inspector = cls.__new__(cls)
+        inspector._sim = sim
+        inspector._catalog = catalog
+        try:
+            inspector._sensor_handle = sim.getObject(catalog.sensor_path)
+            inspector._camera_rig_handle = sim.getObject(
+                catalog.camera_rig_path
+            )
+            inspector._key_light_handle = sim.getObject(
+                catalog.key_light_path
+            )
+            inspector._fill_light_handle = sim.getObject(
+                catalog.fill_light_path
+            )
+        except Exception as error:
+            raise VisionProfileError(
+                "VISION_PROFILE_OBJECT_MISSING"
+            ) from error
+
+        try:
+            snapshot = inspector._read_snapshot()
+        except _ReadbackMismatch as error:
+            raise VisionProfileError(
+                "VISION_PROFILE_READBACK_MISMATCH"
+            ) from error
+        except Exception as error:
+            raise VisionProfileError(
+                "VISION_PROFILE_BACKEND_UNAVAILABLE"
+            ) from error
+
+        matches = [
+            profile
+            for profile in catalog.profiles
+            if inspector._matches_profile(snapshot, profile)
+        ]
+        profile = (
+            inspector._public_state(matches[0])
+            if len(matches) == 1
+            else None
+        )
+        return PublishedVisionProfileInspection(
+            profile=profile,
+            resolution=snapshot.resolution,
+            perspective_angle_deg=math.degrees(
+                snapshot.perspective_angle_rad
+            ),
+            near_clip_m=snapshot.near_clip_m,
+            far_clip_m=snapshot.far_clip_m,
+            camera_rig_position_m=snapshot.rig_position,
+            key_light_state=snapshot.key_light[0],
+            key_diffuse_rgb=snapshot.key_light[1],
+            fill_light_state=snapshot.fill_light[0],
+            fill_diffuse_rgb=snapshot.fill_light[1],
+        )
 
     @classmethod
     def _validate_catalog_ambiguity(cls, catalog: VisionProfileCatalog) -> None:
@@ -633,6 +729,8 @@ class VisionProfileController:
     def _matches_profile(self, snapshot: _SceneSnapshot, profile: VisionProfile) -> bool:
         return (
             snapshot.resolution == profile.resolution
+            and snapshot.key_light[0] > 0
+            and snapshot.fill_light[0] > 0
             and self._close(
                 snapshot.perspective_angle_rad,
                 math.radians(float(profile.perspective_angle_deg)),
@@ -675,3 +773,17 @@ class VisionProfileController:
             key_diffuse_rgb=profile.key_diffuse_rgb,
             fill_diffuse_rgb=profile.fill_diffuse_rgb,
         )
+
+
+def inspect_published_profile(
+    sim: Any,
+    catalog: VisionProfileCatalog,
+) -> AppliedVisionProfile:
+    return VisionProfileController.inspect(sim=sim, catalog=catalog)
+
+
+def inspect_published_profile_readback(
+    sim: Any,
+    catalog: VisionProfileCatalog,
+) -> PublishedVisionProfileInspection:
+    return VisionProfileController.inspect_readback(sim=sim, catalog=catalog)

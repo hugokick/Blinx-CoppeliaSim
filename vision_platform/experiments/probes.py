@@ -1,10 +1,16 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+import hashlib
 from math import dist, isfinite
+from pathlib import Path
 import re
 from typing import Any
 
+from vision_platform.vision_quality.catalog import load_profile_catalog_bytes
+from vision_platform.vision_quality.controller import (
+    inspect_published_profile_readback,
+)
 
 _KNOWN_PROBE_KINDS = frozenset(
     {
@@ -12,6 +18,7 @@ _KNOWN_PROBE_KINDS = frozenset(
         "stack_2x3",
         "ordered_slots",
         "class_zones",
+        "vision_profile_observation",
     }
 )
 _GROUP_BY_KIND = {
@@ -280,6 +287,141 @@ def _report(
     }
 
 
+def _vision_profile_catalog(
+    definition: Any,
+    parameters: Mapping[str, Any],
+    manifest: Mapping[str, Any],
+):
+    try:
+        scene_path = Path(definition.scene).expanduser().resolve()
+        project_root = scene_path.parents[2]
+        if not (project_root / "config" / "experiments").is_dir():
+            raise ValueError("project experiment directory is missing")
+        if not (project_root / "simulation").is_dir():
+            raise ValueError("project simulation directory is missing")
+
+        profile_path = (scene_path.parent / "profiles.json").resolve()
+        profile_path.relative_to(project_root / "simulation")
+        expected_path = profile_path.relative_to(project_root).as_posix()
+        entry = _mapping(
+            manifest.get("profile_catalog"),
+            "scene_manifest.profile_catalog",
+        )
+        if set(entry) != {"path", "sha256"}:
+            raise ValueError("profile catalog entry fields are invalid")
+        digest = entry["sha256"]
+        if (
+            type(entry["path"]) is not str
+            or entry["path"] != expected_path
+            or type(digest) is not str
+            or len(digest) != 64
+            or any(character not in "0123456789abcdef" for character in digest)
+        ):
+            raise ValueError("profile catalog entry is invalid")
+        content = profile_path.read_bytes()
+        if hashlib.sha256(content).hexdigest() != digest:
+            raise ValueError("profile catalog hash does not match")
+        catalog = load_profile_catalog_bytes(content)
+
+        allowed = _sequence(
+            parameters.get("allowed_profile_ids"),
+            "public_parameters.allowed_profile_ids",
+        )
+        baseline = parameters.get("baseline_profile_id")
+        camera_path = parameters.get("camera_path")
+        if (
+            any(type(profile_id) is not str for profile_id in allowed)
+            or tuple(allowed) != catalog.profile_ids
+            or type(baseline) is not str
+            or baseline != catalog.baseline_profile_id
+            or type(camera_path) is not str
+            or camera_path != catalog.sensor_path
+        ):
+            raise ValueError("profile catalog binding is invalid")
+        return catalog
+    except (AttributeError, IndexError, KeyError, OSError, TypeError) as error:
+        raise ValueError("profile catalog context is invalid") from error
+    except ValueError as error:
+        raise ValueError("profile catalog context is invalid") from error
+
+
+def _vision_profile_rows(
+    catalog: Any,
+    inspection: Any,
+    matched: bool,
+):
+    return [
+        {
+            "component": "sensor",
+            "object_path": catalog.sensor_path,
+            "resolution": list(inspection.resolution),
+            "perspective_angle_deg": inspection.perspective_angle_deg,
+            "near_clip_m": inspection.near_clip_m,
+            "far_clip_m": inspection.far_clip_m,
+            "matched": matched,
+        },
+        {
+            "component": "camera_rig",
+            "object_path": catalog.camera_rig_path,
+            "position_m": list(inspection.camera_rig_position_m),
+            "camera_rig_z_m": inspection.camera_rig_position_m[2],
+            "matched": matched,
+        },
+        {
+            "component": "key_light",
+            "object_path": catalog.key_light_path,
+            "state": inspection.key_light_state,
+            "enabled": inspection.key_light_state > 0,
+            "diffuse_rgb": list(inspection.key_diffuse_rgb),
+            "matched": matched,
+        },
+        {
+            "component": "fill_light",
+            "object_path": catalog.fill_light_path,
+            "state": inspection.fill_light_state,
+            "enabled": inspection.fill_light_state > 0,
+            "diffuse_rgb": list(inspection.fill_diffuse_rgb),
+            "matched": matched,
+        },
+    ]
+
+
+def _probe_vision_profile(
+    sim: Any,
+    definition: Any,
+    *,
+    experiment_id: str,
+    phase: str,
+    parameters: Mapping[str, Any],
+    manifest: Mapping[str, Any],
+) -> dict[str, Any]:
+    catalog = _vision_profile_catalog(definition, parameters, manifest)
+    inspection = inspect_published_profile_readback(sim, catalog)
+    profile = inspection.profile
+
+    baseline = parameters["baseline_profile_id"]
+    matched = profile is not None and profile.profile_id == baseline
+    public = None if profile is None else profile.to_public_dict()
+    expected = 4
+    return {
+        "schema_version": 1,
+        "experiment_id": experiment_id,
+        "phase": phase,
+        "status": "PASS" if matched else "FAIL",
+        "matched": expected if matched else 0,
+        "expected": expected,
+        "profile_id": None if profile is None else profile.profile_id,
+        "baseline_profile_id": baseline,
+        "profile": public,
+        "rows": _vision_profile_rows(
+            catalog,
+            inspection,
+            matched,
+        ),
+        "hardware_status": "PENDING_HARDWARE",
+    }
+
+
 def probe_experiment(
     sim: Any,
     definition: Any,
@@ -314,6 +456,16 @@ def probe_experiment(
     )
     if type(kind) is not str or kind not in _KNOWN_PROBE_KINDS:
         raise ValueError(f"unsupported probe_kind: {kind}")
+
+    if kind == "vision_profile_observation":
+        return _probe_vision_profile(
+            sim,
+            definition,
+            experiment_id=experiment_id,
+            phase=phase,
+            parameters=parameters,
+            manifest=manifest,
+        )
 
     if kind == "motion_observation":
         paths = _validate_motion(parameters)
