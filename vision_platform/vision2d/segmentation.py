@@ -79,7 +79,7 @@ def segment_contours(
                 code = "DEGENERATE_ROTATED_BOX"
                 reason = "candidate rotated box has a zero-length edge"
         if code is None:
-            accepted.append(contour.copy())
+            accepted.append(cv2.approxPolyDP(contour, 0.5, True))
         else:
             rejected.append(
                 RejectedTarget(

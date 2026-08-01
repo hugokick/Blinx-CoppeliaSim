@@ -29,8 +29,9 @@ def preprocess_image(
     )
     gray = cv2.cvtColor(blurred, cv2.COLOR_BGR2GRAY)
     hsv = cv2.cvtColor(blurred, cv2.COLOR_BGR2HSV)
+    segmentation_hsv = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2HSV)
     foreground = cv2.inRange(
-        hsv,
+        segmentation_hsv,
         np.array([0, config.saturation_min, config.value_min], dtype=np.uint8),
         np.array([179, 255, 255], dtype=np.uint8),
     )
