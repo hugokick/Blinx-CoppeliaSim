@@ -22,6 +22,7 @@ from student_programs.templates import (
     r1_07_component_sort,
     r1_common,
     v1_01_virtual_vision,
+    v1_02_size_measurement,
 )
 from student_programs.templates.r1_common import (
     MIN_VISUAL_CONFIDENCE,
@@ -45,6 +46,7 @@ TEMPLATES = (
     "r1_06_digit_sort.py",
     "r1_07_component_sort.py",
     "v1_01_virtual_vision.py",
+    "v1_02_size_measurement.py",
 )
 
 

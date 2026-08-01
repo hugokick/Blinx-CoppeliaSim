@@ -10,7 +10,7 @@ from vision_platform.experiments.catalog import ExperimentCatalog
 ROOT = Path(__file__).resolve().parents[2]
 CONFIG_DIR = ROOT / "config" / "experiments"
 EXPERIMENT_IDS = ("R1-01", "R1-02", "R1-05", "R1-06", "R1-07")
-FORMAL_EXPERIMENT_IDS = (*EXPERIMENT_IDS, "V1-01")
+FORMAL_EXPERIMENT_IDS = (*EXPERIMENT_IDS, "V1-01", "V1-02")
 LOGISTICS_EXPERIMENT_IDS = ("R1-05", "R1-06", "R1-07")
 MEASURED_LOGISTICS_CALIBRATION = (
     ((363.0, 165.0), (45.0, -60.0), "pick"),

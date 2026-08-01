@@ -326,7 +326,7 @@ def test_v1_01_definition_loads_through_real_experiment_catalog(tmp_path):
     assert loaded.hardware_status == "PENDING_HARDWARE"
 
 
-def test_released_catalog_preserves_five_r1_entries_then_appends_v1_01():
+def test_released_catalog_preserves_r1_then_appends_v1_in_order():
     assert _load_strict_json(CATALOG) == {
         "schema_version": 1,
         "experiments": [
@@ -336,6 +336,7 @@ def test_released_catalog_preserves_five_r1_entries_then_appends_v1_01():
             "R1-06.json",
             "R1-07.json",
             "V1-01.json",
+            "V1-02.json",
         ],
     }
 
