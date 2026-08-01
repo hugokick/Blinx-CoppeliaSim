@@ -1092,7 +1092,7 @@ def test_bundle_rejects_non_json_or_nonfinite_results():
         )
 ```
 
-Test stable layer ordering, duplicate/suspicious IDs, mutation of caller arrays/mappings after construction, and rejection of `hardware_status` values other than `PENDING_HARDWARE`.
+Test stable layer ordering, duplicate/suspicious IDs, mutation of caller arrays/mappings after construction, and strict `hardware_status` validation: `type(hardware_status) is str` and the value is exactly `PENDING_HARDWARE`.
 
 - [ ] **Step 2: Write evidence tests using the real evidence class**
 
@@ -1182,7 +1182,7 @@ def test_loader_rejects_path_escape_or_hash_mismatch(tmp_path):
         load_recorded_bundle(evidence.directory, artifact.name)
 ```
 
-Also test duplicate artifact names, PNG encode failure cleanup, layer-record dimension mismatch, missing files, invalid JSON constants and changed file hashes.
+Also test duplicate artifact names, PNG encode failure cleanup, layer-record dimension mismatch, missing files, invalid JSON constants and changed file hashes. Add RED cases proving that the loader rejects JPEG bytes disguised with a `.png` name; an `existing_layer_records["raw"]` record must correspond exactly to the bundle's `raw` layer; supplying that record when the bundle has no `raw` layer is rejected before any write; normal and overlength appended-layer snapshot IDs follow the deterministic rule below; and all appended-layer ID collisions are rejected before any write.
 
 - [ ] **Step 3: Run and verify result/evidence APIs are missing**
 
@@ -1192,7 +1192,7 @@ Also test duplicate artifact names, PNG encode failure cleanup, layer-record dim
   tests/test_vision_quality/test_evidence.py -q
 ```
 
-Expected: import failures for the new modules.
+Expected: RED from import failures for the new modules, or from the new evidence-contract assertions if the modules already exist. The run must report `0 skipped`; skipped contract cases are not an acceptable RED result.
 
 - [ ] **Step 4: Implement immutable bundles and public evidence calls**
 
@@ -1233,6 +1233,8 @@ _ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,79}\Z")
 _LAYER_ID = re.compile(r"[a-z][a-z0-9_-]{0,39}\Z")
 ```
 
+Do not change the public limits: `_ID` remains 80 ASCII characters, `_LAYER_ID` remains 40 ASCII characters, and `StudentRunEvidence` snapshot IDs remain capped at 80 characters. Validate `hardware_status` with `type(hardware_status) is str` and require it to equal `PENDING_HARDWARE` exactly.
+
 `result_bundle_to_dict()` must require a record for every layer before serialization and produce only JSON-native values.
 
 In `evidence.py`, use only:
@@ -1242,9 +1244,11 @@ record = evidence.record_snapshot(...)
 artifact = evidence.record_json_artifact(name, payload)
 ```
 
-If `existing_layer_records` contains `raw`, verify its path is `frames/{snapshot_id}.png`, its SHA matches the image encoded as PNG, and width/height match. For additional layers, encode PNG and call `record_snapshot()` with `{bundle_id}-{layer_id}`. Write the bundle JSON last, so a recorded bundle never references a future file.
+If `existing_layer_records` contains `raw`, require the bundle to contain a `raw` layer and verify that the record corresponds exactly to that layer: its path is `frames/{snapshot_id}.png`, its SHA matches that raw layer encoded as PNG, and its width/height match. Supplying a raw record for a bundle without a raw layer must fail before any write.
 
-`load_recorded_bundle(run_directory, artifact_name)` must resolve every layer path beneath the run directory, verify SHA-256 and PNG dimensions, and return a copied JSON mapping plus resolved layer paths in a separate private field for UI use. Do not allow absolute paths, `..`, symlinks escaping the run, NaN or duplicate layer IDs.
+For every layer that will be appended with `record_snapshot()`, form the full logical snapshot ID as `{bundle_id}-{layer_id}`. Use that ID unchanged when its length is at most 80 characters. When it is longer, use the deterministic ASCII limited ID `vision-` plus the lowercase hexadecimal SHA-256 digest of the full logical ID (71 characters total). Precompute every appended-layer snapshot ID and reject any collision within the bundle before performing any write. These rules must not relax the public identifier limits above. Write the bundle JSON last, so a recorded bundle never references a future file.
+
+`load_recorded_bundle(run_directory, artifact_name)` must resolve every layer path beneath the run directory, verify SHA-256 and PNG dimensions, and return a copied JSON mapping plus resolved layer paths in a separate private field for UI use. Before any `cv2` decode, require the actual file bytes to begin with the PNG signature `b"\x89PNG\r\n\x1a\n"`; reject JPEG or other bytes even when the filename ends in `.png`. Do not allow absolute paths, `..`, symlinks escaping the run, NaN or duplicate layer IDs.
 
 - [ ] **Step 5: Run evidence, existing evidence and security regressions**
 
@@ -1255,7 +1259,7 @@ If `existing_layer_records` contains `raw`, verify its path is `frames/{snapshot
   tests/test_student_programs/test_evidence.py -q
 ```
 
-Expected: all selected tests pass.
+Expected: all selected tests pass with `0 skipped`, including the strict PNG-signature, exact raw-record correspondence, pre-write rejection, deterministic overlength ID, collision, public-limit and strict `hardware_status` regressions.
 
 - [ ] **Step 6: Commit Task 5**
 
