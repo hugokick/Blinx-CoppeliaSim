@@ -4340,7 +4340,7 @@ git commit -m "feat(curriculum): add five R1 student labs"
 - Create: `tests/test_experiments/test_cli.py`
 - Modify: `tests/test_acceptance/test_delivery_contract.py`
 
-- [ ] **Step 1: 写 CLI 解析和只读输出失败测试**
+- [x] **Step 1: 写 CLI 解析和只读输出失败测试**
 
 Create `tests/test_experiments/test_cli.py`:
 
@@ -4397,7 +4397,7 @@ def test_experiment_show_does_not_claim_hardware_pass(capsys):
     assert payload["hardware_status"] == "PENDING_HARDWARE"
 ```
 
-- [ ] **Step 2: 运行测试并确认先失败**
+- [x] **Step 2: 运行测试并确认先失败**
 
 Run:
 
@@ -4407,7 +4407,7 @@ python -m pytest tests/test_experiments/test_cli.py -q
 
 Expected: FAIL，指出三个实验子命令不存在。
 
-- [ ] **Step 3: 增加目录装载和只读处理函数**
+- [x] **Step 3: 增加目录装载和只读处理函数**
 
 Add to `vision_platform/cli.py`:
 
@@ -4461,7 +4461,7 @@ def _experiment_show(args: argparse.Namespace) -> int:
     return 0
 ```
 
-- [ ] **Step 4: 实现实验运行处理函数**
+- [x] **Step 4: 实现实验运行处理函数**
 
 Add to `vision_platform/cli.py`:
 
@@ -4581,7 +4581,7 @@ def _experiment_run(args: argparse.Namespace) -> int:
         vision_session.close()
 ```
 
-- [ ] **Step 5: 注册三个 CLI 子命令**
+- [x] **Step 5: 注册三个 CLI 子命令**
 
 Inside `build_parser()` add:
 
@@ -4615,7 +4615,7 @@ Inside `build_parser()` add:
     experiment_run.set_defaults(handler=_experiment_run)
 ```
 
-- [ ] **Step 6: 创建 PowerShell 入口**
+- [x] **Step 6: 创建 PowerShell 入口**
 
 Create `tools/vision_lab/run_experiment.ps1`:
 
@@ -4648,7 +4648,7 @@ if ($Program) {
 exit $LASTEXITCODE
 ```
 
-- [ ] **Step 7: 扩展发布入口合同**
+- [x] **Step 7: 扩展发布入口合同**
 
 Append to `tests/test_acceptance/test_delivery_contract.py`:
 
@@ -4663,7 +4663,7 @@ def test_delivery_has_formal_experiment_cli_and_powershell_entry():
     assert "--robot" not in text
 ```
 
-- [ ] **Step 8: 运行 CLI 和发布合同测试**
+- [x] **Step 8: 运行 CLI 和发布合同测试**
 
 Run:
 
@@ -4676,7 +4676,7 @@ python -m pytest `
 
 Expected: 全部 PASS。
 
-- [ ] **Step 9: 提交 CLI 入口**
+- [x] **Step 9: 提交 CLI 入口**
 
 Run:
 

@@ -818,3 +818,26 @@ def test_v21_acceptance_report_preserves_automated_and_manual_boundaries():
         assert item in source
     assert "待主代理真实检查" not in source
     assert "V2.1 全部完成：PASS" not in source
+
+
+def test_delivery_has_formal_experiment_cli_and_powershell_entry():
+    script = ROOT / "tools" / "vision_lab" / "run_experiment.ps1"
+    assert script.is_file()
+    text = script.read_text(encoding="utf-8")
+    assert "experiment-run" in text
+    assert "R1-01" in text
+    assert "R1-07" in text
+    assert "ValidateSet" in text
+    assert "HostName" in text
+    assert "python.ps1" in text
+    assert "--program" in text
+    assert "--host" in text
+    assert "--port" in text
+    assert "--output" in text
+    assert "$LASTEXITCODE" in text
+    assert "--robot" not in text
+    assert "--scene" not in text
+
+    retained = _retained_release_paths()
+    assert "tests/test_experiments/test_cli.py" in retained
+    assert "tools/vision_lab/run_experiment.ps1" in retained

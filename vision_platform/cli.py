@@ -80,24 +80,63 @@ class _RuntimeStdoutRouter:
             if release_lock:
                 _STDOUT_ROUTING_LOCK.release()
 
-    def restore_when_quiescent(self, controller: Any) -> None:
+    def restore_when_quiescent(
+        self,
+        controller: Any,
+        *,
+        on_quiescent: Any = None,
+    ) -> None:
         thread = threading.Thread(
             target=self._wait_and_restore,
-            args=(controller,),
+            args=(controller, on_quiescent),
             name="StudentCliStdoutRestorer",
             daemon=True,
         )
         thread.start()
 
-    def _wait_and_restore(self, controller: Any) -> None:
-        while True:
-            try:
-                if controller.wait_for_quiescence(0.25):
-                    self.restore()
+    def _wait_and_restore(
+        self,
+        controller: Any,
+        on_quiescent: Any,
+    ) -> None:
+        try:
+            while True:
+                try:
+                    if controller.wait_for_quiescence(0.25):
+                        break
+                except BaseException as barrier_error:
+                    self._write_diagnostic(
+                        "Deferred CLI quiescence check failed",
+                        barrier_error,
+                    )
                     return
-            except BaseException:
-                # Unknown liveness must remain fail-closed until process exit.
-                return
+            if on_quiescent is not None:
+                try:
+                    on_quiescent()
+                except BaseException as close_error:
+                    self._write_diagnostic(
+                        "Deferred CLI resource close failed",
+                        close_error,
+                    )
+        finally:
+            self.restore()
+
+    def _write_diagnostic(
+        self,
+        prefix: str,
+        error: BaseException,
+    ) -> None:
+        try:
+            stream = self._diagnostic_stream
+            if stream is not None:
+                print(
+                    f"{prefix}: {error}",
+                    file=stream,
+                    flush=True,
+                )
+        except BaseException:
+            # A diagnostic stream failure must not strand stdout or the lock.
+            pass
 
 
 def _print_json(
@@ -564,6 +603,474 @@ def _student_run(args: argparse.Namespace) -> int:
     return exit_code
 
 
+def _experiment_catalog():
+    from vision_platform.experiments.catalog import ExperimentCatalog
+
+    return ExperimentCatalog.load(
+        PROJECT_ROOT / "config" / "experiments" / "catalog.json",
+        project_root=PROJECT_ROOT,
+    )
+
+
+def _experiment_failure_payload(
+    *,
+    experiment_id: str | None,
+    error: BaseException,
+    code: str,
+) -> dict[str, Any]:
+    return {
+        "status": "FAIL",
+        "experiment_id": experiment_id,
+        "scene_probe_status": None,
+        "summary": None,
+        "evidence": None,
+        "error": _exception_payload(error, code=code),
+        "hardware_status": "PENDING_HARDWARE",
+    }
+
+
+def _append_experiment_cleanup_error(
+    payload: dict[str, Any],
+    error: BaseException,
+    *,
+    code: str,
+) -> None:
+    cleanup_error = _exception_payload(error, code=code)
+    primary = payload.get("error")
+    if not isinstance(primary, Mapping):
+        payload["status"] = "FAIL"
+        payload["error"] = cleanup_error
+        return
+
+    merged = dict(primary)
+    raw_details = merged.get("details")
+    details = dict(raw_details) if isinstance(raw_details, Mapping) else {}
+    raw_cleanup_errors = details.get("cleanup_errors")
+    cleanup_errors = (
+        list(raw_cleanup_errors)
+        if isinstance(raw_cleanup_errors, (list, tuple))
+        else []
+    )
+    cleanup_errors.append(cleanup_error)
+    details["cleanup_errors"] = cleanup_errors
+    merged["details"] = details
+    payload["error"] = merged
+
+
+def _close_experiment_resources(
+    session: Any | None,
+    application: Any | None,
+    *,
+    quarantined: bool,
+) -> None:
+    target = session if session is not None else application
+    if target is None:
+        return
+    if quarantined:
+        target.close_quarantined()
+    else:
+        target.close()
+
+
+def _experiment_list(args: argparse.Namespace) -> int:
+    del args
+    payload = {
+        "status": "PASS",
+        "experiments": [
+            {
+                "experiment_id": item.experiment_id,
+                "title": item.title,
+                "version": item.version,
+                "capabilities": list(item.capabilities),
+                "hardware_status": item.hardware_status,
+            }
+            for item in _experiment_catalog().definitions
+        ],
+    }
+    _print_json(payload)
+    return 0
+
+
+def _experiment_show(args: argparse.Namespace) -> int:
+    try:
+        item = _experiment_catalog().require(args.experiment)
+        payload = {
+            "status": "PASS",
+            "experiment_id": item.experiment_id,
+            "title": item.title,
+            "version": item.version,
+            "scene": item.scene.relative_to(PROJECT_ROOT).as_posix(),
+            "student_template": item.student_template.relative_to(
+                PROJECT_ROOT
+            ).as_posix(),
+            "guide": item.guide.relative_to(PROJECT_ROOT).as_posix(),
+            "capabilities": list(item.capabilities),
+            "automated_checks": list(item.acceptance.automated_checks),
+            "human_checks": list(item.acceptance.human_checks),
+            "hardware_status": item.hardware_status,
+        }
+    except KeyError as error:
+        payload = _experiment_failure_payload(
+            experiment_id=args.experiment,
+            error=error,
+            code="EXPERIMENT_NOT_FOUND",
+        )
+        _print_json(payload)
+        return 2
+    _print_json(payload)
+    return 0
+
+
+def _resolve_experiment_program(
+    raw_program: str | None,
+    default_program: Path,
+) -> Path:
+    if raw_program:
+        selected = Path(raw_program).expanduser()
+        if not selected.is_absolute():
+            selected = PROJECT_ROOT / selected
+    else:
+        selected = default_program
+    selected = selected.resolve()
+    if not selected.is_file():
+        raise ValueError(f"Student program was not found: {selected}")
+    if selected.suffix.lower() != ".py":
+        raise ValueError(f"Student program must be a .py file: {selected}")
+    return selected
+
+
+def _execute_experiment_run(
+    args: argparse.Namespace,
+) -> tuple[int, dict[str, Any], Any | None]:
+    from vision_platform.application import VisionLabApplication
+    from vision_platform.config import load_config
+    from vision_platform.experiments.session import ExperimentSession
+    from vision_platform.session import VisionLabSession
+    from vision_platform.student.runner import StudentProgramController
+    from vision_platform.student.safety import StudentExecutionPolicy
+
+    experiment_id = args.experiment
+    try:
+        catalog = _experiment_catalog()
+        definition = catalog.require(experiment_id)
+    except KeyError as error:
+        return (
+            2,
+            _experiment_failure_payload(
+                experiment_id=experiment_id,
+                error=error,
+                code="EXPERIMENT_NOT_FOUND",
+            ),
+            None,
+        )
+    except Exception as error:
+        return (
+            1,
+            _experiment_failure_payload(
+                experiment_id=experiment_id,
+                error=error,
+                code="EXPERIMENT_CATALOG_FAILED",
+            ),
+            None,
+        )
+
+    try:
+        port = int(args.port)
+        if not 1 <= port <= 65535:
+            raise ValueError("port must be between 1 and 65535")
+        program = _resolve_experiment_program(
+            args.program,
+            definition.student_template,
+        )
+    except (OSError, TypeError, ValueError) as error:
+        return (
+            2,
+            _experiment_failure_payload(
+                experiment_id=experiment_id,
+                error=error,
+                code="EXPERIMENT_ARGUMENT_INVALID",
+            ),
+            None,
+        )
+
+    application = None
+    vision_session = None
+    controller = None
+    policy = None
+    close_quarantined = False
+    deferred_resources = None
+    handled_primary_error: Exception | None = None
+    exit_code = 1
+    payload: dict[str, Any] = {
+        "status": "FAIL",
+        "experiment_id": experiment_id,
+        "scene_probe_status": None,
+        "summary": None,
+        "evidence": None,
+        "error": None,
+        "hardware_status": "PENDING_HARDWARE",
+    }
+    try:
+        environ = dict(os.environ)
+        environ["ROBOT_BACKEND"] = "sim"
+        environ["VISION_BACKEND"] = "sim"
+        environ["COPPELIA_HOST"] = args.host
+        environ["COPPELIA_PORT"] = str(port)
+        base_config = load_config(
+            args.config,
+            project_root=PROJECT_ROOT,
+            environ=environ,
+        )
+        application = VisionLabApplication.from_config(base_config)
+        vision_session = VisionLabSession(
+            application=application,
+            factory=lambda: VisionLabApplication.from_config(base_config),
+        )
+        experiment_session = ExperimentSession(
+            catalog=catalog,
+            vision_session=vision_session,
+            base_config=base_config,
+            application_factory=VisionLabApplication.from_config,
+            student_is_idle=lambda: (
+                controller is None or not controller.process_is_alive
+            ),
+        )
+        context = experiment_session.select(experiment_id)
+        selected_config = vision_session.application.config
+        student = selected_config.student
+        speed_range = student["speed_range"]
+        policy = StudentExecutionPolicy(
+            min_speed=float(speed_range[0]),
+            max_speed=float(speed_range[1]),
+            max_runtime_s=float(student["max_runtime_s"]),
+            max_commands=int(student["max_commands"]),
+            command_timeout_s=float(student["command_timeout_s"]),
+            max_sleep_s=float(student["max_sleep_s"]),
+            tool_on_max_z_mm=float(student["tool_on_max_z_mm"]),
+        )
+        scene_manifest = json.loads(
+            definition.scene_manifest.read_text(encoding="utf-8")
+        )
+        if not isinstance(scene_manifest, dict):
+            raise ValueError("scene manifest must be a JSON object")
+        controller = StudentProgramController(
+            session=vision_session,
+            execution_policy=policy,
+            output_root=args.output,
+            experiment_context=context,
+            experiment_definition=definition,
+            scene_manifest=scene_manifest,
+        )
+        controller.load(program)
+        validation = controller.validate()
+        if not validation.ok:
+            payload["issues"] = [
+                asdict(issue) for issue in validation.issues
+            ]
+            exit_code = 2
+        else:
+            controller.start()
+            result = controller.wait(
+                timeout_s=(
+                    policy.max_runtime_s
+                    + policy.command_timeout_s
+                    + 5
+                )
+            )
+            close_quarantined = _connection_unusable(result.error)
+            summary = {}
+            if result.summary_path is not None:
+                summary = json.loads(
+                    result.summary_path.read_text(encoding="utf-8")
+                )
+                if not isinstance(summary, dict):
+                    raise ValueError("student run summary must be a JSON object")
+            payload = {
+                "status": result.status,
+                "experiment_id": definition.experiment_id,
+                "scene_probe_status": summary.get("scene_probe_status"),
+                "summary": _path_or_none(result.summary_path),
+                "evidence": _path_or_none(result.evidence_dir),
+                "error": result.error,
+                "hardware_status": "PENDING_HARDWARE",
+            }
+            exit_code = 0 if result.status == "PASS" else 1
+    except Exception as error:
+        handled_primary_error = error
+        payload = _experiment_failure_payload(
+            experiment_id=experiment_id,
+            error=error,
+            code="EXPERIMENT_RUN_FAILED",
+        )
+        exit_code = 1
+    finally:
+        active_error = sys.exception()
+        pending_cleanup_base_error: BaseException | None = None
+
+        def record_cleanup_error(
+            error: BaseException,
+            *,
+            code: str,
+        ) -> None:
+            nonlocal exit_code, pending_cleanup_base_error
+            primary_result_failed = (
+                exit_code != 0
+                or payload.get("status") != "PASS"
+                or payload.get("error") is not None
+            )
+            primary_base_error = (
+                active_error
+                or handled_primary_error
+                or pending_cleanup_base_error
+            )
+            if primary_base_error is not None or primary_result_failed:
+                if (
+                    active_error is None
+                    and pending_cleanup_base_error is None
+                    and (
+                        handled_primary_error is not None
+                        or primary_result_failed
+                    )
+                ):
+                    _append_experiment_cleanup_error(
+                        payload,
+                        error,
+                        code=code,
+                    )
+                    if exit_code == 0:
+                        exit_code = 1
+                diagnostic = _exception_payload(error, code=code)
+                note = (
+                    f"{diagnostic['code']}: {diagnostic['type']}: "
+                    f"{diagnostic['message']}"
+                )
+                if primary_base_error is not None:
+                    try:
+                        primary_base_error.add_note(note)
+                    except BaseException:
+                        pass
+                try:
+                    if sys.stderr is not None:
+                        print(
+                            f"Experiment cleanup diagnostic: {note}",
+                            file=sys.stderr,
+                            flush=True,
+                        )
+                except BaseException:
+                    pass
+                return
+            if isinstance(error, Exception):
+                _append_experiment_cleanup_error(
+                    payload,
+                    error,
+                    code=code,
+                )
+                exit_code = 1
+                return
+            pending_cleanup_base_error = error
+
+        process_alive = False
+        if controller is not None:
+            try:
+                process_alive = controller.process_is_alive
+            except BaseException as liveness_error:
+                close_quarantined = True
+                record_cleanup_error(
+                    liveness_error,
+                    code="EXPERIMENT_PROCESS_LIVENESS_FAILED",
+                )
+        if process_alive:
+            try:
+                controller.cancel()
+            except BaseException as cancel_error:
+                close_quarantined = True
+                record_cleanup_error(
+                    cancel_error,
+                    code="EXPERIMENT_CANCEL_FAILED",
+                )
+
+        quiescent = True
+        if controller is not None:
+            timeout_s = (
+                float(policy.command_timeout_s) + 0.25
+                if policy is not None
+                else 0.25
+            )
+            try:
+                quiescent = controller.wait_for_quiescence(timeout_s)
+            except BaseException as barrier_error:
+                quiescent = False
+                close_quarantined = True
+                record_cleanup_error(
+                    barrier_error,
+                    code="EXPERIMENT_QUIESCENCE_WAIT_FAILED",
+                )
+
+        if not quiescent:
+            record_cleanup_error(
+                RuntimeError(
+                    "experiment resources remain active; "
+                    "session close deferred"
+                ),
+                code="EXPERIMENT_SESSION_CLOSE_DEFERRED",
+            )
+            if active_error is None and pending_cleanup_base_error is None:
+                deferred_resources = (
+                    controller,
+                    lambda: _close_experiment_resources(
+                        vision_session,
+                        application,
+                        quarantined=close_quarantined,
+                    ),
+                )
+        else:
+            try:
+                _close_experiment_resources(
+                    vision_session,
+                    application,
+                    quarantined=close_quarantined,
+                )
+            except BaseException as close_error:
+                record_cleanup_error(
+                    close_error,
+                    code="EXPERIMENT_SESSION_CLOSE_FAILED",
+                )
+
+        primary_failure_recorded = (
+            active_error is not None
+            or handled_primary_error is not None
+            or exit_code != 0
+            or payload.get("status") != "PASS"
+            or payload.get("error") is not None
+        )
+        if (
+            not primary_failure_recorded
+            and pending_cleanup_base_error is not None
+        ):
+            raise pending_cleanup_base_error
+
+    return exit_code, payload, deferred_resources
+
+
+def _experiment_run(args: argparse.Namespace) -> int:
+    router = _RuntimeStdoutRouter()
+    router.start()
+    deferred_resources = None
+    try:
+        exit_code, payload, deferred_resources = _execute_experiment_run(args)
+        router.write_json(payload)
+    finally:
+        if deferred_resources is None:
+            router.restore()
+        else:
+            controller, close_resources = deferred_resources
+            router.restore_when_quiescent(
+                controller,
+                on_quiescent=close_resources,
+            )
+    return exit_code
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="vision-platform")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -637,6 +1144,34 @@ def build_parser() -> argparse.ArgumentParser:
         default="artifacts/vision_lab/student-runs",
     )
     student_run.set_defaults(handler=_student_run)
+
+    experiment_list = subparsers.add_parser(
+        "experiment-list",
+        help="List formal CoppeliaSim curriculum experiments",
+    )
+    experiment_list.set_defaults(handler=_experiment_list)
+
+    experiment_show = subparsers.add_parser(
+        "experiment-show",
+        help="Show one formal curriculum experiment",
+    )
+    experiment_show.add_argument("--experiment", required=True)
+    experiment_show.set_defaults(handler=_experiment_show)
+
+    experiment_run = subparsers.add_parser(
+        "experiment-run",
+        help="Run one formal experiment with the guarded student runner",
+    )
+    experiment_run.add_argument("--experiment", required=True)
+    experiment_run.add_argument("--program")
+    experiment_run.add_argument("--config")
+    experiment_run.add_argument("--host", default="127.0.0.1")
+    experiment_run.add_argument("--port", default=23000)
+    experiment_run.add_argument(
+        "--output",
+        default="artifacts/vision_lab/experiment-runs",
+    )
+    experiment_run.set_defaults(handler=_experiment_run)
     return parser
 
 

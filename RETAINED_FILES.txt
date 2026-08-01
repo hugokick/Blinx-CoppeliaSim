@@ -130,6 +130,7 @@ tests/test_acceptance/test_fake_closed_loop.py
 tests/test_acceptance/test_powershell_process_ownership.py
 tests/test_blx_integration.py
 tests/test_experiments/test_formal_catalog.py
+tests/test_experiments/test_cli.py
 tests/test_experiments/test_probes.py
 tests/test_experiments/test_scene_setup.py
 tests/test_experiments/test_student_templates.py
@@ -184,6 +185,7 @@ tools/vision_lab/launch_coppeliasim.ps1
 tools/vision_lab/process_ownership.ps1
 tools/vision_lab/python.ps1
 tools/vision_lab/run_acceptance.ps1
+tools/vision_lab/run_experiment.ps1
 tools/vision_lab/run_pyqt.ps1
 tools/vision_lab/run_replay_demo.ps1
 tools/vision_lab/run_student_program.ps1

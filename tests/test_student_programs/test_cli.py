@@ -795,6 +795,93 @@ def test_student_run_deferred_late_backend_stdout_never_follows_json(
     assert application.context.term_calls == 1
 
 
+def test_stdout_router_barrier_error_restores_stdout_and_releases_lock(
+    capsys,
+):
+    barrier_called = threading.Event()
+    close_called = threading.Event()
+
+    class BrokenBarrier:
+        def wait_for_quiescence(self, timeout_s):
+            assert timeout_s == 0.25
+            barrier_called.set()
+            raise RuntimeError("quiescence barrier exploded")
+
+    original_stdout = sys.stdout
+    first = cli_module._RuntimeStdoutRouter()
+    first.start()
+    first.restore_when_quiescent(
+        BrokenBarrier(),
+        on_quiescent=close_called.set,
+    )
+    assert barrier_called.wait(timeout=1)
+    deadline = time.monotonic() + 0.5
+    while not first._restored and time.monotonic() < deadline:
+        threading.Event().wait(0.005)
+    automatically_restored = first._restored
+    if not automatically_restored:
+        first.restore()
+
+    second = cli_module._RuntimeStdoutRouter()
+    second.start()
+    try:
+        second.write_json({"status": "PASS", "router": "second"})
+    finally:
+        second.restore()
+
+    captured = capsys.readouterr()
+    assert automatically_restored
+    assert not close_called.is_set()
+    assert sys.stdout is original_stdout
+    assert "quiescence barrier exploded" in captured.err
+    assert json.loads(captured.out) == {
+        "status": "PASS",
+        "router": "second",
+    }
+
+
+def test_stdout_router_close_callback_error_still_restores_and_unlocks(
+    capsys,
+):
+    class ReadyBarrier:
+        def wait_for_quiescence(self, timeout_s):
+            assert timeout_s == 0.25
+            return True
+
+    def failing_close():
+        raise RuntimeError("deferred close exploded")
+
+    original_stdout = sys.stdout
+    first = cli_module._RuntimeStdoutRouter()
+    first.start()
+    first.restore_when_quiescent(
+        ReadyBarrier(),
+        on_quiescent=failing_close,
+    )
+    deadline = time.monotonic() + 0.5
+    while not first._restored and time.monotonic() < deadline:
+        threading.Event().wait(0.005)
+    automatically_restored = first._restored
+    if not automatically_restored:
+        first.restore()
+
+    second = cli_module._RuntimeStdoutRouter()
+    second.start()
+    try:
+        second.write_json({"status": "PASS", "router": "second"})
+    finally:
+        second.restore()
+
+    captured = capsys.readouterr()
+    assert automatically_restored
+    assert sys.stdout is original_stdout
+    assert "deferred close exploded" in captured.err
+    assert json.loads(captured.out) == {
+        "status": "PASS",
+        "router": "second",
+    }
+
+
 def test_student_run_normal_cancel_waits_for_cleanup_then_closes_once(
     tmp_path,
     monkeypatch,
