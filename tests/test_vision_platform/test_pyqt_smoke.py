@@ -26,24 +26,26 @@ from vision_platform.ui.student_program_panel import StudentProgramPanel
 from vision_platform.ui.vision_result_panel import VisionResultPanel
 
 
-V1_01_UI_EVIDENCE_ENV = "ROBOT_SIM_V1_01_EVIDENCE_DIR"
-V1_01_UI_SCREENSHOT_ENV = "ROBOT_SIM_V1_01_UI_SCREENSHOT"
-V1_01_UI_SCALE_ENV = "ROBOT_SIM_V1_01_UI_SCALE"
-V1_01_UI_EVIDENCE_ENVS = (
-    V1_01_UI_EVIDENCE_ENV,
-    V1_01_UI_SCREENSHOT_ENV,
-    V1_01_UI_SCALE_ENV,
+VISION_UI_EVIDENCE_ENV = "ROBOT_SIM_VISION_EVIDENCE_DIR"
+VISION_UI_SCREENSHOT_ENV = "ROBOT_SIM_VISION_UI_SCREENSHOT"
+VISION_UI_SCALE_ENV = "ROBOT_SIM_VISION_UI_SCALE"
+VISION_UI_LAYER_ENV = "ROBOT_SIM_VISION_UI_LAYER"
+VISION_UI_EVIDENCE_ENVS = (
+    VISION_UI_EVIDENCE_ENV,
+    VISION_UI_SCREENSHOT_ENV,
+    VISION_UI_SCALE_ENV,
+    VISION_UI_LAYER_ENV,
 )
 
 
-def _v1_01_ui_evidence_settings():
-    values = tuple(os.environ.get(name) for name in V1_01_UI_EVIDENCE_ENVS)
+def _vision_ui_evidence_settings():
+    values = tuple(os.environ.get(name) for name in VISION_UI_EVIDENCE_ENVS)
     configured = tuple(bool(value) for value in values)
     if not any(configured):
         return None
     if not all(configured):
         raise ValueError(
-            "V1-01 UI evidence environment variables must be set together"
+            "Vision UI evidence environment variables must be set together"
         )
     return values
 
@@ -316,16 +318,16 @@ def test_pyqt_window_builds_student_workspace_from_session_config(
     assert window.student_controller._handlers == []
 
 
-def test_v1_01_result_panel_screenshot_harness_uses_recorded_bundle(qtbot):
-    settings = _v1_01_ui_evidence_settings()
+def test_vision_result_panel_screenshot_harness_uses_recorded_bundle(qtbot):
+    settings = _vision_ui_evidence_settings()
     if settings is None:
-        pytest.skip("V1-01 UI evidence capture is explicitly enabled")
-    evidence_value, screenshot_value, scale_value = settings
+        pytest.skip("Vision UI evidence capture is explicitly enabled")
+    evidence_value, screenshot_value, scale_value, layer_id = settings
     screenshot = Path(screenshot_value).expanduser().resolve()
     screenshot.parent.mkdir(parents=True, exist_ok=True)
     if screenshot.exists():
         if not screenshot.is_file():
-            raise ValueError("V1-01 UI screenshot target must be a file")
+            raise ValueError("Vision UI screenshot target must be a file")
         screenshot.unlink()
     evidence_dir = Path(evidence_value).expanduser().resolve(strict=True)
     expected_scale = float(scale_value)
@@ -334,6 +336,10 @@ def test_v1_01_result_panel_screenshot_harness_uses_recorded_bundle(qtbot):
     qtbot.addWidget(panel)
     panel.resize(1180, 760)
     panel.load_run(evidence_dir)
+    selected_index = panel.layer_combo.findData(layer_id)
+    if selected_index < 0:
+        raise ValueError(f"Vision UI evidence layer is unavailable: {layer_id}")
+    panel.layer_combo.setCurrentIndex(selected_index)
     panel.show()
     QApplication.processEvents()
     qtbot.waitUntil(
@@ -349,9 +355,9 @@ def test_v1_01_result_panel_screenshot_harness_uses_recorded_bundle(qtbot):
     )
     assert "配置档：" in panel.profile_label.text()
     assert "分辨率：" in panel.profile_label.text()
-    assert panel.layer_combo.currentData() == "raw"
-    assert "原图" in panel.layer_combo.currentText()
-    assert '"experiment_id": "V1-01"' in panel.result_text.toPlainText()
+    assert panel.layer_combo.currentData() == layer_id
+    assert panel.layer_combo.currentText()
+    assert '"experiment_id": "V1-' in panel.result_text.toPlainText()
     assert (
         '"hardware_status": "PENDING_HARDWARE"'
         in panel.result_text.toPlainText()
@@ -375,17 +381,17 @@ def test_v1_01_result_panel_screenshot_harness_uses_recorded_bundle(qtbot):
     assert screenshot.is_file() and screenshot.stat().st_size > 0
 
 
-@pytest.mark.parametrize("missing_env", V1_01_UI_EVIDENCE_ENVS)
-def test_v1_01_ui_screenshot_harness_rejects_partial_configuration(
+@pytest.mark.parametrize("missing_env", VISION_UI_EVIDENCE_ENVS)
+def test_vision_ui_screenshot_harness_rejects_partial_configuration(
     monkeypatch,
     missing_env,
 ):
-    for name in V1_01_UI_EVIDENCE_ENVS:
+    for name in VISION_UI_EVIDENCE_ENVS:
         monkeypatch.setenv(name, "configured")
     monkeypatch.delenv(missing_env)
 
     with pytest.raises(ValueError, match="must be set together"):
-        _v1_01_ui_evidence_settings()
+        _vision_ui_evidence_settings()
 
 
 def test_pyqt_student_workspace_setup_failure_releases_partial_subscription(

@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string]$OutputDir = "artifacts\vision_lab\v2-2-c1-v1-02",
+    [string]$OutputDir = "artifacts\vision_lab\v2-2-c1-v1-02-to-v1-05",
     [string]$CoppeliaRoot = $(if ($env:COPPELIASIM_ROOT) {
         $env:COPPELIASIM_ROOT
     } else {
@@ -746,6 +746,7 @@ try {
             "tests/test_acceptance/test_coppeliasim_vision_quality_scene.py",
             "tests/test_acceptance/test_coppeliasim_v1_01.py",
             "tests/test_acceptance/test_coppeliasim_v1_02.py",
+            "tests/test_acceptance/test_coppeliasim_v1_03_to_v1_05.py",
             "-m", "coppeliasim",
             "--coppelia-host", $HostAddress,
             "--coppelia-port", [string]$Port,
@@ -755,7 +756,7 @@ try {
     Assert-JUnitNoSkips `
         -Name "vision_quality_online" `
         -Path $JUnitPath `
-        -ExpectedTests 3
+        -ExpectedTests 6
 
     $ExperimentOutput = Join-Path $OutputDir "experiment-runs"
     $ExperimentPayloads["V1-01"] = Invoke-CheckedExperiment `
@@ -765,6 +766,18 @@ try {
     $ExperimentPayloads["V1-02"] = Invoke-CheckedExperiment `
         -ExperimentId "V1-02" `
         -StepName "v1_02_experiment_run" `
+        -ExperimentOutput $ExperimentOutput
+    $ExperimentPayloads["V1-03"] = Invoke-CheckedExperiment `
+        -ExperimentId "V1-03" `
+        -StepName "v1_03_experiment_run" `
+        -ExperimentOutput $ExperimentOutput
+    $ExperimentPayloads["V1-04"] = Invoke-CheckedExperiment `
+        -ExperimentId "V1-04" `
+        -StepName "v1_04_experiment_run" `
+        -ExperimentOutput $ExperimentOutput
+    $ExperimentPayloads["V1-05"] = Invoke-CheckedExperiment `
+        -ExperimentId "V1-05" `
+        -StepName "v1_05_experiment_run" `
         -ExperimentOutput $ExperimentOutput
 } catch {
     $FailureMessage = $_.Exception.Message
@@ -861,6 +874,27 @@ try {
                     $null
                 }
             )
+            "V1-03" = $(
+                if ($ExperimentPayloads["V1-03"]) {
+                    $ExperimentPayloads["V1-03"].summary
+                } else {
+                    $null
+                }
+            )
+            "V1-04" = $(
+                if ($ExperimentPayloads["V1-04"]) {
+                    $ExperimentPayloads["V1-04"].summary
+                } else {
+                    $null
+                }
+            )
+            "V1-05" = $(
+                if ($ExperimentPayloads["V1-05"]) {
+                    $ExperimentPayloads["V1-05"].summary
+                } else {
+                    $null
+                }
+            )
         }
         experiment_evidence_by_id = [ordered]@{
             "V1-01" = $(
@@ -873,6 +907,27 @@ try {
             "V1-02" = $(
                 if ($ExperimentPayloads["V1-02"]) {
                     $ExperimentPayloads["V1-02"].evidence
+                } else {
+                    $null
+                }
+            )
+            "V1-03" = $(
+                if ($ExperimentPayloads["V1-03"]) {
+                    $ExperimentPayloads["V1-03"].evidence
+                } else {
+                    $null
+                }
+            )
+            "V1-04" = $(
+                if ($ExperimentPayloads["V1-04"]) {
+                    $ExperimentPayloads["V1-04"].evidence
+                } else {
+                    $null
+                }
+            )
+            "V1-05" = $(
+                if ($ExperimentPayloads["V1-05"]) {
+                    $ExperimentPayloads["V1-05"].evidence
                 } else {
                     $null
                 }
