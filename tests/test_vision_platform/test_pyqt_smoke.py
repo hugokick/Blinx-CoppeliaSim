@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import time
 from pathlib import Path
 from threading import Event, Thread
+from uuid import uuid4
 from types import SimpleNamespace
 
 import vision_platform.ui.pyqt_app as pyqt_app
@@ -22,6 +24,28 @@ from vision_platform.student.runner import StudentProgramController
 from vision_platform.ui.pyqt_app import VisionLabWindow
 from vision_platform.ui.student_program_panel import StudentProgramPanel
 from vision_platform.ui.vision_result_panel import VisionResultPanel
+
+
+V1_01_UI_EVIDENCE_ENV = "ROBOT_SIM_V1_01_EVIDENCE_DIR"
+V1_01_UI_SCREENSHOT_ENV = "ROBOT_SIM_V1_01_UI_SCREENSHOT"
+V1_01_UI_SCALE_ENV = "ROBOT_SIM_V1_01_UI_SCALE"
+V1_01_UI_EVIDENCE_ENVS = (
+    V1_01_UI_EVIDENCE_ENV,
+    V1_01_UI_SCREENSHOT_ENV,
+    V1_01_UI_SCALE_ENV,
+)
+
+
+def _v1_01_ui_evidence_settings():
+    values = tuple(os.environ.get(name) for name in V1_01_UI_EVIDENCE_ENVS)
+    configured = tuple(bool(value) for value in values)
+    if not any(configured):
+        return None
+    if not all(configured):
+        raise ValueError(
+            "V1-01 UI evidence environment variables must be set together"
+        )
+    return values
 
 
 class FakeEventBus:
@@ -290,6 +314,78 @@ def test_pyqt_window_builds_student_workspace_from_session_config(
     window.shutdown(timeout_ms=1000)
     assert window.vision_result_panel._unsubscribe is None
     assert window.student_controller._handlers == []
+
+
+def test_v1_01_result_panel_screenshot_harness_uses_recorded_bundle(qtbot):
+    settings = _v1_01_ui_evidence_settings()
+    if settings is None:
+        pytest.skip("V1-01 UI evidence capture is explicitly enabled")
+    evidence_value, screenshot_value, scale_value = settings
+    screenshot = Path(screenshot_value).expanduser().resolve()
+    screenshot.parent.mkdir(parents=True, exist_ok=True)
+    if screenshot.exists():
+        if not screenshot.is_file():
+            raise ValueError("V1-01 UI screenshot target must be a file")
+        screenshot.unlink()
+    evidence_dir = Path(evidence_value).expanduser().resolve(strict=True)
+    expected_scale = float(scale_value)
+
+    panel = VisionResultPanel()
+    qtbot.addWidget(panel)
+    panel.resize(1180, 760)
+    panel.load_run(evidence_dir)
+    panel.show()
+    QApplication.processEvents()
+    qtbot.waitUntil(
+        lambda: panel.isVisible() and panel.preview_label.pixmap() is not None,
+        timeout=3000,
+    )
+
+    assert panel.width() == 1180
+    assert panel.height() == 760
+    assert panel.devicePixelRatioF() == pytest.approx(
+        expected_scale,
+        abs=0.02,
+    )
+    assert "配置档：" in panel.profile_label.text()
+    assert "分辨率：" in panel.profile_label.text()
+    assert panel.layer_combo.currentData() == "raw"
+    assert "原图" in panel.layer_combo.currentText()
+    assert '"experiment_id": "V1-01"' in panel.result_text.toPlainText()
+    assert (
+        '"hardware_status": "PENDING_HARDWARE"'
+        in panel.result_text.toPlainText()
+    )
+    assert "PENDING_HARDWARE" in panel.boundary_label.text()
+    assert "不是课程成绩" in panel.boundary_label.text()
+    assert panel.preview_label.pixmap() is not None
+    assert not panel.preview_label.pixmap().isNull()
+
+    captured = panel.grab()
+    assert captured.width() > 0 and captured.height() > 0
+    temporary = screenshot.with_name(
+        f".{screenshot.name}.{uuid4().hex}.tmp"
+    )
+    try:
+        assert captured.save(str(temporary), "PNG")
+        os.replace(temporary, screenshot)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
+    assert screenshot.is_file() and screenshot.stat().st_size > 0
+
+
+@pytest.mark.parametrize("missing_env", V1_01_UI_EVIDENCE_ENVS)
+def test_v1_01_ui_screenshot_harness_rejects_partial_configuration(
+    monkeypatch,
+    missing_env,
+):
+    for name in V1_01_UI_EVIDENCE_ENVS:
+        monkeypatch.setenv(name, "configured")
+    monkeypatch.delenv(missing_env)
+
+    with pytest.raises(ValueError, match="must be set together"):
+        _v1_01_ui_evidence_settings()
 
 
 def test_pyqt_student_workspace_setup_failure_releases_partial_subscription(

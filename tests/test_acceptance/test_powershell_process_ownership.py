@@ -12,6 +12,9 @@ ROOT = Path(__file__).resolve().parents[2]
 HELPER = ROOT / "tools" / "vision_lab" / "process_ownership.ps1"
 LAUNCHER = ROOT / "tools" / "vision_lab" / "launch_coppeliasim.ps1"
 ACCEPTANCE = ROOT / "tools" / "vision_lab" / "run_acceptance.ps1"
+VISION_QUALITY_ACCEPTANCE = (
+    ROOT / "tools" / "vision_lab" / "run_vision_quality_acceptance.ps1"
+)
 POWERSHELL = "powershell.exe"
 
 
@@ -326,6 +329,99 @@ if (Test-Path -LiteralPath $SummaryPath -PathType Leaf) {{
     return json.loads(completed.stdout.strip().splitlines()[-1])
 
 
+def _run_vision_quality_acceptance_preflight_failure(
+    tmp_path: Path,
+    initial_value: str | None,
+) -> dict:
+    acceptance = str(VISION_QUALITY_ACCEPTANCE).replace("'", "''")
+    output_dir = tmp_path / (
+        "vision-quality-with-caller-value"
+        if initial_value is not None
+        else "vision-quality-without-caller-value"
+    )
+    output_dir.mkdir()
+    unrelated = output_dir / "instructor-note.txt"
+    unrelated.write_text("keep", encoding="utf-8")
+    output = str(output_dir).replace("'", "''")
+    missing_root = str(tmp_path / "missing-coppeliasim").replace("'", "''")
+    if initial_value is None:
+        initialise = (
+            "Remove-Item Env:QT_QPA_PLATFORM "
+            "-ErrorAction SilentlyContinue"
+        )
+    else:
+        escaped_value = initial_value.replace("'", "''")
+        initialise = f"$env:QT_QPA_PLATFORM = '{escaped_value}'"
+    script = rf"""
+$ErrorActionPreference = 'Stop'
+$BeforeLocation = (Get-Location).Path
+{initialise}
+$env:PYTHONUTF8 = 'caller-python-utf8'
+Remove-Item Env:PYTHONIOENCODING -ErrorAction SilentlyContinue
+$Caught = $false
+$CaughtMessage = $null
+try {{
+    . '{acceptance}' `
+        -OutputDir '{output}' `
+        -CoppeliaRoot '{missing_root}' `
+        -Port 23996
+}} catch {{
+    $Caught = $true
+    $CaughtMessage = $_.Exception.Message
+}}
+$VariableExists = Test-Path Env:QT_QPA_PLATFORM
+$VariableValue = if ($VariableExists) {{
+    $env:QT_QPA_PLATFORM
+}} else {{
+    $null
+}}
+$PythonUtf8Exists = Test-Path Env:PYTHONUTF8
+$PythonUtf8Value = $env:PYTHONUTF8
+$PythonIoEncodingExists = Test-Path Env:PYTHONIOENCODING
+$Summary = Get-Content `
+    -LiteralPath (Join-Path '{output}' 'acceptance-summary.json') `
+    -Raw `
+    -Encoding UTF8 |
+    ConvertFrom-Json
+[pscustomobject]@{{
+    caught = $Caught
+    caught_message = $CaughtMessage
+    variable_exists = $VariableExists
+    variable_value = $VariableValue
+    python_utf8_exists = $PythonUtf8Exists
+    python_utf8_value = $PythonUtf8Value
+    python_io_encoding_exists = $PythonIoEncodingExists
+    location_restored = ((Get-Location).Path -eq $BeforeLocation)
+    summary_status = $Summary.status
+    hardware_status = $Summary.hardware_status
+    teaching_effect = $Summary.teaching_effect
+    junit_exists = Test-Path `
+        -LiteralPath (Join-Path '{output}' 'vision-quality-online.xml')
+    unrelated = [string](Get-Content `
+        -LiteralPath (Join-Path '{output}' 'instructor-note.txt') `
+        -Raw `
+        -Encoding UTF8)
+}} | ConvertTo-Json -Compress
+"""
+    completed = subprocess.run(
+        [
+            POWERSHELL,
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            script,
+        ],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+    return json.loads(completed.stdout.strip().splitlines()[-1])
+
+
 def test_acceptance_invalidates_stale_summary_before_python_preflight(
     tmp_path: Path,
 ):
@@ -590,6 +686,90 @@ def test_all_coppeliasim_launchers_share_exact_owned_cleanup_helper():
         assert "ProcessStartTimeUtcTicks" in source
         assert "Stop-Process -Name" not in source
         assert ".WaitForExit(" not in source
+
+
+def test_vision_quality_acceptance_wrapper_is_fail_closed_and_owned():
+    assert VISION_QUALITY_ACCEPTANCE.is_file()
+    source = VISION_QUALITY_ACCEPTANCE.read_text(encoding="utf-8")
+
+    assert "process_ownership.ps1" in source
+    assert "BL23_vision_quality_lab.ttt" in source
+    assert "test_coppeliasim_vision_quality_scene.py" in source
+    assert "test_coppeliasim_v1_01.py" in source
+    assert '"--junitxml"' in source
+    assert "Assert-JUnitNoSkips" in source
+    assert "$Skipped -ne 0" in source
+    assert "$Failures -ne 0" in source
+    assert "$Errors -ne 0" in source
+    assert "experiment-run" in source
+    assert '"V1-01"' in source
+    assert "Wait-Process" in source
+    assert "-Timeout $TimeoutSeconds" in source
+    assert "Stop-StartedProcessObject" in source
+    assert "KillOnCloseJob" in source
+    assert "$ProcessJob.StartSuspended(" in source
+    assert "CreateProcess" in source
+    assert "$ProcessJob.Dispose()" in source
+    assert "Start-Process" not in source
+    assert "$OnlineTimeoutSeconds" in source
+    assert "$ExperimentTimeoutSeconds" in source
+    assert "& $Python @Arguments" not in source
+    assert "@(& $Python @ExperimentArguments)" not in source
+    assert '$env:PYTHONUTF8 = "1"' in source
+    assert '$env:PYTHONIOENCODING = "utf-8"' in source
+    assert "$CallerPythonUtf8" in source
+    assert "$CallerPythonIoEncoding" in source
+
+    identity = source.index("$OwnedProcessId")
+    identity_path = source.index("$OwnedProcessPath")
+    identity_ticks = source.index("$OwnedProcessStartTimeUtcTicks")
+    cleanup = source.rindex("Stop-ExactOwnedProcess")
+    status = source.index("$OverallStatus")
+    summary = source.index("$Summary =")
+    atomic_publish = source.index("Move-Item -LiteralPath $SummaryTempPath")
+    assert identity < cleanup
+    assert identity_path < cleanup
+    assert identity_ticks < cleanup
+    assert cleanup < status < summary < atomic_publish
+
+    assert "Push-Location" in source
+    assert "Pop-Location" in source
+    assert "$CallerQtPlatform" in source
+    assert "Remove-Item Env:QT_QPA_PLATFORM" in source
+    clear_qt_platform = source.index("Remove-Item Env:QT_QPA_PLATFORM")
+    launch = source.index("launch_coppeliasim.ps1")
+    assert clear_qt_platform < launch
+    assert '$env:QT_QPA_PLATFORM = "offscreen"' not in source
+    assert "Stop-Process -Name" not in source
+    assert "hardware_status = \"PENDING_HARDWARE\"" in source
+    assert "teaching_effect = \"PENDING_HUMAN_ACCEPTANCE\"" in source
+    assert "hardware_status = \"PASS\"" not in source
+    assert "teaching_effect = \"PASS\"" not in source
+
+
+@pytest.mark.parametrize("initial_value", (None, "caller-platform"))
+def test_vision_quality_acceptance_restores_environment_on_preflight_failure(
+    tmp_path: Path,
+    initial_value: str | None,
+):
+    result = _run_vision_quality_acceptance_preflight_failure(
+        tmp_path,
+        initial_value,
+    )
+
+    assert result["caught"] is True
+    assert result["caught_message"]
+    assert result["location_restored"] is True
+    assert result["variable_exists"] is (initial_value is not None)
+    assert result["variable_value"] == initial_value
+    assert result["python_utf8_exists"] is True
+    assert result["python_utf8_value"] == "caller-python-utf8"
+    assert result["python_io_encoding_exists"] is False
+    assert result["summary_status"] == "FAIL"
+    assert result["hardware_status"] == "PENDING_HARDWARE"
+    assert result["teaching_effect"] == "PENDING_HUMAN_ACCEPTANCE"
+    assert result["junit_exists"] is False
+    assert result["unrelated"] == "keep"
 
 
 def test_acceptance_cleanup_failure_precedes_and_controls_summary_status(
