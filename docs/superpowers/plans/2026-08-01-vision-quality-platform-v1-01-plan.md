@@ -1958,6 +1958,9 @@ git commit -m "feat(ui): display reusable vision result evidence"
 - Modify: `vision_platform/coppeliasim_readiness.py`
 - Modify: `tests/test_acceptance/test_coppeliasim_readiness.py`
 - Create: `tests/test_acceptance/test_coppeliasim_vision_quality_scene.py`
+- Modify: `vision_platform/cameras/coppeliasim.py`
+- Modify: `tests/test_vision_platform/test_coppeliasim_camera.py`
+- Modify: `tests/test_vision_quality/test_v1_01_materials.py`
 
 - [ ] **Step 1: Add static builder tests before scene generation**
 
@@ -1991,6 +1994,7 @@ Requirements:
 - create the inspection board and four stationary samples from primitives;
 - create twelve alternating stripe cuboids under a model named `ResolutionTarget`;
 - create `CameraRig/Camera` as a perspective vision sensor at the standard profile;
+- mark only this new V1-01 sensor for explicit handling, and make the existing CoppeliaSim camera backend call `handleVisionSensor()` before reading only when `getExplicitHandling()` confirms that mode; keep legacy non-explicit sensors unchanged;
 - set near/far clipping from the catalog;
 - orient the camera from the exact scene spec and verify all four samples are in the returned frame;
 - create key/fill lights with standard profile diffuse values;
@@ -2019,7 +2023,8 @@ else:
 .\.venv-vision\Scripts\python.exe -m pytest `
   tests/test_simulation/test_vision_quality_scene_contract.py `
   tests/test_simulation/test_formal_training_scenes.py `
-  tests/test_simulation/test_training_scene_contract.py -q
+  tests/test_simulation/test_training_scene_contract.py `
+  tests/test_vision_platform/test_coppeliasim_camera.py -q
 ```
 
 Expected: all selected unit/static tests pass before launching CoppeliaSim. Any manifest assertion in this step uses the fake publisher's temporary output, never a nonexistent repository manifest.
@@ -2206,7 +2211,10 @@ git add simulation/training_scenes/build_scene.py `
   tests/test_experiments tests/test_acceptance/test_delivery_contract.py `
   vision_platform/coppeliasim_readiness.py `
   tests/test_acceptance/test_coppeliasim_readiness.py `
-  tests/test_acceptance/test_coppeliasim_vision_quality_scene.py
+  tests/test_acceptance/test_coppeliasim_vision_quality_scene.py `
+  vision_platform/cameras/coppeliasim.py `
+  tests/test_vision_platform/test_coppeliasim_camera.py `
+  tests/test_vision_quality/test_v1_01_materials.py
 git commit -m "feat(simulation): publish vision quality lab scene"
 ```
 
