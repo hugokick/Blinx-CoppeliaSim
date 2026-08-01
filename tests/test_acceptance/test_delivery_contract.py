@@ -66,6 +66,79 @@ V21_REQUIRED_RELEASE_PATHS = frozenset(
     }
 )
 
+V22_FIRST_BATCH_REQUIRED_RELEASE_PATHS = frozenset(
+    {
+        "config/experiments/R1-01.json",
+        "config/experiments/R1-02.json",
+        "config/experiments/R1-05.json",
+        "config/experiments/R1-06.json",
+        "config/experiments/R1-07.json",
+        "config/experiments/catalog.json",
+        "docs/experiments/R1-01.md",
+        "docs/experiments/R1-02.md",
+        "docs/experiments/R1-05.md",
+        "docs/experiments/R1-06.md",
+        "docs/experiments/R1-07.md",
+        "docs/superpowers/plans/"
+        "2026-07-31-robot-curriculum-v2-2-first-batch-plan.md",
+        "docs/superpowers/specs/"
+        "2026-07-31-robot-curriculum-coppeliasim-roadmap-design.md",
+        "simulation/logistics_lab/__init__.py",
+        "simulation/logistics_lab/BL23_logistics_lab.ttt",
+        "simulation/logistics_lab/assets/labels/digits/1.png",
+        "simulation/logistics_lab/assets/labels/digits/2.png",
+        "simulation/logistics_lab/assets/labels/digits/3.png",
+        "simulation/logistics_lab/assets/labels/manifest.json",
+        "simulation/logistics_lab/scene_manifest.json",
+        "simulation/logistics_lab/scene_spec.json",
+        "simulation/robot_basics/__init__.py",
+        "simulation/robot_basics/BL23_robot_basics.ttt",
+        "simulation/robot_basics/scene_manifest.json",
+        "simulation/robot_basics/scene_spec.json",
+        "simulation/training_scenes/__init__.py",
+        "simulation/training_scenes/build_scene.py",
+        "simulation/training_scenes/generate_labels.py",
+        "simulation/training_scenes/scene_contract.py",
+        "simulation/training_scenes/verify_scene.py",
+        "student_programs/__init__.py",
+        "student_programs/templates/__init__.py",
+        "student_programs/templates/r1_01_robot_basics.py",
+        "student_programs/templates/r1_02_teach_points.py",
+        "student_programs/templates/r1_05_visual_stacking.py",
+        "student_programs/templates/r1_06_digit_sort.py",
+        "student_programs/templates/r1_07_component_sort.py",
+        "student_programs/templates/r1_common.py",
+        "tests/test_acceptance/test_coppeliasim_r1_experiments.py",
+        "tests/test_acceptance/test_coppeliasim_training_scenes.py",
+        "tests/test_acceptance/test_experiment_guides.py",
+        "tests/test_experiments/__init__.py",
+        "tests/test_experiments/test_capabilities.py",
+        "tests/test_experiments/test_catalog.py",
+        "tests/test_experiments/test_cli.py",
+        "tests/test_experiments/test_formal_catalog.py",
+        "tests/test_experiments/test_probes.py",
+        "tests/test_experiments/test_scene_setup.py",
+        "tests/test_experiments/test_session.py",
+        "tests/test_experiments/test_student_templates.py",
+        "tests/test_simulation/test_formal_training_scenes.py",
+        "tests/test_simulation/test_training_labels.py",
+        "tests/test_simulation/test_training_scene_contract.py",
+        "tests/test_student_programs/test_experiment_evidence.py",
+        "tests/test_student_programs/test_experiment_gateway.py",
+        "tests/test_vision_platform/test_experiment_catalog_panel.py",
+        "tools/vision_lab/run_experiment.ps1",
+        "vision_platform/experiments/__init__.py",
+        "vision_platform/experiments/capabilities.py",
+        "vision_platform/experiments/catalog.py",
+        "vision_platform/experiments/models.py",
+        "vision_platform/experiments/probes.py",
+        "vision_platform/experiments/scene_setup.py",
+        "vision_platform/experiments/session.py",
+        "vision_platform/student/experiment_gateway.py",
+        "vision_platform/ui/experiment_catalog_panel.py",
+    }
+)
+
 
 def _retained_release_paths() -> set[str]:
     return {
@@ -737,6 +810,112 @@ def test_clean_release_whitelist_contains_complete_v21_delivery():
     assert all((ROOT / path).is_file() for path in retained)
 
 
+def test_formal_experiment_catalog_resolves_every_delivery_path():
+    from vision_platform.experiments.catalog import ExperimentCatalog
+
+    catalog = ExperimentCatalog.load(
+        ROOT / "config" / "experiments" / "catalog.json",
+        project_root=ROOT,
+    )
+
+    assert catalog.ids == (
+        "R1-01",
+        "R1-02",
+        "R1-05",
+        "R1-06",
+        "R1-07",
+    )
+    for item in catalog.definitions:
+        assert item.scene.is_file()
+        assert item.scene_manifest.is_file()
+        assert item.student_template.is_file()
+        assert item.guide.is_file()
+        assert item.hardware_status == "PENDING_HARDWARE"
+
+
+def test_retained_files_contains_every_first_batch_delivery():
+    retained = _retained_release_paths()
+    missing = sorted(V22_FIRST_BATCH_REQUIRED_RELEASE_PATHS - retained)
+
+    assert not missing, (
+        f"RETAINED_FILES.txt is missing {len(missing)} V2.2 paths: "
+        + ", ".join(missing)
+    )
+    assert all(
+        (ROOT / path).is_file()
+        for path in V22_FIRST_BATCH_REQUIRED_RELEASE_PATHS
+    )
+    assert all((ROOT / path).is_file() for path in retained)
+    assert not any(path.startswith("artifacts/") for path in retained)
+
+
+def test_first_batch_plan_release_list_uses_real_digit_label_paths():
+    source = (
+        ROOT
+        / "docs"
+        / "superpowers"
+        / "plans"
+        / "2026-07-31-robot-curriculum-v2-2-first-batch-plan.md"
+    ).read_text(encoding="utf-8")
+    release_section = source.split(
+        "**Step 2: 登记全部新增正式文件**",
+        1,
+    )[1].split("**Step 3: 更新使用说明和 README**", 1)[0]
+    listed_paths = {
+        line.strip().replace("\\", "/")
+        for line in release_section.splitlines()
+    }
+    required = {
+        f"simulation/logistics_lab/assets/labels/digits/{digit}.png"
+        for digit in (1, 2, 3)
+    }
+    obsolete = {
+        f"simulation/logistics_lab/assets/labels/{digit}.png"
+        for digit in (1, 2, 3)
+    }
+    missing = sorted(required - listed_paths)
+    obsolete_present = sorted(obsolete & listed_paths)
+
+    assert not missing and not obsolete_present, (
+        f"missing real digit paths: {missing}; "
+        f"obsolete paths still listed: {obsolete_present}"
+    )
+
+
+def test_first_batch_plan_final_commit_includes_the_plan_itself():
+    plan_path = (
+        "docs/superpowers/plans/"
+        "2026-07-31-robot-curriculum-v2-2-first-batch-plan.md"
+    )
+    source = (ROOT / plan_path).read_text(encoding="utf-8")
+    commit_section = source.split(
+        "**Step 10: 提交最终交付**",
+        1,
+    )[1].split("## 完成定义", 1)[0]
+
+    assert plan_path in commit_section
+
+
+def test_first_batch_plan_compares_protected_assets_to_v21_baseline():
+    source = (
+        ROOT
+        / "docs"
+        / "superpowers"
+        / "plans"
+        / "2026-07-31-robot-curriculum-v2-2-first-batch-plan.md"
+    ).read_text(encoding="utf-8")
+    audit_section = source.split(
+        "**Step 8: 检查文档、编码、占位符和受保护资产**",
+        1,
+    )[1].split("**Step 9: 更新自动验收报告**", 1)[0]
+
+    assert (
+        "git diff --exit-code "
+        "4bc638f50fd590ca700615da46741a86c4146b5f..HEAD --"
+    ) in audit_section
+    assert "git diff --exit-code --" in audit_section
+
+
 def test_clean_release_whitelist_excludes_generated_or_personal_data():
     retained = _retained_release_paths()
     forbidden_roots = (
@@ -788,6 +967,41 @@ def test_entry_docs_cover_complete_student_programming_workflow():
         assert not missing, f"{path.name} is missing: {missing}"
 
 
+def test_entry_docs_cover_first_batch_experiment_workflow_and_boundaries():
+    entry_docs = (
+        ROOT / "README.md",
+        ROOT / "docs" / "视觉仿真实训平台使用说明.md",
+    )
+    required = (
+        "tools\\vision_lab\\python.ps1",
+        "-m vision_platform.cli experiment-list",
+        "tools\\vision_lab\\run_experiment.ps1",
+        "-Experiment R1-05",
+        "实验目录",
+        "先选择实验",
+        "终止旧会话",
+        "重新加载确定场景",
+        "R1-05",
+        "R1-06",
+        "R1-07",
+        "artifacts/vision_lab/experiment-runs",
+        "snapshots.jsonl",
+        "scene-final.json",
+        "终态探针不是正式成绩",
+        "教师人工验收",
+        "海康 MVS",
+        "急停",
+        "气路",
+        "物理抓取",
+        "PENDING_HARDWARE",
+    )
+
+    for path in entry_docs:
+        source = path.read_text(encoding="utf-8")
+        missing = [item for item in required if item not in source]
+        assert not missing, f"{path.name} is missing: {missing}"
+
+
 def test_v21_acceptance_report_preserves_automated_and_manual_boundaries():
     source = (
         ROOT / "docs" / "视觉仿真实训平台自动验收报告.md"
@@ -818,6 +1032,52 @@ def test_v21_acceptance_report_preserves_automated_and_manual_boundaries():
         assert item in source
     assert "待主代理真实检查" not in source
     assert "V2.1 全部完成：PASS" not in source
+
+
+def test_v22_acceptance_report_records_exact_gates_and_boundaries():
+    source = (
+        ROOT / "docs" / "视觉仿真实训平台自动验收报告.md"
+    ).read_text(encoding="utf-8")
+    required = (
+        "V2.2 首批课程自动验收增补",
+        "4bc638f50fd590ca700615da46741a86c4146b5f",
+        "cf45df5049f1f2544434279108bc5d0112d4eaf0",
+        "codex/v2-2-first-batch-integration",
+        "1174 passed, 10 skipped",
+        "1177 passed, 10 skipped",
+        "最终静态回归比一键验收内多 3 项",
+        "Step 10 自包含提交清单合同",
+        "Step 8 基线资产审计合同",
+        "pytest-static-final.txt",
+        "7 passed, 0 skipped",
+        "2 个场景 + 5 个实验",
+        "task15-live-junit-verification.json",
+        "test_training_scene_loads_path0/robot_basics.json",
+        "test_training_scene_loads_path1/logistics_lab.json",
+        "20260801-061317-r1_01_robot_basics-b26752ee",
+        "20260801-061319-r1_02_teach_points-27b57e2a",
+        "20260801-061321-r1_05_visual_stacking-7d4da6e6",
+        "20260801-061324-r1_06_digit_sort-61329be8",
+        "20260801-061327-r1_07_component_sort-aa8c9db0",
+        "场景探针 `PASS`",
+        "受保护资产差异路径数为 0",
+        "Codex developer-side visible inspection",
+        "2026-08-01",
+        "artifacts/vision_lab/v2-2-first-batch-final/ui/manual-ui-summary.json",
+        "artifacts/vision_lab/v2-2-first-batch-final/ui/scale-100/04-all-five-experiments.png",
+        "artifacts/vision_lab/v2-2-first-batch-final/ui/scale-125/05-r1-07-long-name-details.png",
+        "PENDING_HUMAN_ACCEPTANCE",
+        "海康 MVS",
+        "急停",
+        "气路",
+        "物理抓取",
+        "PENDING_HARDWARE",
+    )
+
+    for item in required:
+        assert item in source
+    assert "教师教学效果验收：PASS" not in source
+    assert "真机验收：PASS" not in source
 
 
 def test_delivery_has_formal_experiment_cli_and_powershell_entry():

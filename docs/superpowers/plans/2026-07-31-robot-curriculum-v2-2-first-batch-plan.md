@@ -5357,7 +5357,7 @@ git commit -m "test(acceptance): verify five R1 experiments live"
 - Modify: `tests/test_acceptance/test_delivery_contract.py`
 - Evidence: `artifacts/vision_lab/v2-2-first-batch-final/`
 
-- [ ] **Step 1: 增加正式目录可解析发布测试**
+- [x] **Step 1: 增加正式目录可解析发布测试**
 
 Append to `tests/test_acceptance/test_delivery_contract.py`:
 
@@ -5379,7 +5379,7 @@ def test_formal_experiment_catalog_resolves_every_delivery_path():
         assert item.hardware_status == "PENDING_HARDWARE"
 ```
 
-- [ ] **Step 2: 登记全部新增正式文件**
+- [x] **Step 2: 登记全部新增正式文件**
 
 把本计划创建的下列路径逐项加入 `RETAINED_FILES.txt`：
 
@@ -5399,9 +5399,9 @@ docs/superpowers/plans/2026-07-31-robot-curriculum-v2-2-first-batch-plan.md
 docs/superpowers/specs/2026-07-31-robot-curriculum-coppeliasim-roadmap-design.md
 simulation/logistics_lab/__init__.py
 simulation/logistics_lab/BL23_logistics_lab.ttt
-simulation/logistics_lab/assets/labels/1.png
-simulation/logistics_lab/assets/labels/2.png
-simulation/logistics_lab/assets/labels/3.png
+simulation/logistics_lab/assets/labels/digits/1.png
+simulation/logistics_lab/assets/labels/digits/2.png
+simulation/logistics_lab/assets/labels/digits/3.png
 simulation/logistics_lab/assets/labels/manifest.json
 simulation/logistics_lab/scene_manifest.json
 simulation/logistics_lab/scene_spec.json
@@ -5454,7 +5454,7 @@ vision_platform/ui/experiment_catalog_panel.py
 
 不登记 `artifacts/`、`.venv-vision/`、`__pycache__/`、`.pytest_cache/` 或学生个人程序。
 
-- [ ] **Step 3: 更新使用说明和 README**
+- [x] **Step 3: 更新使用说明和 README**
 
 在 `README.md` 和 `docs/视觉仿真实训平台使用说明.md` 增加：
 
@@ -5475,7 +5475,7 @@ powershell -ExecutionPolicy Bypass -File tools\vision_lab\run_experiment.ps1 `
 - 人工教学效果验收仍需教师完成；
 - 真机、海康 MVS、急停、气路和物理抓取均为 `PENDING_HARDWARE`。
 
-- [ ] **Step 4: 扩展发布白名单合同**
+- [x] **Step 4: 扩展发布白名单合同**
 
 在 `test_delivery_contract.py` 增加：
 
@@ -5503,7 +5503,7 @@ def test_retained_files_contains_every_first_batch_delivery():
     assert not any(path.startswith("artifacts/") for path in retained)
 ```
 
-- [ ] **Step 5: 运行完整静态回归**
+- [x] **Step 5: 运行完整静态回归**
 
 Run:
 
@@ -5519,7 +5519,7 @@ if ($LASTEXITCODE -ne 0) {
 
 Expected: 零失败；显式 CoppeliaSim 测试在静态运行中可显示 skip，但不能作为在线 PASS。
 
-- [ ] **Step 6: 运行完整在线验收**
+- [x] **Step 6: 运行完整在线验收**
 
 Run:
 
@@ -5535,7 +5535,7 @@ Expected:
 - 两个 V2.2 场景和五个 R1 实验在线门禁实际 PASS，零 skip；
 - 汇总保留 `hardware_status=PENDING_HARDWARE`。
 
-- [ ] **Step 7: 执行 PyQt 人工视觉门禁**
+- [x] **Step 7: 执行 PyQt 人工视觉门禁**
 
 Run:
 
@@ -5553,7 +5553,7 @@ powershell -ExecutionPolicy Bypass -File tools\vision_lab\run_pyqt.ps1
 
 人工视觉门禁只证明界面可用性，不证明教学效果或真机通过。
 
-- [ ] **Step 8: 检查文档、编码、占位符和受保护资产**
+- [x] **Step 8: 检查文档、编码、占位符和受保护资产**
 
 Run:
 
@@ -5586,6 +5586,12 @@ foreach ($document in $documents) {
   }
 }
 git diff --check
+git diff --exit-code 4bc638f50fd590ca700615da46741a86c4146b5f..HEAD -- `
+  simulation/vision_lab/BL23_vision_lab.ttt `
+  robot_backends/models/BLX_openr6.ttt `
+  robot_backends/models/openr6_arm_coppeliasim.urdf `
+  robot_backends/models/meshes_blx `
+  simulation/vision_lab/assets/robot
 git diff --exit-code -- `
   simulation/vision_lab/BL23_vision_lab.ttt `
   robot_backends/models/BLX_openr6.ttt `
@@ -5594,9 +5600,9 @@ git diff --exit-code -- `
   simulation/vision_lab/assets/robot
 ```
 
-Expected: 无未解决占位符、无 UTF-8 BOM、无 diff 错误、受保护资产零差异。验收文档可以出现“真机验收未通过/待硬件”，但不得出现宣称通过的句子；若组合词搜索误报，人工核对语义并保留准确边界。
+Expected: 无未解决占位符、无 UTF-8 BOM、无 diff 错误；受保护资产从 V2.1 基线到当前 `HEAD` 以及当前工作区均为零差异。验收文档可以出现“真机验收未通过/待硬件”，但不得出现宣称通过的句子；若组合词搜索误报，人工核对语义并保留准确边界。
 
-- [ ] **Step 9: 更新自动验收报告**
+- [x] **Step 9: 更新自动验收报告**
 
 在 `docs/视觉仿真实训平台自动验收报告.md` 记录：
 
@@ -5609,7 +5615,7 @@ Expected: 无未解决占位符、无 UTF-8 BOM、无 diff 错误、受保护资
 - 教师教学效果验收仍待完成；
 - 真机、海康 MVS、急停、气路和物理抓取继续 `PENDING_HARDWARE`。
 
-- [ ] **Step 10: 提交最终交付**
+- [x] **Step 10: 提交最终交付**
 
 Run:
 
@@ -5617,6 +5623,7 @@ Run:
 git add `
   README.md `
   RETAINED_FILES.txt `
+  docs/superpowers/plans/2026-07-31-robot-curriculum-v2-2-first-batch-plan.md `
   docs/视觉仿真实训平台使用说明.md `
   docs/视觉仿真实训平台自动验收报告.md `
   tests/test_acceptance/test_delivery_contract.py

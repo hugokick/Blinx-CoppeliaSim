@@ -35,6 +35,35 @@ powershell -ExecutionPolicy Bypass -File tools\vision_lab\run_replay_demo.ps1
 powershell -ExecutionPolicy Bypass -File tools\vision_lab\run_acceptance.ps1
 ```
 
+## 首批课程实验
+
+正式实验目录精确包含 `R1-01`、`R1-02`、`R1-05`、`R1-06` 和
+`R1-07`。可先列出目录：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\vision_lab\python.ps1 `
+  -m vision_platform.cli experiment-list
+```
+
+也可从 PowerShell 直接运行一个实验，例如：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\vision_lab\run_experiment.ps1 `
+  -Experiment R1-05
+```
+
+在 PyQt 中应先进入“实验目录”并先选择实验，再编辑和运行随实验加载的
+模板。切换实验会终止旧会话并重新加载确定场景，未保存的编辑内容应先由
+学生自行保存。
+
+`R1-05`、`R1-06`、`R1-07` 每次集成运行的证据位于
+`artifacts/vision_lab/experiment-runs/<运行目录>/`；原始图像在 `frames/`，
+快照索引在 `snapshots.jsonl`，终态探针在 `scene-final.json`。
+终态探针不是正式成绩，只用于复核场景是否到达预期状态；教学效果仍须
+教师人工验收。
+仿真结果也不覆盖真机、海康 MVS、急停、气路和物理抓取，这些项目均为
+`PENDING_HARDWARE`。
+
 ## 学生自编程
 
 模板位于 `student_programs/templates/`：
