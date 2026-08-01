@@ -28,8 +28,8 @@
     "scene_group_path": "/LogisticsLab/Tasks/Classes",
     "pickables_path": "/LogisticsLab/Tasks/Classes/Pickables",
     "calibration_matrix": [
-      [0.203125, 0.0, 35.0],
-      [0.0, -0.2916666667, 70.0]
+      [-0.7967177920276043, -0.003456780634791601, 335.0494684241889],
+      [-0.005058590878937541, 0.7956990107716659, -189.36264888807764]
     ],
     "pick_region_world_mm": {"x_max": 108},
     "classes": [

@@ -5045,7 +5045,7 @@ git commit -m "feat(ui): add robot experiment catalog"
 - Create: `tests/test_acceptance/test_coppeliasim_r1_experiments.py`
 - Modify: `tools/vision_lab/run_acceptance.ps1`
 
-- [ ] **Step 1: 写在线场景验证器**
+- [x] **Step 1: 写在线场景验证器**
 
 Create `simulation/training_scenes/verify_scene.py`:
 
@@ -5181,7 +5181,7 @@ if __name__ == "__main__":
     raise SystemExit(main())
 ```
 
-- [ ] **Step 2: 写两个场景在线测试**
+- [x] **Step 2: 写两个场景在线测试**
 
 Create `tests/test_acceptance/test_coppeliasim_training_scenes.py`:
 
@@ -5223,7 +5223,7 @@ def test_training_scene_loads_paths_and_captures_camera(
     assert report["hardware_status"] == "PENDING_HARDWARE"
 ```
 
-- [ ] **Step 3: 写五个实验端到端在线测试**
+- [x] **Step 3: 写五个实验端到端在线测试**
 
 Create `tests/test_acceptance/test_coppeliasim_r1_experiments.py`:
 
@@ -5290,7 +5290,7 @@ def test_r1_experiment_runs_through_guarded_student_process(
         assert (evidence / "snapshots.jsonl").is_file()
 ```
 
-- [ ] **Step 4: 运行在线测试并按真实图像调校**
+- [x] **Step 4: 运行在线测试并按真实图像调校**
 
 Run:
 
@@ -5310,7 +5310,7 @@ Expected: `7 passed`，零 skip。若视觉模板识别数量、吸盘距离或�
 
 不得修改正式 `BL23_vision_lab.ttt`、机器人资产、V2.1 运动安全范围或吸盘最大附着距离来换取 PASS。每次改动场景规格后重新运行构建器、更新场景清单并重复本步骤。
 
-- [ ] **Step 5: 把在线门禁加入验收脚本**
+- [x] **Step 5: 把在线门禁加入验收脚本**
 
 在 `tools/vision_lab/run_acceptance.ps1` 原有 V2.1 在线测试之后增加：
 
@@ -5334,7 +5334,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 ```
 
-- [ ] **Step 6: 提交在线门禁**
+- [x] **Step 6: 提交在线门禁**
 
 Run:
 

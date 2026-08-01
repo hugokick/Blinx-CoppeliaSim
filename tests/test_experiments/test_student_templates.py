@@ -64,6 +64,56 @@ class FakeRobot:
         if len(self.moves) + 1 == self.fail_move:
             raise RuntimeError("primary motion failure")
         self.moves.append((x, y, z, speed))
+        self.pose_value = (x, y, z)
+
+
+class FeedbackRobot:
+    def __init__(self, poses):
+        self.poses = list(poses)
+        self.pose_calls = 0
+        self.moves = []
+        self.events = []
+
+    def pose(self):
+        if self.pose_calls >= len(self.poses):
+            raise AssertionError("unexpected extra pose feedback request")
+        pose = self.poses[self.pose_calls]
+        self.pose_calls += 1
+        self.events.append(("pose", pose))
+        return pose
+
+    def move_world(self, x, y, z, *, speed):
+        move = (x, y, z, speed)
+        self.moves.append(move)
+        self.events.append(("move", move))
+
+
+class SafeHeightFeedbackRobot:
+    def __init__(self, *, safe_z_mm, feedback_shortfall_mm):
+        self.safe_z_mm = safe_z_mm
+        self.feedback_shortfall_mm = feedback_shortfall_mm
+        self.pose_value = (100.0, 0.0, 120.0)
+        self.moves = []
+        self.segments = []
+
+    def pose(self):
+        return self.pose_value
+
+    def move_world(self, x, y, z, *, speed):
+        start = self.pose_value
+        target = (x, y, z)
+        horizontal = start[:2] != target[:2]
+        if horizontal and (
+            start[2] < self.safe_z_mm or target[2] < self.safe_z_mm
+        ):
+            raise RuntimeError("horizontal move below nominal safe height")
+        self.moves.append((x, y, z, speed))
+        self.segments.append((start, target))
+        self.pose_value = (
+            x,
+            y,
+            z - self.feedback_shortfall_mm,
+        )
 
 
 class FakeTool:
@@ -250,6 +300,47 @@ def test_colored_detector_distinguishes_four_colors_and_two_shapes():
     ]
 
 
+def test_colored_detector_separates_touching_yellow_pickable_and_blue_target():
+    image = np.zeros((120, 220, 3), dtype=np.uint8)
+    cv2.rectangle(image, (20, 30), (80, 90), (0, 255, 255), -1)
+    cv2.rectangle(image, (81, 30), (181, 90), (255, 0, 0), -1)
+
+    objects = detect_colored_objects(
+        image,
+        calibration_matrix=[[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+        pick_x_max_mm=80.0,
+        minimum_area_px=100.0,
+    )
+
+    assert [(item.color, item.world_xy_mm) for item in objects] == [
+        ("yellow", (50.0, 60.0)),
+    ]
+
+
+def test_colored_detector_snaps_accepted_world_xy_to_half_mm_grid():
+    image = np.zeros((100, 100, 3), dtype=np.uint8)
+    cv2.rectangle(image, (20, 20), (60, 60), (0, 0, 255), -1)
+    matrix = [[0.203125, 0.0, 35.0], [0.0, -0.2916666667, 70.0]]
+    raw_world_xy = pixel_to_world(matrix, (40.0, 40.0))
+    assert any(
+        component * 2.0 != pytest.approx(round(component * 2.0))
+        for component in raw_world_xy
+    )
+
+    detected = detect_colored_objects(
+        image,
+        calibration_matrix=matrix,
+        pick_x_max_mm=100.0,
+        minimum_area_px=100.0,
+    )
+
+    assert len(detected) == 1
+    assert all(
+        component * 2.0 == pytest.approx(round(component * 2.0))
+        for component in detected[0].world_xy_mm
+    )
+
+
 def _write_digit_references(directory, *, shape=(96, 64)):
     directory.mkdir(parents=True, exist_ok=True)
     for digit in (1, 2, 3):
@@ -324,6 +415,23 @@ def _render_scene_digit_boards(scale_px_per_mm):
     return canvas
 
 
+def _formal_digit_frame(digit, *, mirrored=False, dark_noise=False):
+    reference = cv2.imread(
+        str(FORMAL_LABEL_ROOT / "digits" / f"{digit}.png"),
+        cv2.IMREAD_GRAYSCALE,
+    )
+    assert reference is not None
+    if mirrored:
+        reference = cv2.flip(reference, 1)
+    if dark_noise:
+        reference = reference.copy()
+        reference[4, 60] = 0
+
+    frame = np.zeros((120, 88, 3), dtype=np.uint8)
+    frame[12:108, 12:76] = cv2.cvtColor(reference, cv2.COLOR_GRAY2BGR)
+    return frame
+
+
 def test_formal_digit_reference_bytes_and_manifest_hash_stay_frozen():
     expected = {
         "digits/1.png": (
@@ -384,6 +492,49 @@ def test_digit_detector_matches_real_scene_geometry_to_formal_references(
     )
 
 
+def test_digit_detector_ignores_tiny_dark_plate_noise_for_digit_one():
+    detected = detect_digit_objects(
+        _formal_digit_frame(1, dark_noise=True),
+        calibration_matrix=[[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+        pick_x_max_mm=100.0,
+        reference_dir=FORMAL_LABEL_ROOT / "digits",
+    )
+
+    assert [(digit,) for digit, _xy, _confidence in detected] == [(1,)]
+    assert detected[0][2] >= MIN_VISUAL_CONFIDENCE
+
+
+def test_digit_detector_matches_horizontally_mirrored_digit_three():
+    detected = detect_digit_objects(
+        _formal_digit_frame(3, mirrored=True),
+        calibration_matrix=[[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+        pick_x_max_mm=100.0,
+        reference_dir=FORMAL_LABEL_ROOT / "digits",
+    )
+
+    assert [(digit,) for digit, _xy, _confidence in detected] == [(3,)]
+    assert detected[0][2] >= MIN_VISUAL_CONFIDENCE
+
+
+def test_digit_detector_snaps_accepted_world_xy_to_half_mm_grid():
+    image = _render_scene_digit_boards(3)
+    matrix = [[1.0, 0.0, 0.13], [0.0, 1.0, 0.13]]
+
+    detected = detect_digit_objects(
+        image,
+        calibration_matrix=matrix,
+        pick_x_max_mm=float(image.shape[1]),
+        reference_dir=FORMAL_LABEL_ROOT / "digits",
+    )
+
+    assert len(detected) == 3
+    assert all(
+        component * 2.0 == pytest.approx(round(component * 2.0))
+        for _digit, world_xy, _confidence in detected
+        for component in world_xy
+    )
+
+
 def test_digit_detector_rejects_reference_with_wrong_dimensions(tmp_path):
     _write_digit_references(tmp_path, shape=(48, 32))
     image = np.zeros((100, 100, 3), dtype=np.uint8)
@@ -420,6 +571,28 @@ def test_digit_detector_rejects_non_finite_template_score(
         )
 
 
+def test_digit_detector_fails_closed_on_template_matching_exception(
+    tmp_path,
+    monkeypatch,
+):
+    _write_digit_references(tmp_path)
+    image = np.zeros((100, 100, 3), dtype=np.uint8)
+    cv2.rectangle(image, (10, 10), (50, 70), (255, 255, 255), -1)
+
+    def fail_matching(*_args, **_kwargs):
+        raise cv2.error("template matching failed")
+
+    monkeypatch.setattr(r1_common.cv2, "matchTemplate", fail_matching)
+
+    with pytest.raises(RuntimeError, match="模板匹配失败"):
+        detect_digit_objects(
+            image,
+            calibration_matrix=[[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+            pick_x_max_mm=100.0,
+            reference_dir=tmp_path,
+        )
+
+
 @pytest.mark.parametrize(
     ("best_score", "accepted"),
     ((0.499999, False), (0.5, True)),
@@ -433,7 +606,7 @@ def test_digit_detector_requires_inclusive_minimum_confidence(
     _write_digit_references(tmp_path)
     image = np.zeros((100, 100, 3), dtype=np.uint8)
     cv2.rectangle(image, (10, 10), (50, 70), (255, 255, 255), -1)
-    scores = iter((0.1, best_score, 0.2))
+    scores = iter((0.1, 0.1, best_score, best_score, 0.2, 0.2))
     monkeypatch.setattr(
         r1_common.cv2,
         "matchTemplate",
@@ -474,13 +647,97 @@ def test_pick_and_place_always_lifts_before_horizontal_motion():
     )
 
     assert ctx.robot.moves == [
-        (50.0, -40.0, 100.0, 12.0),
+        (50.0, -40.0, 101.0, 12.0),
         (50.0, -40.0, 20.0, 8.0),
-        (50.0, -40.0, 100.0, 12.0),
-        (118.0, 45.0, 100.0, 12.0),
+        (50.0, -40.0, 101.0, 12.0),
+        (118.0, 45.0, 101.0, 12.0),
         (118.0, 45.0, 38.0, 8.0),
-        (118.0, 45.0, 100.0, 12.0),
+        (118.0, 45.0, 101.0, 12.0),
     ]
+    assert ctx.robot.pose_calls == 5
+    assert ctx.tool.events == ["on", "off"]
+
+
+def test_pick_and_place_uses_feedback_xy_for_every_vertical_move():
+    feedback_poses = [
+        (100.0, 0.0, 120.0),
+        (44.9, -54.9, 101.0),
+        (44.8, -54.8, 20.0),
+        (117.9, 44.9, 101.0),
+        (117.8, 44.8, 38.0),
+    ]
+    robot = FeedbackRobot(feedback_poses)
+    ctx = FakeContext(robot=robot)
+
+    pick_and_place(
+        ctx,
+        pick_xy=(45.0, -55.0),
+        drop_xyz=(118.0, 45.0, 38.0),
+        pick_z_mm=20.0,
+        safe_z_mm=100.0,
+        speed=12.0,
+    )
+
+    assert robot.pose_calls == len(feedback_poses)
+    assert robot.moves == [
+        (45.0, -55.0, 101.0, 12.0),
+        (44.9, -54.9, 20.0, 8.0),
+        (44.8, -54.8, 101.0, 12.0),
+        (118.0, 45.0, 101.0, 12.0),
+        (117.9, 44.9, 38.0, 8.0),
+        (117.8, 44.8, 101.0, 12.0),
+    ]
+    assert robot.events == [
+        ("pose", feedback_poses[0]),
+        ("move", robot.moves[0]),
+        ("pose", feedback_poses[1]),
+        ("move", robot.moves[1]),
+        ("pose", feedback_poses[2]),
+        ("move", robot.moves[2]),
+        ("move", robot.moves[3]),
+        ("pose", feedback_poses[3]),
+        ("move", robot.moves[4]),
+        ("pose", feedback_poses[4]),
+        ("move", robot.moves[5]),
+    ]
+    vertical_feedback_pairs = (
+        (feedback_poses[1], robot.moves[1]),
+        (feedback_poses[2], robot.moves[2]),
+        (feedback_poses[3], robot.moves[4]),
+        (feedback_poses[4], robot.moves[5]),
+    )
+    assert all(
+        target[:2] == actual[:2]
+        for actual, target in vertical_feedback_pairs
+    )
+
+
+def test_pick_and_place_keeps_feedback_above_safe_z_before_horizontal_moves():
+    robot = SafeHeightFeedbackRobot(
+        safe_z_mm=100.0,
+        feedback_shortfall_mm=0.1,
+    )
+    ctx = FakeContext(robot=robot)
+
+    pick_and_place(
+        ctx,
+        pick_xy=(70.0, -60.0),
+        drop_xyz=(118.0, -45.0, 20.0),
+        pick_z_mm=20.0,
+        safe_z_mm=100.0,
+        speed=12.0,
+    )
+
+    horizontal_segments = [
+        (start, target)
+        for start, target in robot.segments
+        if start[:2] != target[:2]
+    ]
+    assert horizontal_segments
+    assert all(
+        start[2] > 100.0 and target[2] > 100.0
+        for start, target in horizontal_segments
+    )
     assert ctx.tool.events == ["on", "off"]
 
 
@@ -497,8 +754,8 @@ def test_pick_and_place_lifts_at_current_xy_before_horizontal_motion():
     )
 
     assert ctx.robot.moves[:2] == [
-        (20.0, 30.0, 100.0, 12.0),
-        (50.0, -40.0, 100.0, 12.0),
+        (20.0, 30.0, 101.0, 12.0),
+        (50.0, -40.0, 101.0, 12.0),
     ]
 
 

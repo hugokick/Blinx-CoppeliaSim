@@ -122,6 +122,7 @@ tests/test_acceptance/test_coppeliasim_calibration.py
 tests/test_acceptance/test_coppeliasim_classification.py
 tests/test_acceptance/test_coppeliasim_fixture_helpers.py
 tests/test_acceptance/test_coppeliasim_readiness.py
+tests/test_acceptance/test_coppeliasim_r1_experiments.py
 tests/test_acceptance/test_coppeliasim_student_program.py
 tests/test_acceptance/test_coppeliasim_training_scenes.py
 tests/test_acceptance/test_delivery_contract.py

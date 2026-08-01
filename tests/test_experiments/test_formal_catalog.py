@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from math import dist
 from pathlib import Path
 
 from vision_platform.experiments.catalog import ExperimentCatalog
@@ -9,6 +10,29 @@ from vision_platform.experiments.catalog import ExperimentCatalog
 ROOT = Path(__file__).resolve().parents[2]
 CONFIG_DIR = ROOT / "config" / "experiments"
 EXPERIMENT_IDS = ("R1-01", "R1-02", "R1-05", "R1-06", "R1-07")
+LOGISTICS_EXPERIMENT_IDS = ("R1-05", "R1-06", "R1-07")
+MEASURED_LOGISTICS_CALIBRATION = (
+    ((363.0, 165.0), (45.0, -60.0), "pick"),
+    ((331.9898894154818, 164.98894154818325), (70.0, -60.0), "pick"),
+    ((301.0, 165.0), (95.0, -60.0), "pick"),
+    ((363.0, 208.5), (45.0, -25.0), "pick"),
+    ((331.98944939004286, 208.4889548302011), (70.0, -25.0), "pick"),
+    ((300.9791666666667, 208.52083333333334), (95.0, -25.0), "pick"),
+    ((271.0105465004794, 182.48130393096835), (118.0, -45.0), "target"),
+    ((271.0105465004794, 296.51869606903165), (118.0, 45.0), "target"),
+)
+EXPECTED_LOGISTICS_CALIBRATION_MATRIX = [
+    [
+        -0.7967177920276043,
+        -0.003456780634791601,
+        335.0494684241889,
+    ],
+    [
+        -0.005058590878937541,
+        0.7956990107716659,
+        -189.36264888807764,
+    ],
+]
 
 
 def _payload(experiment_id):
@@ -25,6 +49,14 @@ def _all_keys(value):
     elif isinstance(value, list):
         for nested in value:
             yield from _all_keys(nested)
+
+
+def _apply_affine(matrix, pixel):
+    u, v = pixel
+    return (
+        matrix[0][0] * u + matrix[0][1] * v + matrix[0][2],
+        matrix[1][0] * u + matrix[1][1] * v + matrix[1][2],
+    )
 
 
 def test_first_batch_catalog_has_exact_order_and_hardware_boundary():
@@ -115,6 +147,32 @@ def test_first_batch_task_parameters_match_course_contracts():
     assert "水果" not in classes["title"]
 
 
+def test_logistics_calibration_matches_measured_points_and_separates_targets():
+    for experiment_id in LOGISTICS_EXPERIMENT_IDS:
+        parameters = _payload(experiment_id)["public_parameters"]
+        matrix = parameters["calibration_matrix"]
+        assert matrix == EXPECTED_LOGISTICS_CALIBRATION_MATRIX
+
+        predictions = [
+            (_apply_affine(matrix, pixel), world, kind)
+            for pixel, world, kind in MEASURED_LOGISTICS_CALIBRATION
+        ]
+        assert max(
+            dist(predicted, world)
+            for predicted, world, _kind in predictions
+        ) <= 1.0
+        assert all(
+            predicted[0] <= parameters["pick_region_world_mm"]["x_max"]
+            for predicted, _world, kind in predictions
+            if kind == "pick"
+        )
+        assert all(
+            predicted[0] > parameters["pick_region_world_mm"]["x_max"]
+            for predicted, _world, kind in predictions
+            if kind == "target"
+        )
+
+
 def test_formal_catalog_loads_through_strict_runtime_parser():
     catalog = ExperimentCatalog.load(
         CONFIG_DIR / "catalog.json",
@@ -195,6 +253,7 @@ def test_retained_files_contains_first_batch_scene_curriculum_assets():
         "student_programs/templates/r1_07_component_sort.py",
         "student_programs/templates/r1_common.py",
         "tests/test_acceptance/test_coppeliasim_training_scenes.py",
+        "tests/test_acceptance/test_coppeliasim_r1_experiments.py",
         "tests/test_acceptance/test_experiment_guides.py",
         "tests/test_experiments/test_formal_catalog.py",
         "tests/test_experiments/test_student_templates.py",

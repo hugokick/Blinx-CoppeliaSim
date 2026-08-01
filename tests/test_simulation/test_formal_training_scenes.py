@@ -96,6 +96,57 @@ def test_logistics_formal_contract_keeps_group_paths_and_non_overlapping_classes
     assert y_separated is True
 
 
+def test_digit_groups_plate_last_as_stable_compound_reference(monkeypatch):
+    names_by_handle = {}
+
+    def fake_shape(_sim, *, name, **_kwargs):
+        handle = len(names_by_handle) + 1
+        names_by_handle[handle] = name
+        return handle
+
+    class FakeDigitSim:
+        def __init__(self):
+            self.grouped = None
+            self.aliases = []
+            self.parents = []
+
+        def groupShapes(self, parts, merge):
+            assert merge is False
+            self.grouped = list(parts)
+            return 99
+
+        def setObjectAlias(self, handle, alias):
+            self.aliases.append((handle, alias))
+
+        def setObjectParent(self, handle, parent, keep_in_place):
+            self.parents.append((handle, parent, keep_in_place))
+
+    monkeypatch.setattr(scene_builder, "_shape", fake_shape)
+    sim = FakeDigitSim()
+
+    compound = scene_builder._digit(
+        sim,
+        {
+            "alias": "digit_2",
+            "digit": 2,
+            "position_mm": [75, -55, 20],
+        },
+        parent=42,
+    )
+
+    assert [names_by_handle[handle] for handle in sim.grouped] == [
+        "digit_2_a",
+        "digit_2_b",
+        "digit_2_g",
+        "digit_2_e",
+        "digit_2_d",
+        "digit_2_plate",
+    ]
+    assert compound == 99
+    assert sim.aliases == [(99, "digit_2")]
+    assert sim.parents == [(99, 42, True)]
+
+
 def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 

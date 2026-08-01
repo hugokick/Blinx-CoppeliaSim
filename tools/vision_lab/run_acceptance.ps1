@@ -12,6 +12,32 @@ param(
 
 $ErrorActionPreference = "Stop"
 $ProjectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
+if (-not [System.IO.Path]::IsPathRooted($OutputDir)) {
+    $OutputDir = Join-Path $ProjectRoot $OutputDir
+}
+New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
+$OutputDir = (Resolve-Path -LiteralPath $OutputDir).Path
+
+$SummaryPath = Join-Path $OutputDir "acceptance-summary.json"
+$V22JUnitPath = Join-Path $OutputDir "v2-2-first-batch.xml"
+$OwnedEvidencePaths = @($SummaryPath, $V22JUnitPath)
+$InvalidEvidencePaths = @()
+foreach ($EvidencePath in $OwnedEvidencePaths) {
+    if (Test-Path -LiteralPath $EvidencePath) {
+        if (Test-Path -LiteralPath $EvidencePath -PathType Leaf) {
+            Remove-Item -LiteralPath $EvidencePath -Force
+        } else {
+            $InvalidEvidencePaths += $EvidencePath
+        }
+    }
+}
+if ($InvalidEvidencePaths.Count -gt 0) {
+    throw (
+        "Acceptance evidence target is not a file: " +
+        ($InvalidEvidencePaths -join ", ")
+    )
+}
+
 . (Join-Path $PSScriptRoot "process_ownership.ps1")
 $Python = Join-Path $ProjectRoot ".venv-vision\Scripts\python.exe"
 $Scene = Join-Path `
@@ -20,18 +46,14 @@ $Scene = Join-Path `
 if (-not (Test-Path -LiteralPath $Python -PathType Leaf)) {
     throw "Python environment is missing: $Python"
 }
-if (-not [System.IO.Path]::IsPathRooted($OutputDir)) {
-    $OutputDir = Join-Path $ProjectRoot $OutputDir
-}
-New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
-
-$SummaryPath = Join-Path $OutputDir "acceptance-summary.json"
 $Steps = [ordered]@{}
 $FailureMessage = $null
 $OwnedProcessId = $null
 $OwnedProcessPath = $null
 $OwnedProcessStartTimeUtcTicks = $null
 $CallerQtPlatform = $env:QT_QPA_PLATFORM
+$V22FirstBatchGatePassed = $false
+$V22FirstBatchStatus = "NOT_RUN"
 
 # Required live gates are intentionally explicit for delivery auditing:
 # python -m vision_platform.cli accept
@@ -65,7 +87,8 @@ function Invoke-CheckedPython {
 function Assert-JUnitNoSkips {
     param(
         [string]$Name,
-        [string]$Path
+        [string]$Path,
+        [int]$ExpectedTests = 0
     )
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
         $Steps[$Name]["status"] = "FAIL"
@@ -79,17 +102,34 @@ function Assert-JUnitNoSkips {
     }
     [int]$Tests = 0
     [int]$Skipped = 0
+    [int]$Failures = 0
+    [int]$Errors = 0
     foreach ($Suite in $Suites) {
         $Tests += [int]$Suite.tests
         $Skipped += [int]$Suite.skipped
+        $Failures += [int]$Suite.failures
+        $Errors += [int]$Suite.errors
     }
     $Steps[$Name]["tests"] = $Tests
     $Steps[$Name]["skipped"] = $Skipped
-    if ($Tests -lt 1 -or $Skipped -ne 0) {
+    $Steps[$Name]["failures"] = $Failures
+    $Steps[$Name]["errors"] = $Errors
+    $WrongTestCount = (
+        $ExpectedTests -gt 0 -and $Tests -ne $ExpectedTests
+    )
+    if (
+        $Tests -lt 1 -or
+        $WrongTestCount -or
+        $Skipped -ne 0 -or
+        $Failures -ne 0 -or
+        $Errors -ne 0
+    ) {
         $Steps[$Name]["status"] = "FAIL"
         throw (
-            "Step '$Name' requires executed tests with zero skips; " +
-            "tests=$Tests skipped=$Skipped"
+            "Step '$Name' requires the exact executed test count with " +
+            "zero skips, failures and errors; tests=$Tests " +
+            "expected=$ExpectedTests skipped=$Skipped " +
+            "failures=$Failures errors=$Errors"
         )
     }
 }
@@ -154,6 +194,22 @@ function Invoke-AcceptanceWorkflow {
         -Name "student_program_online" `
         -Path (Join-Path $OutputDir "student-program.xml")
 
+    Invoke-CheckedPython -Name "v2_2_first_batch_online" -Arguments @(
+        "-m", "pytest",
+        "tests/test_acceptance/test_coppeliasim_training_scenes.py",
+        "tests/test_acceptance/test_coppeliasim_r1_experiments.py",
+        "-m", "coppeliasim",
+        "--coppelia-host", $HostAddress,
+        "--coppelia-port", [string]$Port,
+        "--junitxml", $V22JUnitPath,
+        "-q"
+    )
+    Assert-JUnitNoSkips `
+        -Name "v2_2_first_batch_online" `
+        -Path $V22JUnitPath `
+        -ExpectedTests 7
+    $V22FirstBatchGatePassed = $true
+
     $env:QT_QPA_PLATFORM = "offscreen"
     try {
         Invoke-CheckedPython -Name "pyqt_offscreen_smoke" -Arguments @(
@@ -209,6 +265,16 @@ function Invoke-AcceptanceWorkflow {
             }
         }
         $OverallStatus = if ($FailureMessage) { "FAIL" } else { "PASS" }
+        if ($FailureMessage) {
+            $V22FirstBatchStatus = if (
+                $V22FirstBatchGatePassed -or
+                $Steps.Contains("v2_2_first_batch_online")
+            ) { "FAIL" } else { "NOT_RUN" }
+        } elseif ($V22FirstBatchGatePassed) {
+            $V22FirstBatchStatus = "PASS"
+        } else {
+            $V22FirstBatchStatus = "FAIL"
+        }
         $Summary = [ordered]@{
             schema_version = 1
             generated_at = (Get-Date).ToUniversalTime().ToString("o")
@@ -218,6 +284,14 @@ function Invoke-AcceptanceWorkflow {
             )
             steps = $Steps
             failure = $FailureMessage
+            v2_2_first_batch = $V22FirstBatchStatus
+            r1_experiments = @(
+                "R1-01",
+                "R1-02",
+                "R1-05",
+                "R1-06",
+                "R1-07"
+            )
             hardware_status = "PENDING_HARDWARE"
             pending_hardware = @(
                 "Hikvision camera enumeration and MVS acquisition",

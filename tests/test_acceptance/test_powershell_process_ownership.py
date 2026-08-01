@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -12,6 +13,27 @@ HELPER = ROOT / "tools" / "vision_lab" / "process_ownership.ps1"
 LAUNCHER = ROOT / "tools" / "vision_lab" / "launch_coppeliasim.ps1"
 ACCEPTANCE = ROOT / "tools" / "vision_lab" / "run_acceptance.ps1"
 POWERSHELL = "powershell.exe"
+
+
+def _seed_stale_acceptance_evidence(
+    output_dir: Path,
+) -> tuple[Path, Path, Path]:
+    output_dir.mkdir(parents=True)
+    summary_path = output_dir / "acceptance-summary.json"
+    summary_path.write_text(
+        '{"status":"PASS","v2_2_first_batch":"PASS"}\n',
+        encoding="utf-8",
+    )
+    junit_path = output_dir / "v2-2-first-batch.xml"
+    junit_path.write_text(
+        '<testsuite tests="7" failures="0" errors="0" skipped="0">'
+        + "".join(f'<testcase name="stale-{index}"/>' for index in range(7))
+        + "</testsuite>\n",
+        encoding="utf-8",
+    )
+    unrelated_path = output_dir / "instructor-note.txt"
+    unrelated_path.write_text("keep", encoding="utf-8")
+    return summary_path, junit_path, unrelated_path
 
 
 def _run_cleanup_scenario(scenario: str) -> dict:
@@ -265,12 +287,15 @@ $VariableValue = if ($VariableExists) {{
     $null
 }}
 $SummaryStatus = $null
+$SummaryV22Status = $null
 $SummaryPath = Join-Path '{output_dir}' 'acceptance-summary.json'
 if (Test-Path -LiteralPath $SummaryPath -PathType Leaf) {{
-    $SummaryStatus = (
+    $SummaryPayload = (
         Get-Content -LiteralPath $SummaryPath -Raw -Encoding UTF8 |
         ConvertFrom-Json
-    ).status
+    )
+    $SummaryStatus = $SummaryPayload.status
+    $SummaryV22Status = $SummaryPayload.v2_2_first_batch
 }}
 [pscustomobject]@{{
     caught = $Caught
@@ -279,6 +304,7 @@ if (Test-Path -LiteralPath $SummaryPath -PathType Leaf) {{
     variable_value = $VariableValue
     location_restored = ((Get-Location).Path -eq $BeforeLocation)
     summary_status = $SummaryStatus
+    summary_v2_2_first_batch = $SummaryV22Status
 }} | ConvertTo-Json -Compress
 """
     completed = subprocess.run(
@@ -298,6 +324,144 @@ if (Test-Path -LiteralPath $SummaryPath -PathType Leaf) {{
         encoding="utf-8",
     )
     return json.loads(completed.stdout.strip().splitlines()[-1])
+
+
+def test_acceptance_invalidates_stale_summary_before_python_preflight(
+    tmp_path: Path,
+):
+    project = tmp_path / "isolated-project"
+    tools = project / "tools" / "vision_lab"
+    tools.mkdir(parents=True)
+    acceptance = tools / "run_acceptance.ps1"
+    shutil.copy2(ACCEPTANCE, acceptance)
+    shutil.copy2(HELPER, tools / "process_ownership.ps1")
+    output_dir = project / "artifacts" / "final"
+    summary_path, junit_path, unrelated_path = _seed_stale_acceptance_evidence(
+        output_dir
+    )
+
+    completed = subprocess.run(
+        [
+            POWERSHELL,
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(acceptance),
+            "-OutputDir",
+            str(output_dir),
+            "-CoppeliaRoot",
+            str(tmp_path / "missing-coppeliasim"),
+        ],
+        cwd=project,
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+
+    assert completed.returncode != 0
+    assert "Python environment is missing" in (
+        completed.stderr + completed.stdout
+    )
+    assert not summary_path.exists()
+    assert not junit_path.exists()
+    assert unrelated_path.read_text(encoding="utf-8") == "keep"
+
+
+@pytest.mark.parametrize("helper_mode", ("missing", "parse-error"))
+def test_acceptance_invalidates_exact_evidence_before_helper_load_failure(
+    tmp_path: Path,
+    helper_mode: str,
+):
+    project = tmp_path / f"isolated-project-{helper_mode}"
+    tools = project / "tools" / "vision_lab"
+    tools.mkdir(parents=True)
+    acceptance = tools / "run_acceptance.ps1"
+    shutil.copy2(ACCEPTANCE, acceptance)
+    if helper_mode == "parse-error":
+        (tools / "process_ownership.ps1").write_text(
+            "function Broken {\n",
+            encoding="utf-8",
+        )
+    output_dir = project / "artifacts" / "final"
+    summary_path, junit_path, unrelated_path = _seed_stale_acceptance_evidence(
+        output_dir
+    )
+
+    completed = subprocess.run(
+        [
+            POWERSHELL,
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(acceptance),
+            "-OutputDir",
+            str(output_dir),
+        ],
+        cwd=project,
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+
+    assert completed.returncode != 0
+    assert "process_ownership.ps1" in completed.stderr + completed.stdout
+    assert not summary_path.exists()
+    assert not junit_path.exists()
+    assert unrelated_path.read_text(encoding="utf-8") == "keep"
+
+
+def test_acceptance_rejects_non_file_target_after_invalidating_other_evidence(
+    tmp_path: Path,
+):
+    project = tmp_path / "isolated-project-non-file-target"
+    tools = project / "tools" / "vision_lab"
+    tools.mkdir(parents=True)
+    acceptance = tools / "run_acceptance.ps1"
+    shutil.copy2(ACCEPTANCE, acceptance)
+    shutil.copy2(HELPER, tools / "process_ownership.ps1")
+    output_dir = project / "artifacts" / "final"
+    output_dir.mkdir(parents=True)
+    summary_path = output_dir / "acceptance-summary.json"
+    summary_path.write_text('{"status":"PASS"}\n', encoding="utf-8")
+    junit_path = output_dir / "v2-2-first-batch.xml"
+    junit_path.mkdir()
+    marker = junit_path / "do-not-delete.txt"
+    marker.write_text("keep", encoding="utf-8")
+    unrelated_path = output_dir / "instructor-note.txt"
+    unrelated_path.write_text("keep", encoding="utf-8")
+
+    completed = subprocess.run(
+        [
+            POWERSHELL,
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(acceptance),
+            "-OutputDir",
+            str(output_dir),
+        ],
+        cwd=project,
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+
+    assert completed.returncode != 0
+    assert "Acceptance evidence target is not a file" in (
+        completed.stderr + completed.stdout
+    )
+    assert not summary_path.exists()
+    assert marker.read_text(encoding="utf-8") == "keep"
+    assert unrelated_path.read_text(encoding="utf-8") == "keep"
 
 
 @pytest.mark.parametrize("scenario", ("already_exited", "success"))
@@ -456,5 +620,6 @@ def test_acceptance_cleanup_failure_precedes_and_controls_summary_status(
         assert result["caught_message"]
         assert result["location_restored"] is True
         assert result["summary_status"] == "FAIL"
+        assert result["summary_v2_2_first_batch"] == "NOT_RUN"
         assert result["variable_exists"] is (initial_value is not None)
         assert result["variable_value"] == initial_value

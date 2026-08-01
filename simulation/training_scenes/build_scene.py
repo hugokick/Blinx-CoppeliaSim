@@ -817,18 +817,7 @@ _SEGMENT_POSES = {
 
 def _digit(sim: Any, item: dict[str, Any], parent: int) -> int:
     center = [float(value) for value in item["position_mm"]]
-    parts = [
-        _shape(
-            sim,
-            name=f"{item['alias']}_plate",
-            shape="cuboid",
-            size_mm=[20, 30, 8],
-            position_mm=center,
-            color=[0.92, 0.92, 0.92],
-            parent=parent,
-            respondable=True,
-        )
-    ]
+    parts = []
     for segment in _SEGMENTS[int(item["digit"])]:
         offset, size = _SEGMENT_POSES[segment]
         parts.append(
@@ -847,6 +836,19 @@ def _digit(sim: Any, item: dict[str, Any], parent: int) -> int:
                 respondable=False,
             )
         )
+    # CoppeliaSim uses the final grouped shape as the compound reference.
+    parts.append(
+        _shape(
+            sim,
+            name=f"{item['alias']}_plate",
+            shape="cuboid",
+            size_mm=[20, 30, 8],
+            position_mm=center,
+            color=[0.92, 0.92, 0.92],
+            parent=parent,
+            respondable=True,
+        )
+    )
     compound = int(sim.groupShapes(parts, False))
     _alias(sim, compound, item["alias"])
     sim.setObjectParent(compound, parent, True)
