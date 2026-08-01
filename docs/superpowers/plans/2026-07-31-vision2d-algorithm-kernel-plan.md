@@ -108,7 +108,7 @@ docs/superpowers/plans/2026-07-31-vision2d-algorithm-kernel-plan.md
 - Create: `tests/test_vision2d/__init__.py`
 - Create: `tests/test_vision2d/test_models.py`
 
-- [ ] **Step 1: Write the failing model tests**
+- [x] **Step 1: Write the failing model tests**
 
 Create `tests/test_vision2d/__init__.py` as an empty UTF-8 file.
 
@@ -199,7 +199,7 @@ def test_result_rejects_unknown_status_and_invalid_image_size():
         Vision2DResult(status="NO_TARGETS", image_size=(0, 240))
 ```
 
-- [ ] **Step 2: Run the model tests and verify the import failure**
+- [x] **Step 2: Run the model tests and verify the import failure**
 
 Run:
 
@@ -209,7 +209,7 @@ Run:
 
 Expected: collection fails with `ModuleNotFoundError: No module named 'vision_platform.vision2d'`.
 
-- [ ] **Step 3: Implement the immutable contracts**
+- [x] **Step 3: Implement the immutable contracts**
 
 Create `vision_platform/vision2d/models.py`:
 
@@ -359,7 +359,7 @@ __all__ = [
 ]
 ```
 
-- [ ] **Step 4: Run model tests and the existing models regression**
+- [x] **Step 4: Run model tests and the existing models regression**
 
 Run:
 
@@ -371,7 +371,7 @@ Run:
 
 Expected: all tests pass.
 
-- [ ] **Step 5: Commit Task 1**
+- [x] **Step 5: Commit Task 1**
 
 ```powershell
 git add vision_platform/vision2d tests/test_vision2d
@@ -384,7 +384,7 @@ git commit -m "feat(vision2d): define immutable analysis contracts"
 - Create: `tests/test_vision2d/synthetic_factory.py`
 - Create: `tests/test_vision2d/test_synthetic_factory.py`
 
-- [ ] **Step 1: Write the failing factory tests**
+- [x] **Step 1: Write the failing factory tests**
 
 Create `tests/test_vision2d/test_synthetic_factory.py`:
 
@@ -440,7 +440,7 @@ def test_brightness_adjustment_is_explicit_and_deterministic():
     assert not np.array_equal(adjusted, image)
 ```
 
-- [ ] **Step 2: Run the factory tests and verify the missing-module failure**
+- [x] **Step 2: Run the factory tests and verify the missing-module failure**
 
 ```powershell
 .\.venv-vision\Scripts\python.exe -m pytest `
@@ -449,7 +449,7 @@ def test_brightness_adjustment_is_explicit_and_deterministic():
 
 Expected: collection fails because `synthetic_factory` does not exist.
 
-- [ ] **Step 3: Implement the deterministic test factory**
+- [x] **Step 3: Implement the deterministic test factory**
 
 Create `tests/test_vision2d/synthetic_factory.py`:
 
@@ -532,7 +532,7 @@ def adjust_brightness(image_bgr: np.ndarray, *, factor: float) -> np.ndarray:
     ).astype(np.uint8)
 ```
 
-- [ ] **Step 4: Run the factory and model tests**
+- [x] **Step 4: Run the factory and model tests**
 
 ```powershell
 .\.venv-vision\Scripts\python.exe -m pytest tests/test_vision2d -q
@@ -540,7 +540,7 @@ def adjust_brightness(image_bgr: np.ndarray, *, factor: float) -> np.ndarray:
 
 Expected: all current `test_vision2d` tests pass.
 
-- [ ] **Step 5: Commit Task 2**
+- [x] **Step 5: Commit Task 2**
 
 ```powershell
 git add tests/test_vision2d
@@ -553,7 +553,7 @@ git commit -m "test(vision2d): add deterministic synthetic fixtures"
 - Create: `vision_platform/vision2d/preprocessing.py`
 - Create: `tests/test_vision2d/test_preprocessing.py`
 
-- [ ] **Step 1: Write preprocessing tests**
+- [x] **Step 1: Write preprocessing tests**
 
 Create `tests/test_vision2d/test_preprocessing.py`:
 
@@ -597,7 +597,7 @@ def test_preprocess_returns_named_images_without_mutating_input():
     assert np.array_equal(image, before)
 ```
 
-- [ ] **Step 2: Verify the tests fail because preprocessing is missing**
+- [x] **Step 2: Verify the tests fail because preprocessing is missing**
 
 ```powershell
 .\.venv-vision\Scripts\python.exe -m pytest `
@@ -606,7 +606,7 @@ def test_preprocess_returns_named_images_without_mutating_input():
 
 Expected: import failure for `vision_platform.vision2d.preprocessing`.
 
-- [ ] **Step 3: Implement preprocessing**
+- [x] **Step 3: Implement preprocessing**
 
 Create `vision_platform/vision2d/preprocessing.py`:
 
@@ -661,7 +661,7 @@ def preprocess_image(
     }
 ```
 
-- [ ] **Step 4: Run preprocessing and existing color-shape tests**
+- [x] **Step 4: Run preprocessing and existing color-shape tests**
 
 ```powershell
 .\.venv-vision\Scripts\python.exe -m pytest `
@@ -671,7 +671,7 @@ def preprocess_image(
 
 Expected: all tests pass; the existing recognizer remains unchanged.
 
-- [ ] **Step 5: Commit Task 3**
+- [x] **Step 5: Commit Task 3**
 
 ```powershell
 git add vision_platform/vision2d/preprocessing.py tests/test_vision2d/test_preprocessing.py
@@ -684,7 +684,7 @@ git commit -m "feat(vision2d): add validated image preprocessing"
 - Create: `vision_platform/vision2d/segmentation.py`
 - Create: `tests/test_vision2d/test_segmentation.py`
 
-- [ ] **Step 1: Write segmentation tests**
+- [x] **Step 1: Write segmentation tests**
 
 Create `tests/test_vision2d/test_segmentation.py`:
 
@@ -746,7 +746,7 @@ def test_segmentation_rejects_degenerate_line_contour():
     ]
 ```
 
-- [ ] **Step 2: Run and confirm the missing segmentation module**
+- [x] **Step 2: Run and confirm the missing segmentation module**
 
 ```powershell
 .\.venv-vision\Scripts\python.exe -m pytest `
@@ -755,7 +755,7 @@ def test_segmentation_rejects_degenerate_line_contour():
 
 Expected: import failure for `vision_platform.vision2d.segmentation`.
 
-- [ ] **Step 3: Implement contour segmentation**
+- [x] **Step 3: Implement contour segmentation**
 
 Create `vision_platform/vision2d/segmentation.py`:
 
@@ -856,7 +856,7 @@ def segment_contours(
     return tuple(accepted), tuple(rejected)
 ```
 
-- [ ] **Step 4: Run segmentation regression**
+- [x] **Step 4: Run segmentation regression**
 
 ```powershell
 .\.venv-vision\Scripts\python.exe -m pytest `
@@ -866,7 +866,7 @@ def segment_contours(
 
 Expected: all tests pass.
 
-- [ ] **Step 5: Commit Task 4**
+- [x] **Step 5: Commit Task 4**
 
 ```powershell
 git add vision_platform/vision2d/segmentation.py tests/test_vision2d/test_segmentation.py
@@ -879,7 +879,7 @@ git commit -m "feat(vision2d): segment and reject contour candidates"
 - Create: `vision_platform/vision2d/geometry.py`
 - Create: `tests/test_vision2d/test_geometry.py`
 
-- [ ] **Step 1: Write geometry tests**
+- [x] **Step 1: Write geometry tests**
 
 Create `tests/test_vision2d/test_geometry.py`:
 
@@ -929,7 +929,7 @@ def test_geometry_uses_anisotropic_scale_for_edges_area_and_perimeter():
     assert geometry.perimeter_mm == pytest.approx(36.0, rel=1e-3)
 ```
 
-- [ ] **Step 2: Run and verify the missing geometry module**
+- [x] **Step 2: Run and verify the missing geometry module**
 
 ```powershell
 .\.venv-vision\Scripts\python.exe -m pytest tests/test_vision2d/test_geometry.py -q
@@ -937,7 +937,7 @@ def test_geometry_uses_anisotropic_scale_for_edges_area_and_perimeter():
 
 Expected: import failure for `vision_platform.vision2d.geometry`.
 
-- [ ] **Step 3: Implement geometry and physical conversion**
+- [x] **Step 3: Implement geometry and physical conversion**
 
 Create `vision_platform/vision2d/geometry.py`:
 
@@ -1043,7 +1043,7 @@ def measure_geometry(
     )
 ```
 
-- [ ] **Step 4: Run geometry and model tests**
+- [x] **Step 4: Run geometry and model tests**
 
 ```powershell
 .\.venv-vision\Scripts\python.exe -m pytest `
@@ -1053,7 +1053,7 @@ def measure_geometry(
 
 Expected: all tests pass.
 
-- [ ] **Step 5: Commit Task 5**
+- [x] **Step 5: Commit Task 5**
 
 ```powershell
 git add vision_platform/vision2d/geometry.py tests/test_vision2d/test_geometry.py
@@ -1066,7 +1066,7 @@ git commit -m "feat(vision2d): measure geometry and calibrated units"
 - Create: `vision_platform/vision2d/appearance.py`
 - Create: `tests/test_vision2d/test_appearance.py`
 
-- [ ] **Step 1: Write appearance tests**
+- [x] **Step 1: Write appearance tests**
 
 Create `tests/test_vision2d/test_appearance.py`:
 
@@ -1135,7 +1135,7 @@ def test_irregular_concave_contour_is_polygon():
     assert result.shape == "polygon"
 ```
 
-- [ ] **Step 2: Verify the missing appearance module**
+- [x] **Step 2: Verify the missing appearance module**
 
 ```powershell
 .\.venv-vision\Scripts\python.exe -m pytest tests/test_vision2d/test_appearance.py -q
@@ -1143,7 +1143,7 @@ def test_irregular_concave_contour_is_polygon():
 
 Expected: import failure for `vision_platform.vision2d.appearance`.
 
-- [ ] **Step 3: Implement appearance measurement**
+- [x] **Step 3: Implement appearance measurement**
 
 Create `vision_platform/vision2d/appearance.py`:
 
@@ -1239,7 +1239,7 @@ def measure_appearance(
     )
 ```
 
-- [ ] **Step 4: Run appearance and一期 recognizer tests**
+- [x] **Step 4: Run appearance and一期 recognizer tests**
 
 ```powershell
 .\.venv-vision\Scripts\python.exe -m pytest `
@@ -1249,7 +1249,7 @@ def measure_appearance(
 
 Expected: all tests pass.
 
-- [ ] **Step 5: Commit Task 6**
+- [x] **Step 5: Commit Task 6**
 
 ```powershell
 git add vision_platform/vision2d/appearance.py tests/test_vision2d/test_appearance.py
@@ -1263,7 +1263,7 @@ git commit -m "feat(vision2d): classify color and contour shape"
 - Create: `tests/test_vision2d/test_pipeline.py`
 - Modify: `vision_platform/vision2d/__init__.py`
 
-- [ ] **Step 1: Write end-to-end pipeline tests**
+- [x] **Step 1: Write end-to-end pipeline tests**
 
 Create `tests/test_vision2d/test_pipeline.py`:
 
@@ -1341,7 +1341,7 @@ def test_pipeline_reports_partial_for_valid_and_rejected_candidates():
     assert {item.code for item in result.rejected_targets} == {"AREA_TOO_SMALL"}
 ```
 
-- [ ] **Step 2: Run and verify `analyze_image` is missing**
+- [x] **Step 2: Run and verify `analyze_image` is missing**
 
 ```powershell
 .\.venv-vision\Scripts\python.exe -m pytest tests/test_vision2d/test_pipeline.py -q
@@ -1349,7 +1349,7 @@ def test_pipeline_reports_partial_for_valid_and_rejected_candidates():
 
 Expected: import error for `analyze_image`.
 
-- [ ] **Step 3: Implement the pipeline**
+- [x] **Step 3: Implement the pipeline**
 
 Create `vision_platform/vision2d/pipeline.py`:
 
@@ -1473,7 +1473,7 @@ from vision_platform.vision2d.pipeline import analyze_image
 __all__.append("analyze_image")
 ```
 
-- [ ] **Step 4: Run the complete algorithm suite so far**
+- [x] **Step 4: Run the complete algorithm suite so far**
 
 ```powershell
 .\.venv-vision\Scripts\python.exe -m pytest tests/test_vision2d -q
@@ -1481,7 +1481,7 @@ __all__.append("analyze_image")
 
 Expected: all current `test_vision2d` tests pass.
 
-- [ ] **Step 5: Commit Task 7**
+- [x] **Step 5: Commit Task 7**
 
 ```powershell
 git add vision_platform/vision2d tests/test_vision2d/test_pipeline.py
@@ -1495,7 +1495,7 @@ git commit -m "feat(vision2d): compose deterministic analysis pipeline"
 - Create: `tests/test_vision2d/test_serialization.py`
 - Modify: `vision_platform/vision2d/__init__.py`
 
-- [ ] **Step 1: Write serialization tests**
+- [x] **Step 1: Write serialization tests**
 
 Create `tests/test_vision2d/test_serialization.py`:
 
@@ -1540,7 +1540,7 @@ def test_result_serialization_is_json_safe_and_excludes_intermediate_images():
     )
 ```
 
-- [ ] **Step 2: Run and verify serialization is missing**
+- [x] **Step 2: Run and verify serialization is missing**
 
 ```powershell
 .\.venv-vision\Scripts\python.exe -m pytest `
@@ -1549,7 +1549,7 @@ def test_result_serialization_is_json_safe_and_excludes_intermediate_images():
 
 Expected: import failure for `vision_platform.vision2d.serialization`.
 
-- [ ] **Step 3: Implement explicit serialization**
+- [x] **Step 3: Implement explicit serialization**
 
 Create `vision_platform/vision2d/serialization.py`:
 
@@ -1620,7 +1620,7 @@ from vision_platform.vision2d.serialization import result_to_dict
 __all__.append("result_to_dict")
 ```
 
-- [ ] **Step 4: Run serialization and pipeline tests**
+- [x] **Step 4: Run serialization and pipeline tests**
 
 ```powershell
 .\.venv-vision\Scripts\python.exe -m pytest `
@@ -1630,7 +1630,7 @@ __all__.append("result_to_dict")
 
 Expected: all tests pass.
 
-- [ ] **Step 5: Commit Task 8**
+- [x] **Step 5: Commit Task 8**
 
 ```powershell
 git add vision_platform/vision2d tests/test_vision2d/test_serialization.py
@@ -1643,7 +1643,7 @@ git commit -m "feat(vision2d): serialize analysis results safely"
 - Create: `tests/test_vision2d/test_compatibility.py`
 - Modify: algorithm files only if a new test exposes a defect
 
-- [ ] **Step 1: Add the precision and compatibility tests**
+- [x] **Step 1: Add the precision and compatibility tests**
 
 Create `tests/test_vision2d/test_compatibility.py`:
 
@@ -1730,7 +1730,7 @@ def test_runtime_package_does_not_import_legacy_private_implementation():
     assert "vision_platform.recognition.color_shape" not in source
 ```
 
-- [ ] **Step 2: Run the compatibility tests and observe real failures**
+- [x] **Step 2: Run the compatibility tests and observe real failures**
 
 ```powershell
 .\.venv-vision\Scripts\python.exe -m pytest `
@@ -1739,7 +1739,7 @@ def test_runtime_package_does_not_import_legacy_private_implementation():
 
 Expected: all compatibility, precision, and light-noise tests pass. If they do not, stop this Task and use systematic debugging before changing code; the confirmed `1.5 px`, `2 px`, `2°`, and `5%` budgets may not be relaxed, and the legacy recognizer may not be modified.
 
-- [ ] **Step 3: Run the entire Vision2D suite twice**
+- [x] **Step 3: Run the entire Vision2D suite twice**
 
 ```powershell
 .\.venv-vision\Scripts\python.exe -m pytest tests/test_vision2d -q
@@ -1748,7 +1748,7 @@ Expected: all compatibility, precision, and light-noise tests pass. If they do n
 
 Expected: both runs pass with identical test counts.
 
-- [ ] **Step 4: Commit Task 9**
+- [x] **Step 4: Commit Task 9**
 
 ```powershell
 git add vision_platform/vision2d tests/test_vision2d/test_compatibility.py
@@ -1764,7 +1764,7 @@ git commit -m "test(vision2d): enforce precision and compatibility budgets"
 - Create: `docs/experiments/V1-05.md`
 - Create: `tests/test_vision2d/test_guides.py`
 
-- [ ] **Step 1: Write the guide contract tests**
+- [x] **Step 1: Write the guide contract tests**
 
 Create `tests/test_vision2d/test_guides.py`:
 
@@ -1793,7 +1793,7 @@ def test_four_guides_define_algorithm_inputs_outputs_and_boundaries():
         assert "CoppeliaSim 在线验收不在本分支范围" in text
 ```
 
-- [ ] **Step 2: Run and verify the four missing files**
+- [x] **Step 2: Run and verify the four missing files**
 
 ```powershell
 .\.venv-vision\Scripts\python.exe -m pytest tests/test_vision2d/test_guides.py -q
@@ -1801,7 +1801,7 @@ def test_four_guides_define_algorithm_inputs_outputs_and_boundaries():
 
 Expected: failure at the first missing guide path.
 
-- [ ] **Step 3: Create `V1-02.md`**
+- [x] **Step 3: Create `V1-02.md`**
 
 Create `docs/experiments/V1-02.md`:
 
@@ -1825,7 +1825,7 @@ Create `docs/experiments/V1-02.md`:
 算法状态不是课程成绩。CoppeliaSim 在线验收不在本分支范围。真实相机像素尺寸、镜头畸变和机械臂抓取均为 `PENDING_HARDWARE`。
 ```
 
-- [ ] **Step 4: Create `V1-03.md`**
+- [x] **Step 4: Create `V1-03.md`**
 
 Create `docs/experiments/V1-03.md`:
 
@@ -1849,7 +1849,7 @@ Create `docs/experiments/V1-03.md`:
 算法状态不是课程成绩。CoppeliaSim 在线验收不在本分支范围。相机外参、世界坐标和真实机器人定向抓取均为 `PENDING_HARDWARE`。
 ```
 
-- [ ] **Step 5: Create `V1-04.md`**
+- [x] **Step 5: Create `V1-04.md`**
 
 Create `docs/experiments/V1-04.md`:
 
@@ -1873,7 +1873,7 @@ Create `docs/experiments/V1-04.md`:
 算法状态不是课程成绩。CoppeliaSim 在线验收不在本分支范围。真实工件边缘、镜头误差和质量判定均为 `PENDING_HARDWARE`。
 ```
 
-- [ ] **Step 6: Create `V1-05.md`**
+- [x] **Step 6: Create `V1-05.md`**
 
 Create `docs/experiments/V1-05.md`:
 
@@ -1897,7 +1897,7 @@ Create `docs/experiments/V1-05.md`:
 算法状态不是课程成绩。CoppeliaSim 在线验收不在本分支范围。真实水果、建材、海康相机和机器人分类均为 `PENDING_HARDWARE`。
 ```
 
-- [ ] **Step 7: Run the guide tests**
+- [x] **Step 7: Run the guide tests**
 
 ```powershell
 .\.venv-vision\Scripts\python.exe -m pytest tests/test_vision2d/test_guides.py -q
@@ -1905,7 +1905,7 @@ Create `docs/experiments/V1-05.md`:
 
 Expected: all guide tests pass.
 
-- [ ] **Step 8: Commit Task 10**
+- [x] **Step 8: Commit Task 10**
 
 ```powershell
 git add docs/experiments tests/test_vision2d/test_guides.py
@@ -1918,7 +1918,7 @@ git commit -m "docs(vision2d): add four measurement lab guides"
 - Create: `tests/test_vision2d/test_delivery.py`
 - Modify: `RETAINED_FILES.txt`
 
-- [ ] **Step 1: Write the failing delivery test**
+- [x] **Step 1: Write the failing delivery test**
 
 Create `tests/test_vision2d/test_delivery.py`:
 
@@ -1976,7 +1976,7 @@ def test_retained_files_contains_complete_vision2d_kernel_delivery():
     assert not any(path.startswith("artifacts/") for path in retained)
 ```
 
-- [ ] **Step 2: Run and verify the missing whitelist entries**
+- [x] **Step 2: Run and verify the missing whitelist entries**
 
 ```powershell
 .\.venv-vision\Scripts\python.exe -m pytest tests/test_vision2d/test_delivery.py -q
@@ -1984,11 +1984,11 @@ def test_retained_files_contains_complete_vision2d_kernel_delivery():
 
 Expected: failure showing the missing runtime, test, guide, or plan paths.
 
-- [ ] **Step 3: Add every new formal path to `RETAINED_FILES.txt`**
+- [x] **Step 3: Add every new formal path to `RETAINED_FILES.txt`**
 
 Add the exact paths from the `required` set above in repository-path order. Keep all V2.1 entries. Do not add generated images, artifacts, environments, caches, or student submissions.
 
-- [ ] **Step 4: Run delivery and existing release contracts**
+- [x] **Step 4: Run delivery and existing release contracts**
 
 ```powershell
 .\.venv-vision\Scripts\python.exe -m pytest `
@@ -1998,7 +1998,7 @@ Add the exact paths from the `required` set above in repository-path order. Keep
 
 Expected: all tests pass.
 
-- [ ] **Step 5: Verify forbidden shared files are unchanged**
+- [x] **Step 5: Verify forbidden shared files are unchanged**
 
 ```powershell
 git diff --exit-code 4bc638f -- `
@@ -2015,7 +2015,7 @@ git diff --exit-code 4bc638f -- `
 
 Expected: exit code 0 and no changed paths.
 
-- [ ] **Step 6: Commit Task 11**
+- [x] **Step 6: Commit Task 11**
 
 ```powershell
 git add RETAINED_FILES.txt tests/test_vision2d/test_delivery.py
@@ -2028,7 +2028,7 @@ git commit -m "docs(vision2d): retain isolated algorithm delivery"
 - Modify: `docs/superpowers/plans/2026-07-31-vision2d-algorithm-kernel-plan.md` only to mark genuinely completed checkboxes
 - Evidence: `artifacts/vision_lab/v2-2-vision2d-kernel-final/`
 
-- [ ] **Step 1: Run the complete Vision2D suite with evidence output**
+- [x] **Step 1: Run the complete Vision2D suite with evidence output**
 
 ```powershell
 $evidence='artifacts/vision_lab/v2-2-vision2d-kernel-final'
@@ -2040,7 +2040,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Vision2D tests failed' }
 
 Expected: zero failures and zero skips in `tests/test_vision2d`.
 
-- [ ] **Step 2: Run the full static regression**
+- [x] **Step 2: Run the full static regression**
 
 ```powershell
 .\.venv-vision\Scripts\python.exe -m pytest -q 2>&1 |
@@ -2050,7 +2050,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Full static regression failed' }
 
 Expected: zero failures. Opt-in CoppeliaSim tests may be skipped, but the exact pass and skip counts must be reported and skips must not be called PASS.
 
-- [ ] **Step 3: Verify formatting, encoding, fences, and placeholders**
+- [x] **Step 3: Verify formatting, encoding, fences, and placeholders**
 
 ```powershell
 $documents=@(
@@ -2074,7 +2074,7 @@ git diff --check
 
 Expected: no BOM, no unresolved placeholder match, and no whitespace error.
 
-- [ ] **Step 4: Recheck publication and protected boundaries**
+- [x] **Step 4: Recheck publication and protected boundaries**
 
 ```powershell
 .\.venv-vision\Scripts\python.exe -m pytest `
@@ -2094,7 +2094,7 @@ git diff --exit-code 4bc638f -- `
 
 Expected: release tests pass and forbidden shared files have zero differences.
 
-- [ ] **Step 5: Mark only verified plan steps complete and commit the handoff**
+- [x] **Step 5: Mark only verified plan steps complete and commit the handoff**
 
 ```powershell
 git add docs/superpowers/plans/2026-07-31-vision2d-algorithm-kernel-plan.md
@@ -2104,7 +2104,7 @@ git status --short --branch
 
 Expected: clean worktree.
 
-- [ ] **Step 6: Push the isolated feature branch without merging main**
+- [x] **Step 6: Push the isolated feature branch without merging main**
 
 ```powershell
 git push -u origin codex/v2-2-vision2d-algorithm-kernel
