@@ -25,6 +25,7 @@
 6. `b336dca755b895e4c65b742a1b2d063395342406` — `feat(rgbd-sim): add bounded RGB-D probe tool`
 7. `60d16f0a9cc43ab044651b706b7d7e6cc98f9f2f` — `test(rgbd-sim): verify online metric RGB-D capture`
 8. `75a4f51f5ebe6e3bc5916a6510eeb677cd915584` — `fix(rgbd-sim): tighten manifest and process review contracts`
+9. `8c593b8d96277109843f3b04c64bb4e0811bf384` — `docs(rgbd-sim): publish foundation validation report`
 
 ## TDD RED/GREEN evidence
 
@@ -64,7 +65,7 @@
 - 允许新增/修改仅在 `vision_platform/rgbd_sim/**`、`tests/test_rgbd_sim/**`、`simulation/rgbd_lab/**`、`tools/rgbd_lab/**`、本报告、`.gitattributes` 和 `RETAINED_FILES.txt`。
 - `vision_platform/rgbd/**`、`vision_platform/cameras/coppeliasim.py`、V1-07/V1-08、正式场景、student/experiments/UI/SDK、机器人资产和依赖文件均未修改。
 - sim adapter 只复用只读的 `CoppeliaClientResolver`；OpenCV 只在 preview/CLI 边界使用；测试进程辅助中的 `socket/subprocess` 不进入共享 RGB-D 算法内核。
-- `RETAINED_FILES.txt` 当前 441 条、无重复、无新增 runtime artifact 路径；所有 D1-01 正式新增文件已列入。
+- `RETAINED_FILES.txt` 当前 442 条、无重复；所有 D1-01 正式新增文件已列入。本分支未新增 runtime artifact 路径；现有的 4 条 `simulation/vision_lab/evidence/**` 条目均已存在于 `origin/main`，未被本分支新增或修改。
 - 未注册 `config/experiments/D1-01.json`，未接入正式课程、SDK/UI 或机器人动作。
 
 ## Review conclusion and remaining PENDING items
