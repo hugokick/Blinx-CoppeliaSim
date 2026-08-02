@@ -390,7 +390,13 @@ def make_surface_pair(
     reference = np.full((height, width), 235, dtype=np.uint8)
     cv2.rectangle(reference, (55, 42), (155, 166), 48, thickness=-1)
     candidate = reference.copy()
-    if kind == "missing":
+    if kind == "same_hole":
+        cv2.circle(reference, (105, 103), 18, 235, thickness=-1)
+        candidate = reference.copy()
+    elif kind == "shifted":
+        matrix = np.asarray([[1.0, 0.0, 5.0], [0.0, 1.0, 3.0]], dtype=np.float32)
+        candidate = cv2.warpAffine(candidate, matrix, (width, height), borderValue=235)
+    elif kind == "missing":
         candidate[92:137, 55:105] = 235
     elif kind == "hole":
         cv2.circle(candidate, (105, 103), 18, 235, thickness=-1)
