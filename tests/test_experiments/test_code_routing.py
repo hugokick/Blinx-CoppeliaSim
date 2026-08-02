@@ -146,6 +146,37 @@ def test_recognition_set_must_be_complete_and_approved(case: str) -> None:
     assert captured.value.code == "CODE_ROUTE_RECOGNITION_INVALID"
 
 
+@pytest.mark.parametrize(
+    ("geometry_mutation", "case_name"),
+    [
+        (lambda reading: replace(reading, bbox_px=(38, 43, 0, 4)), "bbox_width_zero"),
+        (lambda reading: replace(reading, bbox_px=(38, 43, 4, 0)), "bbox_height_zero"),
+        (lambda reading: replace(reading, bbox_px=(510, 43, 4, 4)), "bbox_out_of_bounds"),
+        (
+            lambda reading: replace(
+                reading,
+                polygon_px=((38.0, 43.0), (42.0, 43.0), (float("nan"), 47.0), (38.0, 47.0)),
+            ),
+            "polygon_non_finite",
+        ),
+        (
+            lambda reading: replace(
+                reading,
+                polygon_px=((38.0, 43.0), (42.0, 43.0), (42.0, 512.0), (38.0, 47.0)),
+            ),
+            "polygon_out_of_bounds",
+        ),
+    ],
+)
+def test_recognition_geometry_must_be_finite_and_inside_image(geometry_mutation, case_name: str) -> None:
+    recognition = _recognition()
+    readings = list(recognition.readings)
+    readings[0] = geometry_mutation(readings[0])
+    with pytest.raises(CodeRouteError) as captured:
+        _build(recognition=replace(recognition, readings=tuple(readings)))
+    assert captured.value.code == "CODE_ROUTE_RECOGNITION_INVALID", case_name
+
+
 @pytest.mark.parametrize("case", ["boolean", "duplicate_part", "duplicate_drop", "scene_mismatch"])
 def test_config_and_scene_binding_fail_closed(case: str) -> None:
     config = _config()

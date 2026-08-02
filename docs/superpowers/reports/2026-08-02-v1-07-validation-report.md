@@ -38,6 +38,8 @@
 - Task 11 发布合同 RED：旧目录合同因实际目录已含 `V1-07` 而失败，结果 `46 passed, 1 failed`；失败原因是旧 `V1-06` 终点断言，不是实现运行时错误。
 - Task 11 发布合同 GREEN：`48 passed`。
 - Task 11 相关回归首次暴露 2 个旧目录顺序断言；更新为追加 `V1-07` 后 GREEN：`1729 passed, 1 skipped`。
+- 本次限定返修 RED：新增几何门禁测试先得到 `6 failed, 8 passed`（规划器 5 个几何案例和网关 1 个案例均按预期暴露缺陷）。
+- 本次限定返修 GREEN：新增规划器/网关门禁组合为 `14 passed`；相关规划器、网关、运行器和学生安全回归为 `320 passed`。
 
 ## Static regression
 
@@ -45,6 +47,7 @@
 - Task 11 相关静态套件：`1729 passed, 1 skipped`；skip 是显式 CoppeliaSim 在线测试，未计作在线 PASS。
 - Task 11/12 最终完整静态套件：`1916 passed, 19 skipped`。
 - 发布合同、V1-06 模板交付合同和 vision2d 交付合同：`48 passed`。
+- 本次限定返修后新鲜完整静态套件：`1922 passed, 19 skipped`；新增发布合同复核：`46 passed`。上述 skipped 仍未计作在线 PASS。
 - `git diff --check`：通过。
 
 ## Explicitly enabled CoppeliaSim acceptance
@@ -56,7 +59,7 @@ wrapper 输出：`C:\Users\yqzhe\.config\superpowers\worktrees\robot-vision-lab\
 - `v1-07-online.xml`：`tests=1, skipped=0, failures=0, errors=0`。
 - `v1_07_scene_load`：`PASS`，加载的正式场景为 `simulation/vision_code_routing_lab/BL23_vision_code_routing_lab.ttt`。
 - `v1_01_experiment_run` 至 `v1_07_experiment_run`：全部为 `PASS`。
-- V1-07 最终运行证据目录：`C:\Users\yqzhe\.config\superpowers\worktrees\robot-vision-lab\v2-2-v1-07-code-routing\artifacts\vision_lab\v2-2-v1-07\experiment-runs\20260802-125033-v1_07_code_routing-b4db4da7`。
+- V1-07 本次限定返修复验运行证据目录：`C:\Users\yqzhe\.config\superpowers\worktrees\robot-vision-lab\v2-2-v1-07-code-routing\artifacts\vision_lab\v2-2-v1-07\experiment-runs\20260802-133925-v1_07_code_routing-4413bef7`。
 - wrapper 使用专用端口 `23005`；V1-07 场景加载与在线测试使用同一端口和同一进程所有权链。
 - wrapper 摘要明确保留 `hardware_status=PENDING_HARDWARE`、`teaching_effect=PENDING_HUMAN_ACCEPTANCE`。
 
@@ -85,12 +88,14 @@ wrapper 输出：`C:\Users\yqzhe\.config\superpowers\worktrees\robot-vision-lab\
 
 ## Independent review findings and fixes
 
-独立审查按设计文档检查了 payload 惰性、计划原子性、运动前门禁、route guard 绕过、错误优先级、cleanup、场景/资产 provenance、在线进程所有权和同次运行证据链。审查结论为 `P0=0, P1=0, P2=1, P3=0`；未发现 P0/P1，且审查代理建议接受本轮实现。
+此前独立审查按设计文档检查了 payload 惰性、计划原子性、运动前门禁、route guard 绕过、错误优先级、cleanup、场景/资产 provenance、在线进程所有权和同次运行证据链，历史结论为 `P0=0, P1=0, P2=1, P3=0`。本次限定返修复现并修正了后续审核发现的 P1：原实现未在运动前校验 `bbox_px` 和 `polygon_px`。
 
 唯一 P2 是 `docs/experiments/V1-07.md` 错误解释列出了未由实现发出的旧错误码。已按 RED→GREEN 修复为实际接口错误码：`CODE_ROUTE_RECOGNITION_INVALID`、`CODE_ROUTE_PLAN_INVALID`、`CODE_ROUTE_SEQUENCE_INVALID`、`TARGET_OUT_OF_WORKSPACE` 和 `STUDENT_TOOL_HEIGHT_INVALID`；新增材料测试先以缺失实际错误码失败，随后 `50 passed` 通过。PNG provenance 观察与批准计划参考实现一致，不作为缺陷。
+
+本次 P1 返修在正式集成层加入了 bbox 非退化且完整落入图像、polygon 至少四点且有限并落入图像、中心有限且位于 bbox 内的门禁；异常统一返回 `CODE_ROUTE_RECOGNITION_INVALID`，网关在计划生成前保持 route guard 未激活且不产生机器人或工具命令。上述门禁先以 RED 复现，再以 GREEN 和显式在线复验确认。
 
 ## Remaining limitations
 
 - 教学效果：`PENDING_HUMAN_ACCEPTANCE`，尚未以教师和学生现场观察替代自动化证据。
 - 海康相机、真实机械臂、急停、气路、物理抓取和真实光学精度：`PENDING_HARDWARE`；本机未连接海康相机，本轮不宣称真机通过。
-- 不合入、不 cherry-pick 并行算法分支 `f5bef91`；V1-02～V1-05 后续集成应单独执行协议兼容性、场景证据、静态回归和在线验收门禁。
+- 当前 `origin/main`（`a8d7b980`）已包含 V1-02～V1-05 正式课程及 `f5bef91` 的已集成算法历史；本次限定返修未修改、复制或提前扩展 `vision_platform/vision2d/**`、`tests/test_vision2d/**` 或 V1-02～V1-05 内容。后续若继续扩展这些课程，仍应按各自既定协议、场景证据、静态回归和在线验收门禁执行。

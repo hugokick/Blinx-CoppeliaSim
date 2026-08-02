@@ -104,7 +104,9 @@ def _recognition(case: str) -> CodeRecognitionResult:
     elif case == "low_confidence":
         readings[0] = replace(readings[0], confidence=0.2)
     elif case == "outside_workspace":
-        readings[0] = replace(readings[0], center_px=(300.0, 45.0))
+        readings[0] = _reading("qr", "V1-07-A", (300.0, 45.0))
+    elif case == "invalid_bbox":
+        readings[0] = replace(readings[0], bbox_px=(38, 43, 0, 4))
     return CodeRecognitionResult(
         "PASS", tuple(readings), (1024, 1024), None, ("qr", "ean13"), 4.0
     )
@@ -240,6 +242,7 @@ def test_gateway_rejects_all_student_detector_arguments_before_capture(tmp_path,
         ("outside_workspace", "CODE_ROUTE_PLAN_INVALID"),
         ("scene_mismatch", "CODE_ROUTE_CONFIG_INVALID"),
         ("calibration_mismatch", "CODE_ROUTE_SCENE_POSITION_MISMATCH"),
+        ("invalid_bbox", "CODE_ROUTE_RECOGNITION_INVALID"),
     ],
 )
 def test_gateway_plan_failures_never_move(tmp_path, monkeypatch, recognition_case, expected_code) -> None:

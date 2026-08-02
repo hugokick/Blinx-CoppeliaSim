@@ -112,6 +112,58 @@ def _vector(value: Any, length: int, name: str) -> tuple[float, ...]:
     return tuple(_number(item, f"{name}[{index}]") for index, item in enumerate(value))
 
 
+def _validate_reading_geometry(
+    reading: Any,
+    *,
+    width: int,
+    height: int,
+) -> tuple[float, float]:
+    """Validate pixel geometry before it can influence a motion plan."""
+
+    code = "CODE_ROUTE_RECOGNITION_INVALID"
+    bbox = getattr(reading, "bbox_px", None)
+    if (
+        type(bbox) is not tuple
+        or len(bbox) != 4
+        or any(type(value) is not int for value in bbox)
+        or bbox[0] < 0
+        or bbox[1] < 0
+        or bbox[2] <= 0
+        or bbox[3] <= 0
+        or bbox[0] + bbox[2] > width
+        or bbox[1] + bbox[3] > height
+    ):
+        raise CodeRouteError(code, "bounding box is invalid")
+
+    polygon = getattr(reading, "polygon_px", None)
+    if type(polygon) is not tuple or len(polygon) < 4:
+        raise CodeRouteError(code, "polygon is invalid")
+    for point in polygon:
+        if (
+            type(point) is not tuple
+            or len(point) != 2
+            or any(type(value) not in {int, float} for value in point)
+            or any(not math.isfinite(float(value)) for value in point)
+            or not (0 <= float(point[0]) < width and 0 <= float(point[1]) < height)
+        ):
+            raise CodeRouteError(code, "polygon is invalid")
+
+    center = getattr(reading, "center_px", None)
+    if (
+        type(center) is not tuple
+        or len(center) != 2
+        or any(type(value) not in {int, float} for value in center)
+        or any(not math.isfinite(float(value)) for value in center)
+    ):
+        raise CodeRouteError(code, "centre is invalid")
+    u_px, v_px = (float(center[0]), float(center[1]))
+    if not (0 <= u_px < width and 0 <= v_px < height):
+        raise CodeRouteError(code, "centre is out of bounds")
+    if not (bbox[0] <= u_px < bbox[0] + bbox[2] and bbox[1] <= v_px < bbox[1] + bbox[3]):
+        raise CodeRouteError(code, "centre is outside bounding box")
+    return u_px, v_px
+
+
 def build_code_route_plan(
     recognition: CodeRecognitionResult,
     *,
@@ -215,17 +267,7 @@ def build_code_route_plan(
             or reading.code_type != routes[reading.data]["code_type"]
         ):
             raise CodeRouteError("CODE_ROUTE_RECOGNITION_INVALID", "reading is not approved")
-        try:
-            u_px, v_px = reading.center_px
-        except (TypeError, ValueError):
-            raise CodeRouteError("CODE_ROUTE_RECOGNITION_INVALID", "centre is invalid") from None
-        if (
-            type(u_px) not in {int, float}
-            or type(v_px) not in {int, float}
-            or not all(math.isfinite(float(value)) for value in (u_px, v_px))
-            or not (0 <= u_px < width and 0 <= v_px < height)
-        ):
-            raise CodeRouteError("CODE_ROUTE_RECOGNITION_INVALID", "centre is out of bounds")
+        u_px, v_px = _validate_reading_geometry(reading, width=width, height=height)
         pick = (
             matrix[0][0] * u_px + matrix[0][1] * v_px + matrix[0][2],
             matrix[1][0] * u_px + matrix[1][1] * v_px + matrix[1][2],
