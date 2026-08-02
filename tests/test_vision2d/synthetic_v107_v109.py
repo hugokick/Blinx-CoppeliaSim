@@ -125,6 +125,103 @@ def make_rs1d(
     return cv2.cvtColor(transformed, cv2.COLOR_GRAY2BGR)
 
 
+_EAN_L_PATTERNS = (
+    "0001101",
+    "0011001",
+    "0010011",
+    "0111101",
+    "0100011",
+    "0110001",
+    "0101111",
+    "0111011",
+    "0110111",
+    "0001011",
+)
+_EAN_G_PATTERNS = (
+    "0100111",
+    "0110011",
+    "0011011",
+    "0100001",
+    "0011101",
+    "0111001",
+    "0000101",
+    "0010001",
+    "0001001",
+    "0010111",
+)
+_EAN_R_PATTERNS = (
+    "1110010",
+    "1100110",
+    "1101100",
+    "1000010",
+    "1011100",
+    "1001110",
+    "1010000",
+    "1000100",
+    "1001000",
+    "1110100",
+)
+_EAN_PARITY = (
+    "AAAAAA",
+    "AABABB",
+    "AABBAB",
+    "AABBBA",
+    "ABAABB",
+    "ABBAAB",
+    "ABBBAA",
+    "ABABAB",
+    "ABABBA",
+    "ABBABA",
+)
+
+
+def _ean13_checksum(first_twelve: str) -> str:
+    total = sum((3 if index % 2 else 1) * int(value) for index, value in enumerate(first_twelve))
+    return str((-total) % 10)
+
+
+def make_ean13(
+    digits: str = "590123412345",
+    *,
+    module: int = 3,
+    bar_height: int = 72,
+    rotate_deg: float = 0.0,
+    scale: float = 1.0,
+    noise_sigma: float = 0.0,
+    brightness: float = 0.0,
+) -> np.ndarray:
+    """Create a standards-shaped EAN-13 symbol without external generators."""
+    if len(digits) == 12:
+        digits = digits + _ean13_checksum(digits)
+    if len(digits) != 13 or not digits.isdigit():
+        raise ValueError("EAN-13 fixture requires 12 or 13 decimal digits")
+    if digits[-1] != _ean13_checksum(digits[:12]):
+        raise ValueError("EAN-13 checksum is invalid")
+    bits = "101"
+    parity = _EAN_PARITY[int(digits[0])]
+    for digit, side in zip(digits[1:7], parity):
+        table = _EAN_L_PATTERNS if side == "A" else _EAN_G_PATTERNS
+        bits += table[int(digit)]
+    bits += "01010"
+    for digit in digits[7:]:
+        bits += _EAN_R_PATTERNS[int(digit)]
+    bits += "101"
+    quiet = 10 * module
+    image = np.full((bar_height + 2 * quiet, len(bits) * module + 2 * quiet), 255, dtype=np.uint8)
+    for index, bit in enumerate(bits):
+        if bit == "1":
+            image[quiet : quiet + bar_height, quiet + index * module : quiet + (index + 1) * module] = 0
+    transformed = _transform_gray(
+        image,
+        rotate_deg=rotate_deg,
+        scale=scale,
+        noise_sigma=noise_sigma,
+        brightness=brightness,
+        seed=19,
+    )
+    return cv2.cvtColor(transformed, cv2.COLOR_GRAY2BGR)
+
+
 def compose_side_by_side(*images: np.ndarray, gap: int = 36) -> np.ndarray:
     """Place same-height BGR fixtures on a white canvas."""
     if not images:

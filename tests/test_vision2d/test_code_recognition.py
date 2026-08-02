@@ -9,7 +9,7 @@ import pytest
 
 from vision_platform.vision2d.code_recognition import recognize_codes
 
-from .synthetic_v107_v109 import compose_side_by_side, make_qr, make_rs1d
+from .synthetic_v107_v109 import compose_side_by_side, make_ean13, make_qr, make_rs1d
 
 
 def _all_finite(reading) -> bool:
@@ -89,6 +89,44 @@ def test_rs1d_round_trip_returns_original_payload_and_location() -> None:
     assert reading.decoded is True
     assert len(reading.polygon_px) == 4
     assert _all_finite(reading)
+
+
+def test_standard_ean13_round_trip_returns_standard_payload() -> None:
+    image = make_ean13("590123412345")
+
+    result = recognize_codes(image)
+
+    assert result.status == "PASS"
+    reading = next(item for item in result.readings if item.code_type == "ean13")
+    assert reading.data == "5901234123457"
+    assert reading.decoded is True
+    assert len(reading.polygon_px) == 4
+    assert _all_finite(reading)
+
+
+def test_standard_ean13_handles_rotation_scale_and_noise() -> None:
+    image = make_ean13(
+        "400638133393",
+        rotate_deg=11,
+        scale=1.15,
+        noise_sigma=2.0,
+        brightness=-8,
+    )
+
+    result = recognize_codes(image)
+
+    assert result.status == "PASS"
+    assert any(item.code_type == "ean13" and item.data == "4006381333931" for item in result.readings)
+
+
+def test_standard_ean13_invalid_checksum_is_not_decoded() -> None:
+    image = make_ean13("590123412345")
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    gray[gray.shape[0] // 2 :, gray.shape[1] // 2 : gray.shape[1] // 2 + 3] = 255
+    result = recognize_codes(cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR))
+
+    assert not any(item.code_type == "ean13" and item.decoded for item in result.readings)
+    assert result.status in {"NO_TARGETS", "PARTIAL"}
 
 
 def test_rs1d_handles_rotation_scale_and_noise() -> None:
