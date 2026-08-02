@@ -28,7 +28,7 @@
 | 8 | `610cede` |
 | 10 | `7858a56` |
 | 11 | `908f916` |
-| 12 | 待本报告提交 |
+| 12 | `38f6b38` |
 
 ## RED and GREEN evidence
 
@@ -42,7 +42,7 @@
 
 - 基线完整静态：`1839 passed, 18 skipped`。
 - Task 11 相关静态套件：`1729 passed, 1 skipped`；skip 是显式 CoppeliaSim 在线测试，未计作在线 PASS。
-- Task 11 完整静态套件：`1915 passed, 19 skipped`。
+- Task 11/12 最终完整静态套件：`1916 passed, 19 skipped`。
 - 发布合同、V1-06 模板交付合同和 vision2d 交付合同：`48 passed`。
 - `git diff --check`：通过。
 
