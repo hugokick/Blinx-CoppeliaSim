@@ -43,6 +43,22 @@ def test_v1_07_scene_release_is_self_consistent() -> None:
     }
 
 
+def test_v1_07_hash_bound_json_is_stable_after_a_windows_checkout() -> None:
+    attributes = (ROOT / ".gitattributes").read_text(encoding="utf-8")
+    rules = {
+        line.strip()
+        for line in attributes.splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    }
+    hash_bound_files = (
+        "simulation/vision_code_routing_lab/profiles.json",
+        "simulation/vision_code_routing_lab/code_assets_manifest.json",
+    )
+    for relative in hash_bound_files:
+        assert f"{relative} text eol=lf" in rules
+        assert b"\r\n" not in (ROOT / relative).read_bytes()
+
+
 def test_scene_parts_bins_and_slots_are_unique_and_bounded() -> None:
     spec = json.loads((LAB / "scene_spec.json").read_text(encoding="utf-8"))
     part_aliases = [part["alias"] for part in spec["parts"]]

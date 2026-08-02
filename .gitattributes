@@ -1,2 +1,4 @@
 # Content-addressed teaching configuration must keep checkout-stable bytes.
 simulation/vision_quality_lab/profiles.json text eol=lf
+simulation/vision_code_routing_lab/profiles.json text eol=lf
+simulation/vision_code_routing_lab/code_assets_manifest.json text eol=lf
