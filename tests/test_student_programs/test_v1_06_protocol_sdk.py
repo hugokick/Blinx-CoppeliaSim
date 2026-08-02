@@ -25,6 +25,7 @@ class Connection:
 
 def _value(**overrides: object) -> dict:
     value: dict[str, object] = {
+        "schema_version": 1,
         "snapshot_id": "frame-000001",
         "vision_bundle_path": "vision-bundle-V1-06-frame-000001.json",
         "template_id": "v1_06_red_rectangle",
@@ -51,6 +52,7 @@ def test_template_match_command_and_student_alias_return_frozen_result() -> None
     alias = ctx.vision2d.match_template()
 
     assert result.template_id == "v1_06_red_rectangle"
+    assert result.schema_version == 1
     assert result.matched is True
     assert result.bbox_px == (221, 205, 67, 40)
     assert result.center_px == (254.5, 225.0)
@@ -74,6 +76,7 @@ def test_template_match_protocol_command_is_whitelisted_without_arguments() -> N
     ("overrides", "message"),
     [
         ({"extra": 1}, "fields"),
+        ({"schema_version": 2}, "schema_version"),
         ({"matched": "yes"}, "matched"),
         ({"score": float("nan")}, "score"),
         ({"bbox_px": [1, 2, 3]}, "bbox_px"),

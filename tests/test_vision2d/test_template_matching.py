@@ -96,3 +96,12 @@ def test_annotation_is_a_copy_and_draws_the_match() -> None:
     assert annotated.dtype == np.uint8
     assert np.array_equal(image[205:229, 221:253], template)
     assert not np.array_equal(annotated, image)
+
+
+def test_match_template_rejects_three_dimensional_single_channel_input() -> None:
+    image, template, config = _fixture()
+
+    with pytest.raises(TemplateMatchError) as exc_info:
+        match_template(image[:, :, :1], template[:, :, :1], config)
+
+    assert exc_info.value.code == "VISION_TEMPLATE_INPUT_INVALID"

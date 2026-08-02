@@ -1,8 +1,8 @@
 # V1-06 模板匹配视觉实验验证记录
 
-日期：2026-08-02  
-工作树：`C:\Users\yqzhe\.config\superpowers\worktrees\robot-vision-lab\v2-2-v1-06-template-matching`  
-分支：`codex/v2-2-v1-06-template-matching`  
+日期：2026-08-02
+工作树：`C:\Users\yqzhe\.config\superpowers\worktrees\robot-vision-lab\v2-2-v1-06-template-matching`
+分支：`codex/v2-2-v1-06-template-matching`
 基线：`9af91087d29cf3186ef84f3528c5f4c495b1ff71`
 
 ## Task 提交

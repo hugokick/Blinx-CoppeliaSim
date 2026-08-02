@@ -149,6 +149,60 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _template_root(scene_manifest_path: Path) -> Path:
+    """Return the bounded root from which fixed template files may load."""
+
+    resolved = scene_manifest_path.expanduser().resolve()
+    for parent in (resolved.parent, *resolved.parents):
+        if parent.name.casefold() == "simulation":
+            return parent.parent.resolve()
+    return resolved.parent
+
+
+def _path_is_under(path: Path, root: Path) -> bool:
+    try:
+        path.relative_to(root)
+    except ValueError:
+        return False
+    return True
+
+
+def _safe_template_file(path: Path, root: Path) -> Path:
+    candidate = path.expanduser()
+    if not candidate.is_absolute():
+        candidate = candidate.absolute()
+    bounded_root = root.expanduser().resolve()
+    if not _path_is_under(candidate, bounded_root):
+        raise ValueError("template path is outside the allowed template root")
+
+    current = candidate
+    while True:
+        if current.is_symlink():
+            raise ValueError("template path cannot use a symlink")
+        if current == bounded_root or current.parent == current:
+            break
+        current = current.parent
+
+    resolved = candidate.resolve(strict=True)
+    if not resolved.is_file() or not _path_is_under(resolved, bounded_root):
+        raise ValueError("template path is outside the allowed template root")
+    if resolved != candidate:
+        raise ValueError("template path cannot resolve through a link")
+    return resolved
+
+
+def _find_template_file(base_dir: Path, relative_path: Path, root: Path) -> Path:
+    bounded_root = root.expanduser().resolve()
+    for parent in (base_dir.expanduser().resolve(), *base_dir.expanduser().resolve().parents):
+        candidate = parent / relative_path
+        if not candidate.exists() and not candidate.is_symlink():
+            continue
+        if not _path_is_under(parent, bounded_root):
+            return _safe_template_file(candidate, bounded_root)
+        return _safe_template_file(candidate, bounded_root)
+    raise FileNotFoundError(f"template file was not found: {relative_path}")
+
+
 def _invalid_binding(reason: str) -> VisionPlatformError:
     return VisionPlatformError(
         "EXPERIMENT_CONTEXT_INVALID",
@@ -732,12 +786,11 @@ class StudentExperimentGateway:
         if selected.is_absolute() or any(part in {".", ".."} for part in selected.parts):
             raise ValueError("template catalog path must be a safe relative path")
         manifest_path = self._definition.scene_manifest.expanduser().resolve()
-        candidates = [manifest_path.parent / selected]
-        candidates.extend(parent / selected for parent in manifest_path.parents)
-        for candidate in candidates:
-            if candidate.is_file():
-                return candidate.resolve()
-        raise FileNotFoundError(f"template catalog file was not found: {relative_path}")
+        return _find_template_file(
+            manifest_path.parent,
+            selected,
+            _template_root(manifest_path),
+        )
 
     def _template_asset(self) -> tuple[np.ndarray, TemplateMatchConfig, dict[str, Any]]:
         binding = self._scene_manifest.get("template_catalog")
@@ -789,16 +842,11 @@ class StudentExperimentGateway:
                 part in {".", ".."} for part in asset_relative.parts
             ):
                 raise ValueError("template asset path is unsafe")
-            asset_candidates = [catalog_path.parent / asset_relative]
-            asset_candidates.extend(
-                parent / asset_relative for parent in catalog_path.parents
+            asset_path = _find_template_file(
+                catalog_path.parent,
+                asset_relative,
+                _template_root(self._definition.scene_manifest),
             )
-            asset_path = next(
-                (candidate.resolve() for candidate in asset_candidates if candidate.is_file()),
-                None,
-            )
-            if asset_path is None:
-                raise FileNotFoundError("template asset was not found")
             if _sha256(asset_path) != catalog["sha256"]:
                 raise ValueError("template asset hash mismatch")
             image = cv2.imread(str(asset_path), cv2.IMREAD_COLOR)
@@ -887,6 +935,7 @@ class StudentExperimentGateway:
             existing_layer_records={"raw": recorded.record},
         )
         response = {
+            "schema_version": result.schema_version,
             "snapshot_id": snapshot_id,
             "vision_bundle_path": bundle_path,
             "template_id": result.template_id,

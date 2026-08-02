@@ -26,10 +26,8 @@ def test_quality_scene_binds_verified_v1_06_template_catalog() -> None:
         "simulation/vision_quality_lab/BL23_vision_quality_lab.ttt"
     )
 
-
 def test_v1_06_binding_does_not_change_protected_scene_binary() -> None:
     scene = ROOT / "simulation/vision_quality_lab/BL23_vision_quality_lab.ttt"
     assert hashlib.sha256(scene.read_bytes()).hexdigest() == (
         "ce4c0189bb486caa2bfbd557d0b5148775d846a80e07983423f1b29d8d9eb310"
     )
-

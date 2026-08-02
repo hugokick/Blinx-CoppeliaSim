@@ -54,6 +54,7 @@ _VISION2D_RESULT_FIELDS = frozenset(
 )
 _TEMPLATE_MATCH_RESULT_FIELDS = frozenset(
     {
+        "schema_version",
         "snapshot_id",
         "vision_bundle_path",
         "template_id",
@@ -230,6 +231,7 @@ class StudentVision2DResult:
 
 @dataclass(frozen=True)
 class StudentTemplateMatchResult:
+    schema_version: int
     snapshot_id: str
     vision_bundle_path: str
     template_id: str
@@ -371,6 +373,9 @@ def _template_ints(value: Any, field: str, *, count: int) -> tuple[int, ...]:
 def _template_match_result(value: Any) -> StudentTemplateMatchResult:
     if not isinstance(value, Mapping) or set(value) != _TEMPLATE_MATCH_RESULT_FIELDS:
         raise _template_match_error("fields")
+    schema_version = value["schema_version"]
+    if type(schema_version) is not int or schema_version != 1:
+        raise _template_match_error("schema_version")
     snapshot_id = value["snapshot_id"]
     if type(snapshot_id) is not str or _SNAPSHOT_ID_PATTERN.fullmatch(snapshot_id) is None:
         raise _template_match_error("snapshot_id")
@@ -402,6 +407,8 @@ def _template_match_result(value: Any) -> StudentTemplateMatchResult:
         raise _template_match_error("status")
     score = _template_number(value["score"], "score")
     threshold = _template_number(value["threshold"], "threshold")
+    if matched != (score >= threshold):
+        raise _template_match_error("matched")
     bbox_value = value["bbox_px"]
     bbox: tuple[int, int, int, int] | None
     if bbox_value is None:
@@ -438,12 +445,20 @@ def _template_match_result(value: Any) -> StudentTemplateMatchResult:
         bbox[0] + bbox[2] > image_size[0] or bbox[1] + bbox[3] > image_size[1]
     ):
         raise _template_match_error("bbox_px")
+    if bbox is not None and (
+        bbox[0] < search_roi[0]
+        or bbox[1] < search_roi[1]
+        or bbox[0] + bbox[2] > search_roi[0] + search_roi[2]
+        or bbox[1] + bbox[3] > search_roi[1] + search_roi[3]
+    ):
+        raise _template_match_error("bbox_px")
     method = value["method"]
     if method != "TM_CCOEFF_NORMED":
         raise _template_match_error("method")
     if (bbox is None) != (center is None):
         raise _template_match_error("center_px")
     return StudentTemplateMatchResult(
+        schema_version=schema_version,
         snapshot_id=snapshot_id,
         vision_bundle_path=bundle_path,
         template_id=template_id,

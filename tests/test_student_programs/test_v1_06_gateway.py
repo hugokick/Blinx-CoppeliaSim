@@ -163,6 +163,7 @@ def test_gateway_runs_fixed_template_match_and_records_three_layers(tmp_path: Pa
     value = gateway.dispatch("vision2d.template_match", {})
 
     assert value["template_id"] == "v1_06_red_rectangle"
+    assert value["schema_version"] == 1
     assert value["template_version"] == "1.0.0"
     assert value["matched"] is True
     assert value["bbox_px"] == [100, 100, 67, 40]
@@ -194,6 +195,22 @@ def test_gateway_template_match_requires_capability_and_rejects_arguments(tmp_pa
     assert captured.value.code == "VISION_TEMPLATE_CONTEXT_REQUIRED"
     assert camera.read_calls == 0
     assert evidence.calls == []
+
+
+def test_template_catalog_resolution_does_not_escape_manifest_root(tmp_path: Path) -> None:
+    nested = tmp_path / "nested"
+    nested.mkdir()
+    outside = tmp_path / "templates"
+    outside.mkdir()
+    (outside / "manifest.json").write_text("{}", encoding="utf-8")
+
+    gateway = StudentExperimentGateway.__new__(StudentExperimentGateway)
+    gateway._definition = SimpleNamespace(
+        scene_manifest=nested / "scene_manifest.json"
+    )
+
+    with pytest.raises(ValueError, match="allowed template root"):
+        gateway._resolve_catalog_path("templates/manifest.json")
 
 
 def test_template_matching_capability_requires_sim_camera_and_profile_pair() -> None:

@@ -95,9 +95,9 @@ def test_v1_06_student_template_records_template_evidence(tmp_path, request):
     assert len(loaded["_resolved_layer_paths"]) == 3
     assert all(path.is_file() for path in loaded["_resolved_layer_paths"].values())
     result = loaded["result"]
+    assert result["schema_version"] == 1
     assert result["template_id"] == "v1_06_red_rectangle"
     assert result["method"] == "TM_CCOEFF_NORMED"
     assert result["matched"] is True
     assert result["bbox_px"] is not None
     assert result["center_px"] is not None
-

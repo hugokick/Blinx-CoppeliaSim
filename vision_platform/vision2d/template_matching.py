@@ -87,8 +87,8 @@ def _validate_image(value: object, *, code: str, name: str) -> np.ndarray:
         raise TemplateMatchError(code, f"{name} must be a uint8 numpy array")
     if value.ndim not in {2, 3}:
         raise TemplateMatchError(code, f"{name} must be 2D or 3D")
-    if value.ndim == 3 and value.shape[2] not in {1, 3}:
-        raise TemplateMatchError(code, f"{name} must have one or three channels")
+    if value.ndim == 3 and value.shape[2] != 3:
+        raise TemplateMatchError(code, f"{name} must have three channels")
     if value.size == 0 or value.shape[0] <= 0 or value.shape[1] <= 0:
         raise TemplateMatchError(code, f"{name} must not be empty")
     return value

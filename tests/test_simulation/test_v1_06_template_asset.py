@@ -43,3 +43,7 @@ def test_generator_is_reproducible_without_external_input(tmp_path: Path) -> Non
     assert _sha256(first.asset_path) == _sha256(second.asset_path)
     assert first.manifest == second.manifest
     assert first.manifest["source"].startswith("deterministic")
+    assert (
+        (first.manifest_path.parent / first.manifest["asset_path"]).resolve()
+        == first.asset_path.resolve()
+    )

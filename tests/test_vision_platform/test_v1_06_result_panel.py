@@ -79,4 +79,3 @@ def test_panel_renders_v1_06_template_metrics_and_three_layers(qtbot, tmp_path):
         panel.layer_combo.setCurrentIndex(index)
         assert panel.preview_label.pixmap() is not None
         assert not panel.preview_label.pixmap().isNull()
-

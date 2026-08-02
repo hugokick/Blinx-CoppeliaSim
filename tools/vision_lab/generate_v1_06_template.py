@@ -55,7 +55,12 @@ def generate(output_dir: Path | None = None) -> TemplateGeneration:
         "schema_version": 1,
         "template_id": TEMPLATE_ID,
         "template_version": TEMPLATE_VERSION,
-        "asset_path": ASSET_PATH,
+        "asset_path": (
+            ASSET_PATH
+            if target.resolve()
+            == (root / "simulation/vision_quality_lab/templates").resolve()
+            else ASSET_NAME
+        ),
         "sha256": _sha256(asset_path),
         "size_px": [67, 40],
         "channels": 3,
