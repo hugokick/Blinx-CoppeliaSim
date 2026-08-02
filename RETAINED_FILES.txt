@@ -368,3 +368,5 @@ vision_platform/rgbd/sampling.py
 tests/test_rgbd/test_sampling.py
 vision_platform/rgbd/geometry.py
 tests/test_rgbd/test_geometry.py
+vision_platform/rgbd/transforms.py
+tests/test_rgbd/test_transforms.py
