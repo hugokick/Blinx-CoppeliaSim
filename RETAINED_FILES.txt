@@ -146,6 +146,10 @@ tests/test_rgbd_sim/test_capture.py
 tests/test_rgbd_sim/test_depth_model.py
 vision_platform/rgbd_sim/preview.py
 tests/test_rgbd_sim/test_preview.py
+vision_platform/rgbd_sim/scene_binding.py
+vision_platform/rgbd_sim/probe.py
+tests/test_rgbd_sim/test_scene_binding.py
+tests/test_rgbd_sim/test_probe.py
 simulation/rgbd_lab/__init__.py
 simulation/rgbd_lab/scene_spec.json
 tools/rgbd_lab/__init__.py
