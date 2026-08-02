@@ -203,6 +203,24 @@ def _bbox_from_components(components: list[dict[str, object]]) -> tuple[int, int
     return x0, y0, max(1, x1 - x0), max(1, y1 - y0)
 
 
+def _component_overlap_areas(
+    mask: np.ndarray,
+    components: list[dict[str, object]],
+    reference_mask: np.ndarray,
+) -> dict[int, float]:
+    """Measure each candidate component's foreground overlap with reference."""
+    _count, labels, _stats, _centroids = cv2.connectedComponentsWithStats(mask, 8)
+    reference_foreground = reference_mask > 0
+    return {
+        int(component["label"]): float(
+            np.count_nonzero(
+                (labels == int(component["label"])) & reference_foreground
+            )
+        )
+        for component in components
+    }
+
+
 def _hole_regions(mask: np.ndarray, min_area: float) -> list[dict[str, object]]:
     """Return enclosed background contours with their aligned-image geometry."""
     contours, hierarchy = cv2.findContours(mask, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
@@ -358,6 +376,17 @@ def detect_surface_defects(
     missing_mask = cv2.morphologyEx(missing_mask, cv2.MORPH_OPEN, kernel)
     extra_mask = cv2.morphologyEx(extra_mask, cv2.MORPH_OPEN, kernel)
     reference_area = float(reference_main["area_px2"])
+    reference_bbox = reference_main["bbox_px"]
+    candidate_bbox = candidate_main["bbox_px"]
+    candidate_area = float(candidate_main["area_px2"])
+    area_ratio = abs(candidate_area - reference_area) / max(reference_area, 1.0)
+    width_ratio = abs(float(candidate_bbox[2]) - float(reference_bbox[2])) / max(
+        float(reference_bbox[2]), 1.0
+    )
+    height_ratio = abs(float(candidate_bbox[3]) - float(reference_bbox[3])) / max(
+        float(reference_bbox[3]), 1.0
+    )
+    dimension_metric = max(area_ratio, width_ratio, height_ratio)
     thresholds = {
             "missing_ratio": float(config.missing_ratio),
             "hole_ratio": float(config.hole_ratio),
@@ -368,6 +397,50 @@ def detect_surface_defects(
             "foreign_px2": max(1.0, image_area * config.foreign_ratio),
         }
     findings: list[DefectFinding] = []
+
+    # A disconnected candidate component is a broken subject only when at
+    # least two substantial components still overlap the reference subject.
+    # A detached foreign component therefore cannot manufacture a "broken"
+    # finding merely by increasing candidate component_count.
+    overlap_areas = _component_overlap_areas(
+        aligned_candidate,
+        candidate_components,
+        reference_mask,
+    )
+    overlap_min_area = max(
+        float(min_area),
+        reference_area * config.missing_ratio,
+    )
+    broken_components = [
+        component
+        for component in candidate_components
+        if overlap_areas[int(component["label"])] >= overlap_min_area
+        and overlap_areas[int(component["label"])] / max(float(component["area_px2"]), 1.0)
+        >= 0.25
+    ]
+    broken_detected = len(broken_components) >= 2
+
+    # Extra foreground is the candidate-only mask.  A significant component
+    # in that mask is new material, including material that fills a legal
+    # reference hole.  A dimensional enlargement is handled by the explicit
+    # dimension metric instead of being mislabeled as foreign material.
+    foreign_components = (
+        _components(extra_mask, thresholds["foreign_px2"])
+        if dimension_metric < config.dimension_ratio
+        else []
+    )
+    for component in foreign_components:
+        area = float(component["area_px2"])
+        findings.append(
+            _finding(
+                "foreign",
+                component["bbox_px"],
+                area,
+                reference_area,
+                area,
+                thresholds["foreign_px2"],
+            )
+        )
 
     # A candidate hole is a defect only when it is not already present in the
     # reference.  Legal holes are part of the reference geometry contract.
@@ -383,53 +456,34 @@ def detect_surface_defects(
         findings.append(_finding("hole", bbox, area, reference_area, area, thresholds["hole_px2"]))
 
     missing_components = _components(missing_mask, thresholds["missing_px2"])
-    for component in missing_components:
-        bbox = component["bbox_px"]
-        center = component["center_px"]
-        is_hole = any(
-            int(hole[0]) <= float(center[0]) <= int(hole[0]) + int(hole[2])
-            and int(hole[1]) <= float(center[1]) <= int(hole[1]) + int(hole[3])
-            for hole in new_hole_boxes
-        )
-        if not is_hole:
-            area = float(component["area_px2"])
-            findings.append(_finding("missing", bbox, area, reference_area, area, thresholds["missing_px2"]))
-
-    # Components separate from the main candidate are foreign material.
-    for component in candidate_components[1:]:
-        area = float(component["area_px2"])
-        if area >= thresholds["foreign_px2"]:
-            findings.append(
-                _finding(
-                    "foreign",
-                    component["bbox_px"],
-                    area,
-                    reference_area,
-                    area,
-                    thresholds["foreign_px2"],
-                )
+    if not broken_detected:
+        for component in missing_components:
+            bbox = component["bbox_px"]
+            center = component["center_px"]
+            is_hole = any(
+                int(hole[0]) <= float(center[0]) <= int(hole[0]) + int(hole[2])
+                and int(hole[1]) <= float(center[1]) <= int(hole[1]) + int(hole[3])
+                for hole in new_hole_boxes
             )
+            if not is_hole:
+                area = float(component["area_px2"])
+                findings.append(
+                    _finding("missing", bbox, area, reference_area, area, thresholds["missing_px2"])
+                )
 
-    if len(candidate_components) > 1 and len(reference_components) <= 1:
-        area = float(sum(float(item["area_px2"]) for item in candidate_components))
+    if broken_detected:
+        area = float(sum(float(item["area_px2"]) for item in broken_components))
         findings.append(
             _finding(
                 "broken",
-                _bbox_from_components(candidate_components),
-                max(1.0, float(np.count_nonzero(missing_mask))),
+                _bbox_from_components(broken_components),
+                area,
                 reference_area,
-                float(len(candidate_components)),
+                float(len(broken_components)),
                 2.0,
             )
         )
 
-    candidate_area = float(candidate_main["area_px2"])
-    reference_bbox = reference_main["bbox_px"]
-    candidate_bbox = candidate_main["bbox_px"]
-    area_ratio = abs(candidate_area - reference_area) / max(reference_area, 1.0)
-    width_ratio = abs(float(candidate_bbox[2]) - float(reference_bbox[2])) / max(float(reference_bbox[2]), 1.0)
-    height_ratio = abs(float(candidate_bbox[3]) - float(reference_bbox[3])) / max(float(reference_bbox[3]), 1.0)
-    dimension_metric = max(area_ratio, width_ratio, height_ratio)
     explicit_types = {finding.defect_type for finding in findings}
     if dimension_metric >= config.dimension_ratio and not explicit_types.intersection(
         {"missing", "hole", "foreign", "broken"}
