@@ -16,6 +16,7 @@ from .models import (
     capture_to_dict,
     source_capture_to_dict,
 )
+from .preview import colorize_depth, copy_bgr, copy_bgr_preview, depth_summary, depth_to_preview
 
 __all__ = [
     "RgbdSensorMetadata",
@@ -26,7 +27,12 @@ __all__ = [
     "DepthAnchor",
     "SourceDepthModelObservation",
     "capture_to_dict",
+    "colorize_depth",
+    "copy_bgr",
+    "copy_bgr_preview",
     "derive_intrinsics",
+    "depth_summary",
+    "depth_to_preview",
     "expected_intrinsics",
     "normalize_source_capture",
     "observe_source_depth_model",
