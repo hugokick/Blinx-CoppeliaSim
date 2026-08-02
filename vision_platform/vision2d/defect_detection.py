@@ -35,6 +35,10 @@ class DefectConfig:
             value = float(getattr(self, name))
             if not math.isfinite(value) or value <= 0.0 or value >= 1.0:
                 raise ValueError(f"{name} must be finite in (0, 1)")
+        if isinstance(self.morphology_kernel_size, (bool, np.bool_)) or not isinstance(
+            self.morphology_kernel_size, (int, np.integer)
+        ):
+            raise ValueError("morphology_kernel_size must be a non-bool integer")
         kernel = int(self.morphology_kernel_size)
         if kernel <= 0 or kernel % 2 == 0:
             raise ValueError("morphology_kernel_size must be positive odd")
@@ -199,6 +203,49 @@ def _bbox_from_components(components: list[dict[str, object]]) -> tuple[int, int
     return x0, y0, max(1, x1 - x0), max(1, y1 - y0)
 
 
+def _hole_regions(mask: np.ndarray, min_area: float) -> list[dict[str, object]]:
+    """Return enclosed background contours with their aligned-image geometry."""
+    contours, hierarchy = cv2.findContours(mask, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
+    if hierarchy is None:
+        return []
+    holes: list[dict[str, object]] = []
+    for index, contour in enumerate(contours):
+        if int(hierarchy[0][index][3]) < 0:
+            continue
+        area = abs(float(cv2.contourArea(contour)))
+        if area < min_area:
+            continue
+        bbox = _bbox_from_contour(contour)
+        moments = cv2.moments(contour)
+        if abs(float(moments["m00"])) > 1e-9:
+            center = (
+                float(moments["m10"] / moments["m00"]),
+                float(moments["m01"] / moments["m00"]),
+            )
+        else:
+            center = (bbox[0] + bbox[2] / 2.0, bbox[1] + bbox[3] / 2.0)
+        holes.append({"bbox_px": bbox, "area_px2": area, "center_px": center})
+    return holes
+
+
+def _hole_matches(reference_hole: dict[str, object], candidate_hole: dict[str, object]) -> bool:
+    reference_bbox = reference_hole["bbox_px"]
+    candidate_bbox = candidate_hole["bbox_px"]
+    reference_center = reference_hole["center_px"]
+    candidate_center = candidate_hole["center_px"]
+    distance = math.dist(reference_center, candidate_center)
+    size = max(float(reference_bbox[2]), float(reference_bbox[3]), 1.0)
+    if distance <= max(3.0, 0.25 * size):
+        return True
+    x0 = max(int(reference_bbox[0]), int(candidate_bbox[0]))
+    y0 = max(int(reference_bbox[1]), int(candidate_bbox[1]))
+    x1 = min(int(reference_bbox[0]) + int(reference_bbox[2]), int(candidate_bbox[0]) + int(candidate_bbox[2]))
+    y1 = min(int(reference_bbox[1]) + int(reference_bbox[3]), int(candidate_bbox[1]) + int(candidate_bbox[3]))
+    intersection = max(0, x1 - x0) * max(0, y1 - y0)
+    union = int(reference_bbox[2]) * int(reference_bbox[3]) + int(candidate_bbox[2]) * int(candidate_bbox[3]) - intersection
+    return union > 0 and intersection / union >= 0.35
+
+
 def _finding(
     defect_type: str,
     bbox: tuple[int, int, int, int],
@@ -245,7 +292,7 @@ def detect_surface_defects(
     image_area = float(height * width)
     min_area = max(4.0, image_area * config.min_component_ratio)
     reference_components = _components(reference_mask, min_area)
-    candidate_components = _components(candidate_mask, min_area)
+    candidate_components_raw = _components(candidate_mask, min_area)
     if not reference_components:
         return DefectResult(
             status="REJECTED",
@@ -258,7 +305,7 @@ def detect_surface_defects(
             processing_ms=(time.perf_counter() - started) * 1000.0,
             image_size=image_size,
         )
-    if not candidate_components:
+    if not candidate_components_raw:
         return DefectResult(
             status="PARTIAL",
             defects=(
@@ -281,9 +328,9 @@ def detect_surface_defects(
         )
 
     reference_main = reference_components[0]
-    candidate_main = candidate_components[0]
+    candidate_main_raw = candidate_components_raw[0]
     reference_center = reference_main["center_px"]
-    candidate_center = candidate_main["center_px"]
+    candidate_center = candidate_main_raw["center_px"]
     dx = float(candidate_center[0]) - float(reference_center[0])
     dy = float(candidate_center[1]) - float(reference_center[1])
     if abs(dx) > config.max_alignment_shift_px or abs(dy) > config.max_alignment_shift_px:
@@ -299,6 +346,12 @@ def detect_surface_defects(
         flags=cv2.INTER_NEAREST,
         borderValue=0,
     )
+    # All candidate-derived metrics after this point use the aligned mask and
+    # are therefore expressed in the same coordinate system as the reference.
+    candidate_components = _components(aligned_candidate, min_area)
+    if not candidate_components:
+        return _invalid_result("CANDIDATE_EMPTY_AFTER_ALIGNMENT", image_size)
+    candidate_main = candidate_components[0]
     missing_mask = cv2.bitwise_and(reference_mask, cv2.bitwise_not(aligned_candidate))
     extra_mask = cv2.bitwise_and(aligned_candidate, cv2.bitwise_not(reference_mask))
     kernel = np.ones((config.morphology_kernel_size, config.morphology_kernel_size), dtype=np.uint8)
@@ -316,17 +369,18 @@ def detect_surface_defects(
         }
     findings: list[DefectFinding] = []
 
-    # A child contour in RETR_CCOMP is evidence of an enclosed candidate hole.
-    hole_boxes: list[tuple[int, int, int, int]] = []
-    contours, hierarchy = cv2.findContours(aligned_candidate, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
-    if hierarchy is not None:
-        for index, contour in enumerate(contours):
-            parent = int(hierarchy[0][index][3])
-            area = abs(float(cv2.contourArea(contour)))
-            if parent >= 0 and area >= thresholds["hole_px2"]:
-                bbox = _bbox_from_contour(contour)
-                hole_boxes.append(bbox)
-                findings.append(_finding("hole", bbox, area, reference_area, area, thresholds["hole_px2"]))
+    # A candidate hole is a defect only when it is not already present in the
+    # reference.  Legal holes are part of the reference geometry contract.
+    reference_holes = _hole_regions(reference_mask, thresholds["hole_px2"])
+    candidate_holes = _hole_regions(aligned_candidate, thresholds["hole_px2"])
+    new_hole_boxes: list[tuple[int, int, int, int]] = []
+    for candidate_hole in candidate_holes:
+        if any(_hole_matches(reference_hole, candidate_hole) for reference_hole in reference_holes):
+            continue
+        bbox = candidate_hole["bbox_px"]
+        area = float(candidate_hole["area_px2"])
+        new_hole_boxes.append(bbox)
+        findings.append(_finding("hole", bbox, area, reference_area, area, thresholds["hole_px2"]))
 
     missing_components = _components(missing_mask, thresholds["missing_px2"])
     for component in missing_components:
@@ -335,7 +389,7 @@ def detect_surface_defects(
         is_hole = any(
             int(hole[0]) <= float(center[0]) <= int(hole[0]) + int(hole[2])
             and int(hole[1]) <= float(center[1]) <= int(hole[1]) + int(hole[3])
-            for hole in hole_boxes
+            for hole in new_hole_boxes
         )
         if not is_hole:
             area = float(component["area_px2"])
