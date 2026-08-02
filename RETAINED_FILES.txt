@@ -329,3 +329,4 @@ vision_platform/vision2d/pipeline.py
 vision_platform/vision2d/preprocessing.py
 vision_platform/vision2d/segmentation.py
 vision_platform/vision2d/serialization.py
+docs/superpowers/specs/2026-08-02-v1-07-d1-parallel-coordination-design.md
