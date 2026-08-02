@@ -527,7 +527,14 @@ def _validate_ocr_assets_manifest(path: Path) -> dict[str, Any]:
             raise ValueError("OCR label path identity could not be inspected") from exc
         if attributes & _REPARSE_POINT or asset_path.stat().st_nlink != 1:
             raise ValueError("OCR label path must not be an alias")
-        if item["size_px"] != [64, 96] or type(item["channels"]) is not int or item["channels"] != 3:
+        if (
+            not isinstance(item["size_px"], list)
+            or len(item["size_px"]) != 2
+            or any(type(value) is not int for value in item["size_px"])
+            or item["size_px"] != [64, 96]
+            or type(item["channels"]) is not int
+            or item["channels"] != 3
+        ):
             raise ValueError("OCR scene labels must be 64x96 three-channel images")
         digest = item["sha256"]
         if not isinstance(digest, str) or _LOWER_SHA256.fullmatch(digest) is None:

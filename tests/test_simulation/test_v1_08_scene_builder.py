@@ -155,7 +155,7 @@ def test_ocr_profile_catalog_rejects_unbounded_integer_values(tmp_path, mutate):
         scene_builder._load_ocr_profile_catalog(path)
 
 
-@pytest.mark.parametrize("tamper", ["hash", "path"])
+@pytest.mark.parametrize("tamper", ["hash", "path", "size_type"])
 def test_ocr_assets_manifest_rejects_tampered_label_binding(tmp_path, tamper):
     payload = json.loads(
         (ROOT / "simulation" / "vision_ocr_sorting_lab" / "ocr_assets_manifest.json").read_text(
@@ -164,8 +164,10 @@ def test_ocr_assets_manifest_rejects_tampered_label_binding(tmp_path, tamper):
     )
     if tamper == "hash":
         payload["labels"][0]["sha256"] = "0" * 64
-    else:
+    elif tamper == "path":
         payload["labels"][0]["path"] = "../labels/A1.png"
+    else:
+        payload["labels"][0]["size_px"] = [64.0, 96]
     path = tmp_path / "ocr_assets_manifest.json"
     path.write_text(json.dumps(payload), encoding="utf-8")
     with pytest.raises(ValueError):
