@@ -380,3 +380,4 @@ tests/test_rgbd/test_performance.py
 vision_platform/rgbd/__init__.py
 tests/test_rgbd/test_public_api.py
 tests/test_rgbd/test_delivery.py
+docs/superpowers/reports/2026-08-02-d1-rgbd-kernel-validation-report.md
