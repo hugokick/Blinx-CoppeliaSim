@@ -2,6 +2,13 @@
 
 from .errors import RgbdSimContractError
 from .intrinsics import derive_intrinsics, expected_intrinsics
+from .capture import CoppeliaRgbdCapture
+from .depth_model import (
+    DepthAnchor,
+    SourceDepthModelObservation,
+    normalize_source_capture,
+    observe_source_depth_model,
+)
 from .models import (
     RgbdSensorMetadata,
     RgbdSimCapture,
@@ -15,8 +22,13 @@ __all__ = [
     "RgbdSimCapture",
     "RgbdSimContractError",
     "RgbdSourceCapture",
+    "CoppeliaRgbdCapture",
+    "DepthAnchor",
+    "SourceDepthModelObservation",
     "capture_to_dict",
     "derive_intrinsics",
     "expected_intrinsics",
+    "normalize_source_capture",
+    "observe_source_depth_model",
     "source_capture_to_dict",
 ]
