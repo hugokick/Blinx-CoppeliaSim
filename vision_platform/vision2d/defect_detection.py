@@ -5,7 +5,6 @@ from __future__ import annotations
 import math
 import time
 from dataclasses import dataclass, field
-from types import MappingProxyType
 from typing import Mapping
 
 import cv2
@@ -106,10 +105,10 @@ def _invalid_result(
     return DefectResult(
         status="REJECTED",
         defects=(),
-        reference_metrics=MappingProxyType({}),
-        candidate_metrics=MappingProxyType({}),
+        reference_metrics={},
+        candidate_metrics={},
         alignment_shift_px=(0.0, 0.0),
-        thresholds=MappingProxyType({}),
+        thresholds={},
         failure_code=code,
         processing_ms=0.0,
         image_size=image_size,
@@ -251,10 +250,10 @@ def detect_surface_defects(
         return DefectResult(
             status="REJECTED",
             defects=(),
-            reference_metrics=MappingProxyType({"contrast": reference_contrast}),
-            candidate_metrics=MappingProxyType({"contrast": candidate_contrast}),
+            reference_metrics={"contrast": reference_contrast},
+            candidate_metrics={"contrast": candidate_contrast},
             alignment_shift_px=(0.0, 0.0),
-            thresholds=MappingProxyType({}),
+            thresholds={},
             failure_code="REFERENCE_EMPTY",
             processing_ms=(time.perf_counter() - started) * 1000.0,
             image_size=image_size,
@@ -272,10 +271,10 @@ def detect_surface_defects(
                     max(1.0, float(reference_components[0]["area_px2"]) * config.missing_ratio),
                 ),
             ),
-            reference_metrics=MappingProxyType(_metrics(reference_components, reference_mask)),
-            candidate_metrics=MappingProxyType({"contrast": candidate_contrast, "area_px2": 0.0}),
+            reference_metrics=_metrics(reference_components, reference_mask),
+            candidate_metrics={"contrast": candidate_contrast, "area_px2": 0.0},
             alignment_shift_px=(0.0, 0.0),
-            thresholds=MappingProxyType({"missing_ratio": config.missing_ratio}),
+            thresholds={"missing_ratio": config.missing_ratio},
             failure_code="CANDIDATE_EMPTY",
             processing_ms=(time.perf_counter() - started) * 1000.0,
             image_size=image_size,
@@ -306,8 +305,7 @@ def detect_surface_defects(
     missing_mask = cv2.morphologyEx(missing_mask, cv2.MORPH_OPEN, kernel)
     extra_mask = cv2.morphologyEx(extra_mask, cv2.MORPH_OPEN, kernel)
     reference_area = float(reference_main["area_px2"])
-    thresholds = MappingProxyType(
-        {
+    thresholds = {
             "missing_ratio": float(config.missing_ratio),
             "hole_ratio": float(config.hole_ratio),
             "foreign_ratio": float(config.foreign_ratio),
@@ -316,7 +314,6 @@ def detect_surface_defects(
             "hole_px2": max(1.0, reference_area * config.hole_ratio),
             "foreign_px2": max(1.0, image_area * config.foreign_ratio),
         }
-    )
     findings: list[DefectFinding] = []
 
     # A child contour in RETR_CCOMP is evidence of an enclosed candidate hole.
@@ -408,8 +405,8 @@ def detect_surface_defects(
     return DefectResult(
         status=status,
         defects=tuple(unique),
-        reference_metrics=MappingProxyType(_metrics(reference_components, reference_mask)),
-        candidate_metrics=MappingProxyType(_metrics(candidate_components, aligned_candidate)),
+        reference_metrics=_metrics(reference_components, reference_mask),
+        candidate_metrics=_metrics(candidate_components, aligned_candidate),
         alignment_shift_px=(dx, dy),
         thresholds=thresholds,
         failure_code=None if not unique else "DEFECTS_FOUND",
