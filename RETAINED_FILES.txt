@@ -152,6 +152,9 @@ tests/test_rgbd_sim/test_scene_binding.py
 tests/test_rgbd_sim/test_probe.py
 tools/rgbd_lab/run_rgbd_probe.py
 tests/test_rgbd_sim/test_probe_cli.py
+tests/test_rgbd_sim/conftest.py
+tests/test_rgbd_sim/test_coppeliasim_rgbd_online.py
+tests/test_rgbd_sim/coppeliasim_process.py
 simulation/rgbd_lab/__init__.py
 simulation/rgbd_lab/scene_spec.json
 tools/rgbd_lab/__init__.py

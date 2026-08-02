@@ -63,6 +63,14 @@ class FakeSim:
         return {4: 1.0471975512, 5: 0.01, 6: 5.0}[parameter]
 
 
+class FakeSimWithUnsupportedColourFlags(FakeSim):
+    def getObjectInt32Param(self, handle: int, parameter: int) -> int | None:
+        if parameter in {self.visionintparam_rgbignored, self.visionintparam_depthignored}:
+            self.calls.append(("getObjectInt32Param", handle, parameter))
+            return None
+        return super().getObjectInt32Param(handle, parameter)
+
+
 def _binding(**overrides: object) -> SimpleNamespace:
     values = {
         "scene_path": "simulation/rgbd_lab/BL23_rgbd_lab.ttt",
@@ -115,3 +123,12 @@ def test_source_capture_rejects_color_depth_resolution_mismatch() -> None:
     with pytest.raises(RgbdSimContractError) as captured:
         CoppeliaRgbdCapture(sim=sim, scene_binding=_binding()).read_source()
     assert captured.value.code == "RGBD_SIM_CAPTURE_INVALID"
+
+
+def test_source_capture_accepts_newer_sim_when_colour_flags_are_unsupported_but_buffers_exist() -> None:
+    source = CoppeliaRgbdCapture(
+        sim=FakeSimWithUnsupportedColourFlags(),
+        scene_binding=_binding(),
+    ).read_source()
+    assert source.metadata.rgb_enabled is True
+    assert source.metadata.depth_enabled is True
