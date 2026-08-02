@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "baseline_profile_id": "standard",
+  "sensor_path": "/VisionOcrSortingLab/CameraRig/Camera",
+  "camera_rig_path": "/VisionOcrSortingLab/CameraRig",
+  "key_light_path": "/VisionOcrSortingLab/Lighting/KeyLight",
+  "fill_light_path": "/VisionOcrSortingLab/Lighting/FillLight",
+  "near_clip_m": 0.05,
+  "far_clip_m": 1.0,
+  "profiles": [
+    {
+      "profile_id": "standard",
+      "label": "OCR 分拣固定视图",
+      "resolution": [1024, 1024],
+      "perspective_angle_deg": 20,
+      "camera_rig_z_m": 0.5,
+      "key_diffuse_rgb": [0.8, 0.8, 0.8],
+      "fill_diffuse_rgb": [0.35, 0.35, 0.35]
+    }
+  ]
+}

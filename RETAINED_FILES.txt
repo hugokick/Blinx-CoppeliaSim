@@ -469,3 +469,11 @@ tests/test_simulation/test_v1_08_ocr_assets.py
 docs/superpowers/plans/2026-08-02-d1-01-coppeliasim-rgbd-foundation-plan.md
 vision_platform/experiments/ocr_sorting.py
 tests/test_experiments/test_ocr_sorting.py
+simulation/vision_ocr_sorting_lab/scene_spec.json
+simulation/vision_ocr_sorting_lab/BL23_vision_ocr_sorting_lab.ttt
+simulation/vision_ocr_sorting_lab/scene_manifest.json
+simulation/vision_ocr_sorting_lab/profiles.json
+tools/vision_lab/build_v1_08_scene.py
+tools/vision_lab/build_v1_08_scene.ps1
+tests/test_simulation/test_v1_08_scene_builder.py
+tests/test_simulation/test_v1_08_scene_contract.py

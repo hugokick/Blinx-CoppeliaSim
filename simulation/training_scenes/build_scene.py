@@ -25,6 +25,7 @@ from simulation.vision_lab.hashing import asset_sha256
 from vision_platform.vision2d.code_recognition import encode_ean13_payload
 from vision_platform.vision_quality import load_profile_catalog
 from vision_platform.vision_quality.catalog import load_profile_catalog_bytes
+from vision_platform.vision_quality.models import VisionProfile, VisionProfileCatalog
 from vision_platform.coppelia_scene import stage_scene_for_coppeliasim
 
 
@@ -106,6 +107,39 @@ _CODE_ROUTING_REQUIRED_PATHS = (
     "/VisionCodeRoutingLab/Bins/route_red/red_1", "/VisionCodeRoutingLab/Bins/route_red/red_2",
     "/VisionCodeRoutingLab/Bins/route_blue", "/VisionCodeRoutingLab/Bins/route_blue/blue_1",
     "/VisionCodeRoutingLab/Bins/route_blue/blue_2",
+)
+_OCR_SORTING_REQUIRED_PATHS = (
+    "/BLX_base_link",
+    "/BLX_joint1",
+    "/BLX_joint2",
+    "/BLX_joint3",
+    "/BLX_joint4",
+    "/BLX_joint5",
+    "/BLX_joint6",
+    "/BLX_tool_suction",
+    "/VisionOcrSortingLab",
+    "/VisionOcrSortingLab/Workspace",
+    "/VisionOcrSortingLab/CameraRig",
+    "/VisionOcrSortingLab/CameraRig/Camera",
+    "/VisionOcrSortingLab/Lighting",
+    "/VisionOcrSortingLab/Lighting/KeyLight",
+    "/VisionOcrSortingLab/Lighting/FillLight",
+    "/VisionOcrSortingLab/Parts",
+    "/VisionOcrSortingLab/Parts/part_a",
+    "/VisionOcrSortingLab/Parts/part_a/CodeFace",
+    "/VisionOcrSortingLab/Parts/part_b",
+    "/VisionOcrSortingLab/Parts/part_b/CodeFace",
+    "/VisionOcrSortingLab/Parts/part_c",
+    "/VisionOcrSortingLab/Parts/part_c/CodeFace",
+    "/VisionOcrSortingLab/Parts/part_d",
+    "/VisionOcrSortingLab/Parts/part_d/CodeFace",
+    "/VisionOcrSortingLab/Routes",
+    "/VisionOcrSortingLab/Routes/route_alpha",
+    "/VisionOcrSortingLab/Routes/route_alpha/slot_1",
+    "/VisionOcrSortingLab/Routes/route_alpha/slot_2",
+    "/VisionOcrSortingLab/Routes/route_beta",
+    "/VisionOcrSortingLab/Routes/route_beta/slot_1",
+    "/VisionOcrSortingLab/Routes/route_beta/slot_2",
 )
 
 
@@ -282,6 +316,13 @@ _FORMAL_SCENES = {
         output_relative="simulation/vision_code_routing_lab/BL23_vision_code_routing_lab.ttt",
         required_paths=_CODE_ROUTING_REQUIRED_PATHS,
     ),
+    "simulation/vision_ocr_sorting_lab/scene_spec.json": _FormalScene(
+        spec_relative="simulation/vision_ocr_sorting_lab/scene_spec.json",
+        scene_id="vision-ocr-sorting-lab",
+        root_path="/VisionOcrSortingLab",
+        output_relative="simulation/vision_ocr_sorting_lab/BL23_vision_ocr_sorting_lab.ttt",
+        required_paths=_OCR_SORTING_REQUIRED_PATHS,
+    ),
 }
 
 
@@ -290,6 +331,75 @@ def _load(path: Path) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise ValueError(f"JSON object required: {path}")
     return payload
+
+
+def _load_ocr_profile_catalog(path: Path) -> VisionProfileCatalog:
+    """Load the V1-08 profile without broadening the shared catalog allowlist."""
+    payload = _load(path)
+    expected_fields = {
+        "schema_version",
+        "baseline_profile_id",
+        "sensor_path",
+        "camera_rig_path",
+        "key_light_path",
+        "fill_light_path",
+        "near_clip_m",
+        "far_clip_m",
+        "profiles",
+    }
+    if set(payload) != expected_fields or payload["schema_version"] != 1:
+        raise ValueError("OCR profile catalog schema is invalid")
+    if payload["sensor_path"] != "/VisionOcrSortingLab/CameraRig/Camera":
+        raise ValueError("OCR profile sensor path is invalid")
+    if payload["camera_rig_path"] != "/VisionOcrSortingLab/CameraRig":
+        raise ValueError("OCR profile camera rig path is invalid")
+    if payload["key_light_path"] != "/VisionOcrSortingLab/Lighting/KeyLight":
+        raise ValueError("OCR profile key-light path is invalid")
+    if payload["fill_light_path"] != "/VisionOcrSortingLab/Lighting/FillLight":
+        raise ValueError("OCR profile fill-light path is invalid")
+    near = payload["near_clip_m"]
+    far = payload["far_clip_m"]
+    if type(near) not in (int, float) or type(far) not in (int, float):
+        raise ValueError("OCR profile clipping values must be numeric")
+    if not math.isfinite(float(near)) or not math.isfinite(float(far)) or not 0.01 <= float(near) < float(far):
+        raise ValueError("OCR profile clipping values are invalid")
+    profiles = payload["profiles"]
+    if not isinstance(profiles, list) or len(profiles) != 1:
+        raise ValueError("OCR profile catalog must contain one profile")
+    item = profiles[0]
+    required_profile = {
+        "profile_id",
+        "label",
+        "resolution",
+        "perspective_angle_deg",
+        "camera_rig_z_m",
+        "key_diffuse_rgb",
+        "fill_diffuse_rgb",
+    }
+    if not isinstance(item, dict) or set(item) != required_profile:
+        raise ValueError("OCR profile fields are invalid")
+    resolution = item["resolution"]
+    if resolution != [1024, 1024]:
+        raise ValueError("OCR profile resolution must be 1024x1024")
+    profile = VisionProfile(
+        profile_id=item["profile_id"],
+        label=item["label"],
+        resolution=tuple(resolution),
+        perspective_angle_deg=item["perspective_angle_deg"],
+        camera_rig_z_m=item["camera_rig_z_m"],
+        key_diffuse_rgb=tuple(float(value) for value in item["key_diffuse_rgb"]),
+        fill_diffuse_rgb=tuple(float(value) for value in item["fill_diffuse_rgb"]),
+    )
+    return VisionProfileCatalog(
+        baseline_profile_id=payload["baseline_profile_id"],
+        sensor_path=payload["sensor_path"],
+        camera_rig_path=payload["camera_rig_path"],
+        key_light_path=payload["key_light_path"],
+        fill_light_path=payload["fill_light_path"],
+        near_clip_m=near,
+        far_clip_m=far,
+        profiles=(profile,),
+    )
 
 
 def _write_exclusive(path: Path, payload: dict[str, Any]) -> None:
@@ -708,6 +818,153 @@ def _validate_code_routing(spec: dict[str, Any], formal: _FormalScene) -> None:
         raise ValueError("reset_contract must bind host-controlled scene reload")
 
 
+def _validate_ocr_sorting(spec: dict[str, Any], formal: _FormalScene) -> None:
+    _exact_keys(
+        spec,
+        {
+            "schema_version",
+            "scene_id",
+            "template",
+            "output",
+            "remove_paths",
+            "root_path",
+            "ocr_assets_manifest",
+            "profiles",
+            "port",
+            "workspace",
+            "camera",
+            "lighting",
+            "safe_z_mm",
+            "calibration_matrix",
+            "parts",
+            "routes",
+            "reset_contract",
+            "required_paths",
+        },
+        label="scene spec",
+    )
+    if type(spec["schema_version"]) is not int or spec["schema_version"] != 1:
+        raise ValueError("scene schema_version must be integer 1")
+    expected = {
+        "scene_id": formal.scene_id,
+        "root_path": formal.root_path,
+        "template": TEMPLATE_RELATIVE,
+        "output": formal.output_relative,
+        "ocr_assets_manifest": "simulation/vision_ocr_sorting_lab/ocr_assets_manifest.json",
+        "profiles": "simulation/vision_ocr_sorting_lab/profiles.json",
+    }
+    for field, value in expected.items():
+        if spec[field] != value:
+            raise ValueError(f"{field} must be {value}")
+    if spec["remove_paths"] != ["/VisionLab"]:
+        raise ValueError("remove_paths must be exactly ['/VisionLab']")
+    if spec["required_paths"] != list(formal.required_paths):
+        raise ValueError("required_paths must match the formal OCR sorting contract")
+    if type(spec["port"]) is not int or spec["port"] != 23008:
+        raise ValueError("port must be the dedicated V1-08 port 23008")
+    if type(spec["safe_z_mm"]) not in (int, float) or float(spec["safe_z_mm"]) != 110.0:
+        raise ValueError("safe_z_mm must be 110 mm")
+
+    _validate_workspace(spec["workspace"])
+    camera = _exact_keys(
+        spec["camera"],
+        {"alias", "path", "rig_position_m", "orientation_deg", "code_face_plane_z_mm"},
+        label="OCR sorting camera",
+    )
+    if camera["alias"] != "Camera" or camera["path"] != f"{formal.root_path}/CameraRig/Camera":
+        raise ValueError("OCR sorting camera alias/path must match the formal scene root")
+    if _vector(camera["rig_position_m"], label="camera rig_position_m", length=3) != [0.085, 0.0, 0.5]:
+        raise ValueError("OCR sorting camera rig position is fixed")
+    if _vector(camera["orientation_deg"], label="camera orientation_deg", length=3) != [180.0, 0.0, 0.0]:
+        raise ValueError("OCR sorting camera orientation is fixed")
+    if _vector([camera["code_face_plane_z_mm"]], label="camera code_face_plane_z_mm", length=1)[0] != 27.4:
+        raise ValueError("OCR sorting code-face calibration plane must be 27.4 mm")
+
+    lighting = _exact_keys(spec["lighting"], {"key_path", "fill_path"}, label="OCR sorting lighting")
+    if lighting != {
+        "key_path": f"{formal.root_path}/Lighting/KeyLight",
+        "fill_path": f"{formal.root_path}/Lighting/FillLight",
+    }:
+        raise ValueError("OCR sorting lighting paths are fixed")
+
+    matrix = spec["calibration_matrix"]
+    if (
+        not isinstance(matrix, list)
+        or len(matrix) != 2
+        or any(
+            not isinstance(row, list)
+            or len(row) != 3
+            or any(type(value) not in (int, float) or not math.isfinite(float(value)) for value in row)
+            for row in matrix
+        )
+    ):
+        raise ValueError("calibration_matrix must be a finite 2x3 matrix")
+    expected_matrix = [
+        [-0.1627580685211339, 0.0, 168.25075204856],
+        [0.0, 0.1627580685211339, -83.25075204855999],
+    ]
+    if matrix != expected_matrix:
+        raise ValueError("calibration_matrix must match the fixed camera calibration")
+
+    parts = spec["parts"]
+    if not isinstance(parts, list) or len(parts) != 4:
+        raise ValueError("parts must contain four OCR sorting pickables")
+    expected_parts = (
+        ("part_a", "A1", "route_alpha"),
+        ("part_b", "A2", "route_alpha"),
+        ("part_c", "B1", "route_beta"),
+        ("part_d", "B2", "route_beta"),
+    )
+    seen_assets: set[str] = set()
+    for item, expected_part in zip(parts, expected_parts):
+        part = _exact_keys(
+            item,
+            {"alias", "identifier", "label_asset_id", "route", "position_mm", "size_mm"},
+            label="OCR sorting part",
+        )
+        alias, identifier, route = expected_part
+        if (part["alias"], part["identifier"], part["route"]) != expected_part:
+            raise ValueError("OCR sorting parts must be ordered part_a..part_d with fixed IDs/routes")
+        if part["label_asset_id"] != identifier or identifier in seen_assets:
+            raise ValueError("OCR sorting parts must bind unique scene label assets")
+        seen_assets.add(identifier)
+        _vector(part["position_mm"], label="OCR part position_mm", length=3)
+        size = _vector(part["size_mm"], label="OCR part size_mm", length=3, positive=True)
+        if size[0] < 20.0 or size[1] < 20.0 or size[2] < 8.0:
+            raise ValueError("OCR part size is too small")
+
+    routes = spec["routes"]
+    if not isinstance(routes, list) or len(routes) != 2:
+        raise ValueError("routes must contain route_alpha and route_beta")
+    route_aliases = []
+    slot_positions: list[tuple[float, float, float]] = []
+    for route in routes:
+        route_spec = _exact_keys(route, {"alias", "color_rgb", "slots"}, label="OCR route")
+        route_aliases.append(_alias_value(route_spec["alias"], label="route alias"))
+        color = _vector(route_spec["color_rgb"], label="route color_rgb", length=3)
+        if any(value < 0.0 or value > 1.0 for value in color):
+            raise ValueError("route color values must be between 0 and 1")
+        slots = route_spec["slots"]
+        if not isinstance(slots, list) or len(slots) != 2:
+            raise ValueError("each OCR route must contain two fixed slots")
+        slot_aliases = []
+        for slot in slots:
+            slot_spec = _exact_keys(slot, {"alias", "position_mm"}, label="OCR route slot")
+            slot_aliases.append(_alias_value(slot_spec["alias"], label="slot alias"))
+            position = _vector(slot_spec["position_mm"], label="slot position_mm", length=3)
+            slot_positions.append(tuple(position))
+            if not (20.0 <= position[0] <= 140.0 and -90.0 <= position[1] <= 90.0 and 10.0 <= position[2] <= 140.0):
+                raise ValueError("OCR route slot is outside the workspace")
+        if slot_aliases != ["slot_1", "slot_2"]:
+            raise ValueError("OCR route slots must be slot_1 and slot_2")
+    if route_aliases != ["route_alpha", "route_beta"] or len(set(slot_positions)) != 4:
+        raise ValueError("OCR routes must be ordered and have four unique slots")
+
+    reset = _exact_keys(spec["reset_contract"], {"strategy", "tool_off", "robot_home"}, label="reset_contract")
+    if reset != {"strategy": "scene_reload", "tool_off": True, "robot_home": True}:
+        raise ValueError("reset_contract must bind host-controlled scene reload")
+
+
 def _validate_spec(spec: dict[str, Any], formal: _FormalScene) -> None:
     if formal.scene_id == "robot-basics":
         detail_field = "markers"
@@ -743,6 +1000,22 @@ def _validate_spec(spec: dict[str, Any], formal: _FormalScene) -> None:
             must_exist=True,
         )
         load_profile_catalog(
+            _project_file_from_relative(spec["profiles"], label="profiles", must_exist=True)
+        )
+        return
+    elif formal.scene_id == "vision-ocr-sorting-lab":
+        _validate_ocr_sorting(spec, formal)
+        _project_file_from_relative(
+            spec["profiles"],
+            label="profiles",
+            must_exist=True,
+        )
+        _project_file_from_relative(
+            spec["ocr_assets_manifest"],
+            label="ocr_assets_manifest",
+            must_exist=True,
+        )
+        _load_ocr_profile_catalog(
             _project_file_from_relative(spec["profiles"], label="profiles", must_exist=True)
         )
         return
@@ -1642,6 +1915,169 @@ def _build_code_routing(
     _build_vision_lighting(sim, profile_catalog, root)
 
 
+def _ocr_part(
+    sim: Any,
+    part: dict[str, Any],
+    label_path: Path,
+    parent: int,
+) -> int:
+    """Build one OCR pickable with a deterministic bitmap label face."""
+    center = [float(value) for value in part["position_mm"]]
+    size = [float(value) for value in part["size_mm"]]
+    pieces = [
+        _shape(
+            sim,
+            name=f"{part['alias']}_body",
+            shape="cuboid",
+            size_mm=size,
+            position_mm=center,
+            color=[0.74, 0.75, 0.77],
+            parent=parent,
+            respondable=True,
+        )
+    ]
+    face_width = size[0] - 4.0
+    face_height = size[1] - 4.0
+    face_z = center[2] + size[2] / 2.0 + 0.6
+    pieces.append(
+        _shape(
+            sim,
+            name=f"{part['alias']}_face_plate",
+            shape="cuboid",
+            size_mm=[face_width, face_height, 1.0],
+            position_mm=[center[0], center[1], face_z],
+            color=[0.98, 0.98, 0.98],
+            parent=parent,
+            respondable=False,
+        )
+    )
+    label = cv2.imread(str(label_path), cv2.IMREAD_GRAYSCALE)
+    if label is None or label.size == 0:
+        raise ValueError(f"could not decode OCR scene label: {label_path}")
+    # The original label is generated from two 5x7 glyphs.  Rendering a
+    # compact 10x7 bitmap keeps the scene small while preserving its meaning.
+    bitmap = cv2.resize(label, (10, 7), interpolation=cv2.INTER_AREA)
+    cell_width = face_width / 12.0
+    cell_height = face_height / 9.0
+    origin_x = center[0] - 5.0 * cell_width
+    origin_y = center[1] - 3.5 * cell_height
+    bar_index = 0
+    for row in range(7):
+        for column in range(10):
+            if int(bitmap[row, column]) >= 160:
+                continue
+            pieces.append(
+                _shape(
+                    sim,
+                    name=f"{part['alias']}_glyph_{bar_index:03d}",
+                    shape="cuboid",
+                    size_mm=[cell_width * 0.78, cell_height * 0.78, 0.3],
+                    position_mm=[
+                        origin_x + (column + 0.5) * cell_width,
+                        origin_y + (row + 0.5) * cell_height,
+                        face_z + 0.65,
+                    ],
+                    color=[0.01, 0.01, 0.01],
+                    parent=parent,
+                    respondable=False,
+                )
+            )
+            bar_index += 1
+    compound = int(sim.groupShapes(pieces, False))
+    _alias(sim, compound, part["alias"])
+    sim.setObjectParent(compound, parent, True)
+    relocate_frame = getattr(sim, "relocateShapeFrame", None)
+    if callable(relocate_frame):
+        relocate_frame(
+            compound,
+            [
+                center[0] / 1000.0,
+                center[1] / 1000.0,
+                center[2] / 1000.0,
+                0.0,
+                0.0,
+                0.0,
+                1.0,
+            ],
+        )
+    _set_int_parameter(sim, compound, sim.shapeintparam_static, 1)
+    _set_int_parameter(sim, compound, sim.shapeintparam_respondable, 1)
+    _dummy(sim, "CodeFace", compound)
+    return compound
+
+
+def _build_ocr_sorting(
+    sim: Any,
+    spec: dict[str, Any],
+    root: int,
+    *,
+    ocr_assets: dict[str, Any],
+    profile_catalog: Any,
+    assets_root: Path,
+) -> None:
+    _build_workspace(sim, spec["workspace"], root)
+    parts_group = _dummy(sim, "Parts", root)
+    routes_group = _dummy(sim, "Routes", root)
+    camera_rig = _dummy(sim, "CameraRig", root)
+    standard = profile_catalog.require(profile_catalog.baseline_profile_id)
+    camera_spec = spec["camera"]
+    sim.setObjectPosition(
+        camera_rig,
+        [float(value) for value in camera_spec["rig_position_m"]],
+        sim.handle_world,
+    )
+    options = 1 | 2 | 4 | 64 | 128
+    camera = int(
+        sim.createVisionSensor(
+            options,
+            [int(standard.resolution[0]), int(standard.resolution[1]), 0, 0],
+            [
+                float(profile_catalog.near_clip_m),
+                float(profile_catalog.far_clip_m),
+                math.radians(float(standard.perspective_angle_deg)),
+                0.02,
+                0.0,
+                0.0,
+                0.08,
+                0.08,
+                0.10,
+                0.0,
+                0.0,
+            ],
+        )
+    )
+    _alias(sim, camera, camera_spec["alias"])
+    sim.setObjectParent(camera, camera_rig, False)
+    sim.setObjectPosition(camera, [0.0, 0.0, 0.0], camera_rig)
+    sim.setObjectOrientation(
+        camera,
+        [math.radians(float(value)) for value in camera_spec["orientation_deg"]],
+        camera_rig,
+    )
+    labels = {
+        item["identifier"]: item
+        for item in ocr_assets.get("labels", [])
+        if isinstance(item, dict)
+    }
+    if set(labels) != {part["label_asset_id"] for part in spec["parts"]}:
+        raise ValueError("OCR asset labels and scene parts do not match")
+    for part in spec["parts"]:
+        label_path = assets_root / labels[part["label_asset_id"]]["path"]
+        _ocr_part(sim, part, label_path, parts_group)
+    for route in spec["routes"]:
+        _build_bin(sim, route, routes_group)
+    _build_vision_lighting(sim, profile_catalog, root)
+
+
+def _attach_ocr_camera_scope(sim: Any, root: int) -> int:
+    return _attach_camera_scope(
+        sim,
+        root,
+        scene_root_path="/VisionOcrSortingLab",
+        camera_path="/VisionOcrSortingLab/CameraRig/Camera",
+    )
+
+
 def _attach_camera_scope(
     sim: Any,
     root: int,
@@ -1652,6 +2088,7 @@ def _attach_camera_scope(
     allowed = {
         ("/LogisticsLab", "/LogisticsLab/Camera"),
         ("/VisionCodeRoutingLab", "/VisionCodeRoutingLab/CameraRig/Camera"),
+        ("/VisionOcrSortingLab", "/VisionOcrSortingLab/CameraRig/Camera"),
     }
     if (scene_root_path, camera_path) not in allowed:
         raise ValueError("camera render scope is not an approved formal scene")
@@ -1724,6 +2161,7 @@ def _recoverable_release(
     template_hash: str,
     profile_catalog: tuple[str, Path, str] | None = None,
     code_assets_manifest: tuple[str, Path, str] | None = None,
+    ocr_assets_manifest: tuple[str, Path, str] | None = None,
 ) -> _RecoverableRelease | None:
     if not output.is_file() or not manifest_path.is_file():
         return None
@@ -1746,7 +2184,11 @@ def _recoverable_release(
             or scene.get("path") != formal.output_relative
         ):
             return None
-        if formal.scene_id in {"vision-quality-lab", "vision-code-routing-lab"}:
+        if formal.scene_id in {
+            "vision-quality-lab",
+            "vision-code-routing-lab",
+            "vision-ocr-sorting-lab",
+        }:
             if profile_catalog is None:
                 return None
             profile_relative, profile_path, profile_hash = profile_catalog
@@ -1760,6 +2202,18 @@ def _recoverable_release(
                 return None
         if formal.scene_id == "vision-code-routing-lab":
             if code_assets_manifest is None:
+                return None
+        if formal.scene_id == "vision-ocr-sorting-lab":
+            if ocr_assets_manifest is None:
+                return None
+            asset_relative, asset_path, asset_hash = ocr_assets_manifest
+            if (
+                not isinstance(manifest.get("ocr_assets_manifest"), dict)
+                or set(manifest["ocr_assets_manifest"]) != {"path", "sha256"}
+                or manifest["ocr_assets_manifest"].get("path") != asset_relative
+                or manifest["ocr_assets_manifest"].get("sha256") != asset_hash
+                or _sha256(asset_path) != asset_hash
+            ):
                 return None
             asset_relative, asset_path, asset_hash = code_assets_manifest
             if (
@@ -1880,7 +2334,15 @@ def build_scene(
         code_assets_content: bytes | None = None
         code_assets_hash: str | None = None
         code_assets = None
-        if formal.scene_id in {"vision-quality-lab", "vision-code-routing-lab"}:
+        ocr_assets_path: Path | None = None
+        ocr_assets_content: bytes | None = None
+        ocr_assets_hash: str | None = None
+        ocr_assets = None
+        if formal.scene_id in {
+            "vision-quality-lab",
+            "vision-code-routing-lab",
+            "vision-ocr-sorting-lab",
+        }:
             profile_catalog_path = _project_file_from_relative(
                 spec["profiles"],
                 label="profiles",
@@ -1890,9 +2352,12 @@ def build_scene(
             profile_catalog_hash = hashlib.sha256(
                 profile_catalog_content
             ).hexdigest()
-            profile_catalog = load_profile_catalog_bytes(
-                profile_catalog_content
-            )
+            if formal.scene_id == "vision-ocr-sorting-lab":
+                profile_catalog = _load_ocr_profile_catalog(profile_catalog_path)
+            else:
+                profile_catalog = load_profile_catalog_bytes(
+                    profile_catalog_content
+                )
         if formal.scene_id == "vision-code-routing-lab":
             code_assets_path = _project_file_from_relative(
                 spec["code_assets_manifest"],
@@ -1902,6 +2367,15 @@ def build_scene(
             code_assets_content = code_assets_path.read_bytes()
             code_assets_hash = hashlib.sha256(code_assets_content).hexdigest()
             code_assets = json.loads(code_assets_content.decode("utf-8"))
+        if formal.scene_id == "vision-ocr-sorting-lab":
+            ocr_assets_path = _project_file_from_relative(
+                spec["ocr_assets_manifest"],
+                label="ocr_assets_manifest",
+                must_exist=True,
+            )
+            ocr_assets_content = ocr_assets_path.read_bytes()
+            ocr_assets_hash = hashlib.sha256(ocr_assets_content).hexdigest()
+            ocr_assets = json.loads(ocr_assets_content.decode("utf-8"))
         token = uuid.uuid4().hex
         staged_scene = output.parent / (
             f".{output.stem}.staged-{token}.ttt"
@@ -1951,6 +2425,18 @@ def build_scene(
                 profile_catalog=profile_catalog,
             )
             _attach_code_routing_camera_scope(sim, root)
+        elif formal.scene_id == "vision-ocr-sorting-lab":
+            if ocr_assets_path is None or ocr_assets is None:
+                raise RuntimeError("OCR assets manifest was not loaded")
+            _build_ocr_sorting(
+                sim,
+                spec,
+                root,
+                ocr_assets=ocr_assets,
+                profile_catalog=profile_catalog,
+                assets_root=ocr_assets_path.parent,
+            )
+            _attach_ocr_camera_scope(sim, root)
         else:
             raise RuntimeError(f"unsupported formal scene: {formal.scene_id}")
         for path in formal.required_paths:
@@ -1983,6 +2469,12 @@ def build_scene(
             and code_assets_path.read_bytes() != code_assets_content
         ):
             raise RuntimeError("code assets manifest changed during scene build")
+        if (
+            ocr_assets_path is not None
+            and ocr_assets_content is not None
+            and ocr_assets_path.read_bytes() != ocr_assets_content
+        ):
+            raise RuntimeError("OCR assets manifest changed during scene build")
 
         manifest = {
             "schema_version": 1,
@@ -2045,6 +2537,47 @@ def build_scene(
                 },
             }
             manifest["reset_contract"] = dict(spec["reset_contract"])
+        if formal.scene_id == "vision-ocr-sorting-lab":
+            if ocr_assets_hash is None:
+                raise RuntimeError("OCR assets manifest hash was not loaded")
+            standard = profile_catalog.require(profile_catalog.baseline_profile_id)
+            plane_z_mm = float(spec["camera"]["code_face_plane_z_mm"])
+            distance_mm = float(standard.camera_rig_z_m) * 1000.0 - plane_z_mm
+            scale_mm_per_px = (
+                2.0
+                * distance_mm
+                * math.tan(math.radians(float(standard.perspective_angle_deg)) / 2.0)
+                / float(standard.resolution[0])
+            )
+            pixel_center = (float(standard.resolution[0]) - 1.0) / 2.0
+            rig_x_mm = float(spec["camera"]["rig_position_m"][0]) * 1000.0
+            rig_y_mm = float(spec["camera"]["rig_position_m"][1]) * 1000.0
+            manifest["ocr_assets_manifest"] = {
+                "path": spec["ocr_assets_manifest"],
+                "sha256": ocr_assets_hash,
+            }
+            manifest["ocr_sorting"] = {
+                "part_ids": [part["alias"] for part in spec["parts"]],
+                "identifiers": {
+                    part["alias"]: part["identifier"] for part in spec["parts"]
+                },
+                "initial_positions_mm": {
+                    part["alias"]: list(part["position_mm"]) for part in spec["parts"]
+                },
+                "calibration_plane_z_mm": plane_z_mm,
+                "calibration_matrix": [
+                    [-scale_mm_per_px, 0.0, rig_x_mm + scale_mm_per_px * pixel_center],
+                    [0.0, scale_mm_per_px, rig_y_mm - scale_mm_per_px * pixel_center],
+                ],
+                "route_slots_mm": {
+                    route["alias"]: [
+                        list(slot["position_mm"]) for slot in route["slots"]
+                    ]
+                    for route in spec["routes"]
+                },
+                "safe_z_mm": float(spec["safe_z_mm"]),
+            }
+            manifest["reset_contract"] = dict(spec["reset_contract"])
         _write_exclusive(staged_manifest, manifest)
 
         old_release = _recoverable_release(
@@ -2061,6 +2594,11 @@ def build_scene(
             (
                 (Path(spec["code_assets_manifest"]).name, code_assets_path, code_assets_hash)
                 if code_assets_path is not None and code_assets_hash is not None
+                else None
+            ),
+            (
+                (spec["ocr_assets_manifest"], ocr_assets_path, ocr_assets_hash)
+                if ocr_assets_path is not None and ocr_assets_hash is not None
                 else None
             ),
         )

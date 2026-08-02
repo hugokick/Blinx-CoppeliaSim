@@ -1,0 +1,139 @@
+{
+  "schema_version": 1,
+  "scene_id": "vision-ocr-sorting-lab",
+  "generated_at": "2026-08-02T16:55:39.064553+00:00",
+  "generator": "simulation.training_scenes.build_scene",
+  "template": {
+    "path": "simulation/vision_lab/BL23_vision_lab.ttt",
+    "sha256": "5154dfc3132cd29aafcbe5de83c1a6b61960595681ac5c90d2d92a5b642bda55"
+  },
+  "scene": {
+    "path": "simulation/vision_ocr_sorting_lab/BL23_vision_ocr_sorting_lab.ttt",
+    "sha256": "46034eebf954730d088c4b25632448eecb7a1ecfd13396b9067e9a5184551e93",
+    "size_bytes": 11674473
+  },
+  "required_paths": [
+    "/BLX_base_link",
+    "/BLX_joint1",
+    "/BLX_joint2",
+    "/BLX_joint3",
+    "/BLX_joint4",
+    "/BLX_joint5",
+    "/BLX_joint6",
+    "/BLX_tool_suction",
+    "/VisionOcrSortingLab",
+    "/VisionOcrSortingLab/Workspace",
+    "/VisionOcrSortingLab/CameraRig",
+    "/VisionOcrSortingLab/CameraRig/Camera",
+    "/VisionOcrSortingLab/Lighting",
+    "/VisionOcrSortingLab/Lighting/KeyLight",
+    "/VisionOcrSortingLab/Lighting/FillLight",
+    "/VisionOcrSortingLab/Parts",
+    "/VisionOcrSortingLab/Parts/part_a",
+    "/VisionOcrSortingLab/Parts/part_a/CodeFace",
+    "/VisionOcrSortingLab/Parts/part_b",
+    "/VisionOcrSortingLab/Parts/part_b/CodeFace",
+    "/VisionOcrSortingLab/Parts/part_c",
+    "/VisionOcrSortingLab/Parts/part_c/CodeFace",
+    "/VisionOcrSortingLab/Parts/part_d",
+    "/VisionOcrSortingLab/Parts/part_d/CodeFace",
+    "/VisionOcrSortingLab/Routes",
+    "/VisionOcrSortingLab/Routes/route_alpha",
+    "/VisionOcrSortingLab/Routes/route_alpha/slot_1",
+    "/VisionOcrSortingLab/Routes/route_alpha/slot_2",
+    "/VisionOcrSortingLab/Routes/route_beta",
+    "/VisionOcrSortingLab/Routes/route_beta/slot_1",
+    "/VisionOcrSortingLab/Routes/route_beta/slot_2"
+  ],
+  "task_contracts": {},
+  "protected_assets_unchanged": true,
+  "profile_catalog": {
+    "path": "simulation/vision_ocr_sorting_lab/profiles.json",
+    "sha256": "f0533c67fc23ca43aec3c6dacbdbbda5ccee4007ba09748c922d0a2d63e984dd"
+  },
+  "ocr_assets_manifest": {
+    "path": "simulation/vision_ocr_sorting_lab/ocr_assets_manifest.json",
+    "sha256": "ddd986169b72363a2f619e57da668546f4f8c778011b125aa6c23d960b4f2444"
+  },
+  "ocr_sorting": {
+    "part_ids": [
+      "part_a",
+      "part_b",
+      "part_c",
+      "part_d"
+    ],
+    "identifiers": {
+      "part_a": "A1",
+      "part_b": "A2",
+      "part_c": "B1",
+      "part_d": "B2"
+    },
+    "initial_positions_mm": {
+      "part_a": [
+        40,
+        -45,
+        18
+      ],
+      "part_b": [
+        80,
+        -45,
+        18
+      ],
+      "part_c": [
+        40,
+        5,
+        18
+      ],
+      "part_d": [
+        80,
+        5,
+        18
+      ]
+    },
+    "calibration_plane_z_mm": 27.4,
+    "calibration_matrix": [
+      [
+        -0.1627580685211339,
+        0.0,
+        168.25075204856
+      ],
+      [
+        0.0,
+        0.1627580685211339,
+        -83.25075204855999
+      ]
+    ],
+    "route_slots_mm": {
+      "route_alpha": [
+        [
+          116,
+          -60,
+          22
+        ],
+        [
+          128,
+          -60,
+          22
+        ]
+      ],
+      "route_beta": [
+        [
+          116,
+          60,
+          22
+        ],
+        [
+          128,
+          60,
+          22
+        ]
+      ]
+    },
+    "safe_z_mm": 110.0
+  },
+  "reset_contract": {
+    "strategy": "scene_reload",
+    "tool_off": true,
+    "robot_home": true
+  }
+}

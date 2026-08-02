@@ -3,3 +3,6 @@ simulation/vision_quality_lab/profiles.json text eol=lf
 simulation/vision_code_routing_lab/profiles.json text eol=lf
 simulation/vision_code_routing_lab/code_assets_manifest.json text eol=lf
 simulation/vision_ocr_sorting_lab/ocr_assets_manifest.json text eol=lf
+simulation/vision_ocr_sorting_lab/scene_spec.json text eol=lf
+simulation/vision_ocr_sorting_lab/scene_manifest.json text eol=lf
+simulation/vision_ocr_sorting_lab/profiles.json text eol=lf

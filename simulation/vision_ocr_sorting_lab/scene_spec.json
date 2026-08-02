@@ -1,0 +1,136 @@
+{
+  "schema_version": 1,
+  "scene_id": "vision-ocr-sorting-lab",
+  "template": "simulation/vision_lab/BL23_vision_lab.ttt",
+  "output": "simulation/vision_ocr_sorting_lab/BL23_vision_ocr_sorting_lab.ttt",
+  "remove_paths": [
+    "/VisionLab"
+  ],
+  "root_path": "/VisionOcrSortingLab",
+  "ocr_assets_manifest": "simulation/vision_ocr_sorting_lab/ocr_assets_manifest.json",
+  "profiles": "simulation/vision_ocr_sorting_lab/profiles.json",
+  "port": 23008,
+  "workspace": {
+    "alias": "Workspace",
+    "center_mm": [80, 0, 5],
+    "size_mm": [140, 190, 10]
+  },
+  "camera": {
+    "alias": "Camera",
+    "path": "/VisionOcrSortingLab/CameraRig/Camera",
+    "rig_position_m": [0.085, 0.0, 0.5],
+    "orientation_deg": [180, 0, 0],
+    "code_face_plane_z_mm": 27.4
+  },
+  "lighting": {
+    "key_path": "/VisionOcrSortingLab/Lighting/KeyLight",
+    "fill_path": "/VisionOcrSortingLab/Lighting/FillLight"
+  },
+  "safe_z_mm": 110,
+  "calibration_matrix": [
+    [-0.1627580685211339, 0.0, 168.25075204856],
+    [0.0, 0.1627580685211339, -83.25075204855999]
+  ],
+  "parts": [
+    {
+      "alias": "part_a",
+      "identifier": "A1",
+      "label_asset_id": "A1",
+      "route": "route_alpha",
+      "position_mm": [40, -45, 18],
+      "size_mm": [34, 34, 16]
+    },
+    {
+      "alias": "part_b",
+      "identifier": "A2",
+      "label_asset_id": "A2",
+      "route": "route_alpha",
+      "position_mm": [80, -45, 18],
+      "size_mm": [34, 34, 16]
+    },
+    {
+      "alias": "part_c",
+      "identifier": "B1",
+      "label_asset_id": "B1",
+      "route": "route_beta",
+      "position_mm": [40, 5, 18],
+      "size_mm": [34, 34, 16]
+    },
+    {
+      "alias": "part_d",
+      "identifier": "B2",
+      "label_asset_id": "B2",
+      "route": "route_beta",
+      "position_mm": [80, 5, 18],
+      "size_mm": [34, 34, 16]
+    }
+  ],
+  "routes": [
+    {
+      "alias": "route_alpha",
+      "color_rgb": [0.15, 0.55, 0.85],
+      "slots": [
+        {
+          "alias": "slot_1",
+          "position_mm": [116, -60, 22]
+        },
+        {
+          "alias": "slot_2",
+          "position_mm": [128, -60, 22]
+        }
+      ]
+    },
+    {
+      "alias": "route_beta",
+      "color_rgb": [0.82, 0.32, 0.18],
+      "slots": [
+        {
+          "alias": "slot_1",
+          "position_mm": [116, 60, 22]
+        },
+        {
+          "alias": "slot_2",
+          "position_mm": [128, 60, 22]
+        }
+      ]
+    }
+  ],
+  "reset_contract": {
+    "strategy": "scene_reload",
+    "tool_off": true,
+    "robot_home": true
+  },
+  "required_paths": [
+    "/BLX_base_link",
+    "/BLX_joint1",
+    "/BLX_joint2",
+    "/BLX_joint3",
+    "/BLX_joint4",
+    "/BLX_joint5",
+    "/BLX_joint6",
+    "/BLX_tool_suction",
+    "/VisionOcrSortingLab",
+    "/VisionOcrSortingLab/Workspace",
+    "/VisionOcrSortingLab/CameraRig",
+    "/VisionOcrSortingLab/CameraRig/Camera",
+    "/VisionOcrSortingLab/Lighting",
+    "/VisionOcrSortingLab/Lighting/KeyLight",
+    "/VisionOcrSortingLab/Lighting/FillLight",
+    "/VisionOcrSortingLab/Parts",
+    "/VisionOcrSortingLab/Parts/part_a",
+    "/VisionOcrSortingLab/Parts/part_a/CodeFace",
+    "/VisionOcrSortingLab/Parts/part_b",
+    "/VisionOcrSortingLab/Parts/part_b/CodeFace",
+    "/VisionOcrSortingLab/Parts/part_c",
+    "/VisionOcrSortingLab/Parts/part_c/CodeFace",
+    "/VisionOcrSortingLab/Parts/part_d",
+    "/VisionOcrSortingLab/Parts/part_d/CodeFace",
+    "/VisionOcrSortingLab/Routes",
+    "/VisionOcrSortingLab/Routes/route_alpha",
+    "/VisionOcrSortingLab/Routes/route_alpha/slot_1",
+    "/VisionOcrSortingLab/Routes/route_alpha/slot_2",
+    "/VisionOcrSortingLab/Routes/route_beta",
+    "/VisionOcrSortingLab/Routes/route_beta/slot_1",
+    "/VisionOcrSortingLab/Routes/route_beta/slot_2"
+  ]
+}
