@@ -88,6 +88,26 @@ def test_broken_component_is_reported() -> None:
     assert [item.defect_type for item in result.defects] == ["broken"]
 
 
+def test_identical_multi_component_surface_is_not_broken() -> None:
+    reference, candidate = make_surface_pair("multi_component_pass")
+
+    result = detect_surface_defects(reference, candidate)
+
+    assert result.status == "PASS"
+    assert result.defects == ()
+
+
+def test_only_the_split_subject_in_a_multi_component_surface_is_broken() -> None:
+    reference, candidate = make_surface_pair("multi_component_broken")
+
+    result = detect_surface_defects(reference, candidate)
+
+    assert result.status == "PARTIAL"
+    assert [item.defect_type for item in result.defects] == ["broken"]
+    split_bbox = result.defects[0].bbox_px
+    assert split_bbox[0] + split_bbox[2] <= 90
+
+
 def test_filling_a_legal_reference_hole_reports_only_new_foreign_material() -> None:
     reference, candidate = make_surface_pair("filled_hole")
 

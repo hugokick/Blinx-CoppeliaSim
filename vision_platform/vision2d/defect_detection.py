@@ -203,22 +203,44 @@ def _bbox_from_components(components: list[dict[str, object]]) -> tuple[int, int
     return x0, y0, max(1, x1 - x0), max(1, y1 - y0)
 
 
-def _component_overlap_areas(
-    mask: np.ndarray,
-    components: list[dict[str, object]],
+def _split_candidate_components(
     reference_mask: np.ndarray,
-) -> dict[int, float]:
-    """Measure each candidate component's foreground overlap with reference."""
-    _count, labels, _stats, _centroids = cv2.connectedComponentsWithStats(mask, 8)
-    reference_foreground = reference_mask > 0
-    return {
-        int(component["label"]): float(
-            np.count_nonzero(
-                (labels == int(component["label"])) & reference_foreground
-            )
+    reference_components: list[dict[str, object]],
+    candidate_mask: np.ndarray,
+    candidate_components: list[dict[str, object]],
+    min_area: float,
+    missing_ratio: float,
+) -> list[dict[str, object]]:
+    """Return candidate pieces when one reference subject maps to many pieces."""
+    _reference_count, reference_labels, _reference_stats, _reference_centroids = (
+        cv2.connectedComponentsWithStats(reference_mask, 8)
+    )
+    _candidate_count, candidate_labels, _candidate_stats, _candidate_centroids = (
+        cv2.connectedComponentsWithStats(candidate_mask, 8)
+    )
+    split_labels: set[int] = set()
+    for reference_component in reference_components:
+        reference_pixels = reference_labels == int(reference_component["label"])
+        overlap_min_area = max(
+            min_area,
+            float(reference_component["area_px2"]) * missing_ratio,
         )
-        for component in components
-    }
+        matching_labels: list[int] = []
+        for candidate_component in candidate_components:
+            candidate_label = int(candidate_component["label"])
+            overlap_area = float(
+                np.count_nonzero(reference_pixels & (candidate_labels == candidate_label))
+            )
+            candidate_area = max(float(candidate_component["area_px2"]), 1.0)
+            if overlap_area >= overlap_min_area and overlap_area / candidate_area >= 0.25:
+                matching_labels.append(candidate_label)
+        if len(matching_labels) >= 2:
+            split_labels.update(matching_labels)
+    return [
+        component
+        for component in candidate_components
+        if int(component["label"]) in split_labels
+    ]
 
 
 def _hole_regions(mask: np.ndarray, min_area: float) -> list[dict[str, object]]:
@@ -398,27 +420,18 @@ def detect_surface_defects(
         }
     findings: list[DefectFinding] = []
 
-    # A disconnected candidate component is a broken subject only when at
-    # least two substantial components still overlap the reference subject.
-    # A detached foreign component therefore cannot manufacture a "broken"
-    # finding merely by increasing candidate component_count.
-    overlap_areas = _component_overlap_areas(
+    # A subject is broken only when one reference component maps to at least
+    # two substantial candidate components. Separate legitimate reference
+    # subjects therefore remain separate without manufacturing a defect.
+    broken_components = _split_candidate_components(
+        reference_mask,
+        reference_components,
         aligned_candidate,
         candidate_components,
-        reference_mask,
+        min_area,
+        config.missing_ratio,
     )
-    overlap_min_area = max(
-        float(min_area),
-        reference_area * config.missing_ratio,
-    )
-    broken_components = [
-        component
-        for component in candidate_components
-        if overlap_areas[int(component["label"])] >= overlap_min_area
-        and overlap_areas[int(component["label"])] / max(float(component["area_px2"]), 1.0)
-        >= 0.25
-    ]
-    broken_detected = len(broken_components) >= 2
+    broken_detected = bool(broken_components)
 
     # Extra foreground is the candidate-only mask.  A significant component
     # in that mask is new material, including material that fills a legal

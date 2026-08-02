@@ -390,7 +390,14 @@ def make_surface_pair(
     reference = np.full((height, width), 235, dtype=np.uint8)
     cv2.rectangle(reference, (55, 42), (155, 166), 48, thickness=-1)
     candidate = reference.copy()
-    if kind == "same_hole":
+    if kind in {"multi_component_pass", "multi_component_broken"}:
+        reference = np.full((height, width), 235, dtype=np.uint8)
+        cv2.rectangle(reference, (25, 42), (85, 166), 48, thickness=-1)
+        cv2.rectangle(reference, (135, 42), (195, 166), 48, thickness=-1)
+        candidate = reference.copy()
+        if kind == "multi_component_broken":
+            candidate[100:108, 25:86] = 235
+    elif kind == "same_hole":
         cv2.circle(reference, (105, 103), 18, 235, thickness=-1)
         candidate = reference.copy()
     elif kind == "filled_hole":
