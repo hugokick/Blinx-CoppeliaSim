@@ -47,7 +47,7 @@
 ## Full static regression and skips
 
 - 基线门禁（`origin/main`）：`1839 passed, 18 skipped`，`git diff --check` 通过。
-- D1 返修后全仓回归：`1937 passed, 18 skipped in 68.43s`。
+- D1 返修后全仓回归：`1937 passed, 18 skipped in 67.29s`。
 - `tests/test_acceptance/test_delivery_contract.py`：`45 passed in 0.25s`。
 - 18 个 skip 为仓库既有静态/环境门，不被本分支重新解释为 PASS；本分支未新增 skip。
 - 本轮全仓测试使用 worktree 已存在、指向已验证环境的 `.venv-vision` junction；该环境链接未纳入 Git，未修改源码。
@@ -55,7 +55,7 @@
 
 ## 512x512 CPU timing
 
-在 512x512 合成平面、3x3 深度窗口、CPU-only 条件下完成 1024 次测量和 JSON 序列化：`0.023036s`，低于计划中的 `2.0s` 上限。该数据只代表当前本地环境的纯内存内核微基准，不代表相机、仿真或硬件吞吐。
+在 512x512 合成平面、3x3 深度窗口、CPU-only 条件下完成 1024 次测量和 JSON 序列化：`0.021906s`，低于计划中的 `2.0s` 上限。该数据只代表当前本地环境的纯内存内核微基准，不代表相机、仿真或硬件吞吐。
 
 ## Dependency, ownership, and retained-file audit
 
