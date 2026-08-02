@@ -203,6 +203,7 @@ V22_VISION_TEMPLATE_REQUIRED_RELEASE_PATHS = frozenset(
         "tests/test_simulation/test_v1_06_template_asset.py",
         "tests/test_student_programs/test_v1_06_gateway.py",
         "tests/test_student_programs/test_v1_06_protocol_sdk.py",
+        "tests/test_vision_platform/test_v1_06_result_panel.py",
         "tests/test_vision_quality/test_v1_06_materials.py",
         "tools/vision_lab/generate_v1_06_template.py",
         "tools/vision_lab/run_v1_06_template_matching.ps1",
