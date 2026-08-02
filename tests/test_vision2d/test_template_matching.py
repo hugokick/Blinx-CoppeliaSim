@@ -13,7 +13,7 @@ from vision_platform.vision2d.template_matching import (
 
 
 def _fixture() -> tuple[np.ndarray, np.ndarray, TemplateMatchConfig]:
-    image = np.zeros((480, 640, 3), dtype=np.uint8)
+    image = np.zeros((640, 640, 3), dtype=np.uint8)
     template = np.zeros((24, 32, 3), dtype=np.uint8)
     cv2.rectangle(template, (1, 1), (30, 22), (30, 210, 245), -1)
     cv2.line(template, (3, 20), (28, 4), (255, 255, 255), 2)
@@ -23,7 +23,7 @@ def _fixture() -> tuple[np.ndarray, np.ndarray, TemplateMatchConfig]:
         template_id="fixture",
         template_version="0.0.1",
         threshold=0.72,
-        search_roi_px=(0, 0, 256, 256),
+        search_roi_px=(0, 0, 512, 512),
     )
     return image, template, config
 
@@ -38,8 +38,8 @@ def test_match_template_returns_original_coordinates_and_center() -> None:
     assert result.template_id == "fixture"
     assert result.bbox_px == (221, 205, 32, 24)
     assert result.center_px == (237.0, 217.0)
-    assert result.image_size == (640, 480)
-    assert result.search_roi_px == (0, 0, 256, 256)
+    assert result.image_size == (640, 640)
+    assert result.search_roi_px == (0, 0, 512, 512)
     assert result.method == "TM_CCOEFF_NORMED"
     assert result.score == pytest.approx(1.0, abs=1e-6)
 

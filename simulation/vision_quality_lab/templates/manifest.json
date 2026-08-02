@@ -3,10 +3,10 @@
   "template_id": "v1_06_red_rectangle",
   "template_version": "1.0.0",
   "asset_path": "simulation/vision_quality_lab/templates/v1_06_reference.png",
-  "sha256": "5f09a188e64760f3fe223e15242ca2a6788cd2e7f28e9dc4e12ba0c619b72ecc",
+  "sha256": "c13114e09113ebf4cef8f21e81a2e16584c80b362a67cc2b6ac817c7ef533228",
   "size_px": [
-    48,
-    32
+    67,
+    40
   ],
   "channels": 3,
   "generator": "tools/vision_lab/generate_v1_06_template.py",
@@ -16,7 +16,7 @@
   "search_roi_px": [
     0,
     0,
-    256,
-    256
+    512,
+    512
   ]
 }

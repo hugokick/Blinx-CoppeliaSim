@@ -16,7 +16,7 @@ TEMPLATE_VERSION = "1.0.0"
 ASSET_NAME = "v1_06_reference.png"
 MANIFEST_NAME = "manifest.json"
 ASSET_PATH = "simulation/vision_quality_lab/templates/v1_06_reference.png"
-SEARCH_ROI_PX = [0, 0, 256, 256]
+SEARCH_ROI_PX = [0, 0, 512, 512]
 
 
 @dataclass(frozen=True)
@@ -29,15 +29,12 @@ class TemplateGeneration:
 def _reference_image() -> np.ndarray:
     """Build the small reference without random or machine-dependent input."""
 
-    height, width = 32, 48
-    image = np.full((height, width, 3), (188, 188, 188), dtype=np.uint8)
-    cv2.rectangle(image, (0, 0), (width - 1, height - 1), (72, 72, 72), 1)
-    for y in range(2, height - 2):
-        red = 190 + (y % 5) * 5
-        image[y, 2 : width - 2] = (38, 72, red)
-    cv2.rectangle(image, (2, 2), (width - 3, height - 3), (35, 75, 215), 1)
-    cv2.line(image, (5, height - 6), (width - 7, 5), (245, 245, 245), 2)
-    cv2.circle(image, (width // 2, height // 2), 3, (24, 50, 150), -1)
+    height, width = 40, 67
+    # The quality scene's ReferenceRectangle is a solid red sample on a
+    # white inspection board.  Recreate that contract deterministically;
+    # this is not a camera capture or a user-provided file.
+    image = np.full((height, width, 3), (255, 255, 255), dtype=np.uint8)
+    image[5:34, 5:61] = (71, 71, 255)
     return image
 
 
@@ -60,7 +57,7 @@ def generate(output_dir: Path | None = None) -> TemplateGeneration:
         "template_version": TEMPLATE_VERSION,
         "asset_path": ASSET_PATH,
         "sha256": _sha256(asset_path),
-        "size_px": [48, 32],
+        "size_px": [67, 40],
         "channels": 3,
         "generator": "tools/vision_lab/generate_v1_06_template.py",
         "source": "deterministic synthetic reference; no camera capture",
@@ -85,4 +82,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

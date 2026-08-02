@@ -165,9 +165,9 @@ def test_gateway_runs_fixed_template_match_and_records_three_layers(tmp_path: Pa
     assert value["template_id"] == "v1_06_red_rectangle"
     assert value["template_version"] == "1.0.0"
     assert value["matched"] is True
-    assert value["bbox_px"] == [100, 100, 48, 32]
-    assert value["center_px"] == [124.0, 116.0]
-    assert value["search_roi_px"] == [0, 0, 256, 256]
+    assert value["bbox_px"] == [100, 100, 67, 40]
+    assert value["center_px"] == [133.5, 120.0]
+    assert value["search_roi_px"] == [0, 0, 512, 512]
     assert camera.read_calls == 1
     assert len(evidence.calls) == 3
     assert len(evidence.json_calls) == 1

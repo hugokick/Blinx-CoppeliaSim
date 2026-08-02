@@ -28,7 +28,7 @@ def test_v1_06_is_a_formal_read_only_template_matching_experiment() -> None:
     )
     assert definition.public_parameters["template_id"] == "v1_06_red_rectangle"
     assert definition.public_parameters["threshold"] == 0.72
-    assert definition.public_parameters["search_roi_px"] == (0, 0, 256, 256)
+    assert definition.public_parameters["search_roi_px"] == (0, 0, 512, 512)
     assert definition.hardware_status == "PENDING_HARDWARE"
     assert "grade" not in definition.public_parameters
     assert "score" not in definition.public_parameters

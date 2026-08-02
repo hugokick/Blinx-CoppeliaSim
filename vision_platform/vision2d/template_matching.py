@@ -26,7 +26,7 @@ class TemplateMatchConfig:
     template_id: str = "v1_06_red_rectangle"
     template_version: str = "1.0.0"
     threshold: float = 0.72
-    search_roi_px: tuple[int, int, int, int] = (0, 0, 256, 256)
+    search_roi_px: tuple[int, int, int, int] = (0, 0, 512, 512)
     method: str = "TM_CCOEFF_NORMED"
 
     def __post_init__(self) -> None:

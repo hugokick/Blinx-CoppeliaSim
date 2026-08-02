@@ -30,7 +30,7 @@
     "template_version": "1.0.0",
     "method": "TM_CCOEFF_NORMED",
     "threshold": 0.72,
-    "search_roi_px": [0, 0, 256, 256],
+    "search_roi_px": [0, 0, 512, 512],
     "matching_fields": ["matched", "score", "bbox_px", "center_px"]
   },
   "acceptance": {

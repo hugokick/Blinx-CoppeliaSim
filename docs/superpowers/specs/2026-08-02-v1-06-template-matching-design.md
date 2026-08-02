@@ -16,7 +16,7 @@ V1-06 在现有“视觉实验公共底座”和 V1-01～V1-05 能力之上，�
 - `template_version = 1.0.0`
 - `method = TM_CCOEFF_NORMED`
 - `threshold = 0.72`
-- `search_roi_px = [0, 0, 256, 256]`（`x, y, width, height`）；该窗口适配现有质量场景的最小 `256×256` profile。
+- `search_roi_px = [0, 0, 512, 512]`（`x, y, width, height`）；V1-06 使用 `standard` 的 `512×512` 基线 profile，模板窗口覆盖完整原图。
 
 模板由仓库内的确定性生成脚本生成，不能从用户输入、网络或本机任意路径加载。资产路径和 SHA-256 由 `scene_manifest.json` 指向的模板清单固定。
 
