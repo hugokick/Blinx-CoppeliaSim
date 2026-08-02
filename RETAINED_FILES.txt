@@ -133,6 +133,13 @@ simulation/vision_quality_lab/scene_manifest.json
 simulation/vision_quality_lab/scene_spec.json
 simulation/vision_quality_lab/templates/manifest.json
 simulation/vision_quality_lab/templates/v1_06_reference.png
+vision_platform/rgbd_sim/errors.py
+vision_platform/rgbd_sim/models.py
+vision_platform/rgbd_sim/intrinsics.py
+vision_platform/rgbd_sim/__init__.py
+tests/test_rgbd_sim/__init__.py
+tests/test_rgbd_sim/test_models.py
+tests/test_rgbd_sim/test_intrinsics.py
 student_programs/README.md
 student_programs/templates/basic_motion.py
 student_programs/templates/pick_and_place.py
