@@ -787,6 +787,18 @@ def test_vision_quality_acceptance_wrapper_is_fail_closed_and_owned():
     assert "teaching_effect = \"PASS\"" not in source
 
 
+def test_v1_07_wrapper_delegates_to_owned_generic_launcher() -> None:
+    source = (
+        ROOT / "tools" / "vision_lab" / "run_v1_07_code_routing.ps1"
+    ).read_text(encoding="utf-8-sig")
+    assert "run_experiment.ps1" in source
+    assert "'V1-07'" in source
+    assert "23007" in source
+    assert "Stop-Process" not in source
+    assert "taskkill" not in source.lower()
+    assert "exit $LASTEXITCODE" in source
+
+
 @pytest.mark.parametrize("initial_value", (None, "caller-platform"))
 def test_vision_quality_acceptance_restores_environment_on_preflight_failure(
     tmp_path: Path,
