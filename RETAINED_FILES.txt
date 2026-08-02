@@ -364,3 +364,5 @@ vision_platform/rgbd/errors.py
 vision_platform/rgbd/models.py
 tests/test_rgbd/__init__.py
 tests/test_rgbd/test_models.py
+vision_platform/rgbd/sampling.py
+tests/test_rgbd/test_sampling.py

@@ -94,4 +94,50 @@ class RgbdFrame:
         object.__setattr__(self, "depth_m", depth)
 
 
-__all__ = ["CameraIntrinsics", "RgbdFrame"]
+@dataclass(frozen=True)
+class DepthSample:
+    status: str
+    u_px: int
+    v_px: int
+    window_size: int
+    valid_count: int
+    depth_m: float | None
+    failure_code: str | None
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.u_px) is not int
+            or type(self.v_px) is not int
+            or self.u_px < 0
+            or self.v_px < 0
+            or type(self.window_size) is not int
+            or self.window_size not in {1, 3, 5, 7, 9}
+            or type(self.valid_count) is not int
+            or not 0 <= self.valid_count <= self.window_size * self.window_size
+        ):
+            raise RgbdContractError(
+                "RGBD_SAMPLE_INVALID", "sample index, window, or count is invalid"
+            )
+        if self.status == "PASS":
+            if (
+                self.valid_count <= 0
+                or type(self.depth_m) is not float
+                or not math.isfinite(self.depth_m)
+                or self.depth_m <= 0.0
+                or self.failure_code is not None
+            ):
+                raise RgbdContractError(
+                    "RGBD_SAMPLE_INVALID", "PASS sample fields are inconsistent"
+                )
+        elif self.status == "NO_VALID_DEPTH":
+            if self.depth_m is not None or self.failure_code != "NO_VALID_DEPTH":
+                raise RgbdContractError(
+                    "RGBD_SAMPLE_INVALID", "missing-depth fields are inconsistent"
+                )
+        else:
+            raise RgbdContractError(
+                "RGBD_SAMPLE_INVALID", "sample status is unsupported"
+            )
+
+
+__all__ = ["CameraIntrinsics", "DepthSample", "RgbdFrame"]
