@@ -2587,6 +2587,7 @@ class StudentProgramController:
             "camera.profile.reset",
             "experiment.info",
             "vision2d.analyze",
+            "vision2d.template_match",
         }:
             gateway = self._experiment_gateway
             if gateway is None:

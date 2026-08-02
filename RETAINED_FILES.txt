@@ -215,6 +215,7 @@ tests/test_vision2d/test_synthetic_factory.py
 tests/test_vision2d/test_template_matching.py
 tests/test_simulation/test_v1_06_template_asset.py
 tests/test_student_programs/test_v1_06_protocol_sdk.py
+tests/test_student_programs/test_v1_06_gateway.py
 tests/test_vision_platform/test_affine_calibration.py
 tests/test_vision_platform/test_application_close.py
 tests/test_vision_platform/test_calibration_store.py

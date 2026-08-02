@@ -11,6 +11,9 @@ _PROFILE_PAIR = frozenset({"camera.profile", "lighting.profile"})
 _VISION2D_DEPENDENCIES = frozenset(
     {"camera.rgb", "camera.profile", "lighting.profile"}
 )
+_TEMPLATE_MATCH_DEPENDENCIES = frozenset(
+    {"camera.rgb", "camera.profile", "lighting.profile"}
+)
 _PROFILE_PAIR_REASON = (
     "视觉配置能力必须同时声明 camera.profile 和 lighting.profile"
 )
@@ -23,6 +26,7 @@ _KNOWN = _ROBOT | frozenset(
         "experiment.info",
         "scene.probe",
         "vision2d.analysis",
+        "vision2d.template_matching",
     }
 )
 
@@ -82,6 +86,23 @@ def check_capabilities(
                 reasons[capability] = (
                     "二维视觉分析仅支持 CoppeliaSim 相机后端"
                 )
+            elif getattr(application, "sim", None) is None:
+                missing.append(capability)
+                reasons[capability] = "当前应用没有 CoppeliaSim 场景连接"
+            elif getattr(application, "camera", None) is None:
+                missing.append(capability)
+                reasons[capability] = "当前应用没有可用相机"
+            else:
+                available.append(capability)
+        elif capability == "vision2d.template_matching":
+            if not _TEMPLATE_MATCH_DEPENDENCIES <= requested_set:
+                missing.append(capability)
+                reasons[capability] = (
+                    "模板匹配必须同时声明相机与成对视觉配置能力"
+                )
+            elif str(getattr(application.config, "camera_backend", "")) != "sim":
+                missing.append(capability)
+                reasons[capability] = "模板匹配仅支持 CoppeliaSim 相机后端"
             elif getattr(application, "sim", None) is None:
                 missing.append(capability)
                 reasons[capability] = "当前应用没有 CoppeliaSim 场景连接"
