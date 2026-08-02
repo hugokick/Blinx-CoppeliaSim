@@ -41,6 +41,27 @@ def test_svm_training_uses_same_isolated_contract() -> None:
     assert 0.0 <= model.report.held_out_accuracy <= 1.0
 
 
+def test_svm_confidence_reports_explainable_pairwise_margin() -> None:
+    model = train_glyph_classifier(
+        make_glyph_samples("AB12", count=10, seed=13),
+        method="svm",
+        seed=13,
+    )
+    first = recognize_text(make_text("A", scale=4), model)
+    second = recognize_text(make_text("2", scale=4), model)
+
+    assert first.status == "PASS"
+    assert second.status == "PASS"
+    assert first.confidence_method == "svm_pairwise_margin"
+    assert second.confidence_method == "svm_pairwise_margin"
+    assert 0.0 <= first.characters[0].confidence <= 1.0
+    assert 0.0 <= second.characters[0].confidence <= 1.0
+    assert not (
+        abs(first.characters[0].confidence - 0.80) < 1e-9
+        and abs(second.characters[0].confidence - 0.80) < 1e-9
+    )
+
+
 def test_clean_text_is_recognized_in_order_with_bboxes_and_confidence() -> None:
     model = train_glyph_classifier(make_glyph_samples("AB12", count=10, seed=4), seed=4)
     result = recognize_text(make_text("AB12", scale=4), model, expected_text="AB12")
