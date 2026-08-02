@@ -21,6 +21,7 @@ MANIFEST = ROOT / "simulation" / "rgbd_lab" / "scene_manifest.json"
 
 
 def _source() -> RgbdSourceCapture:
+    manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
     metadata = RgbdSensorMetadata(
         sensor_path="/RgbdLab/CameraRig/RgbdSensor",
         resolution=(256, 256),
@@ -28,16 +29,20 @@ def _source() -> RgbdSourceCapture:
         far_clip_m=5.0,
         perspective_angle_rad=math.radians(60.0),
         scene_path="simulation/rgbd_lab/BL23_rgbd_lab.ttt",
-        scene_sha256="4ad8f920dde25d21a0973cca336e53c1f5c73a26b72292cb471ba95181cc6f40",
+        scene_sha256=manifest["scene"]["sha256"],
         sequence_id=3,
         timestamp_s=1.0,
         expected_source_depth_model="optical_z",
     )
-    depth = np.full((256, 256), 2.475, dtype=np.float32)
-    depth[88:128, 72:112] = 1.8
-    depth[96:128, 144:184] = 2.8
-    depth[150:184, 72:112] = 2.4
-    depth[142:184, 144:184] = 1.9
+    depth = np.full((256, 256), 2.5, dtype=np.float32)
+    for name, value in {
+        "near_block": 1.8,
+        "far_block": 2.8,
+        "step_low": 2.4,
+        "step_high": 1.9,
+    }.items():
+        x0, y0, x1, y1 = manifest["validation_rois"][name]
+        depth[y0:y1, x0:x1] = value
     return RgbdSourceCapture(metadata, np.zeros((256, 256, 3), dtype=np.uint8), depth)
 
 

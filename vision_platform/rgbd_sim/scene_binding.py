@@ -30,6 +30,7 @@ _MANIFEST_KEYS = {
     "depth_order",
 }
 _SCENE_KEYS = {"path", "sha256", "size_bytes"}
+_TEMPLATE_KEYS = {"path", "sha256"}
 _SENSOR_KEYS = {
     "path",
     "resolution",
@@ -242,6 +243,13 @@ def _parse_anchors(raw: object, width: int, height: int) -> tuple[DepthAnchor, .
             or (pixel[0], pixel[1]) in pixels
         ):
             _fail("RGBD_SIM_BINDING_ANCHOR_INVALID", "anchor pixel is invalid or duplicated")
+        position = value["position_m"]
+        if (
+            not isinstance(position, list)
+            or len(position) != 3
+            or any(type(item_value) not in {int, float} or not math.isfinite(float(item_value)) for item_value in position)
+        ):
+            _fail("RGBD_SIM_BINDING_ANCHOR_INVALID", "anchor position is not finite")
         tolerance = 0.02
         anchors.append(
             DepthAnchor(
@@ -289,6 +297,17 @@ def load_scene_binding(
     if type(value["source_depth_model"]) is not str or value["source_depth_model"] not in {"optical_z", "ray_range"}:
         _fail("RGBD_SIM_BINDING_MANIFEST_INVALID", "source depth model is unsupported")
 
+    template = _object(value["template"], "RGBD_SIM_BINDING_MANIFEST_INVALID", "template", _TEMPLATE_KEYS)
+    if (
+        type(template["path"]) is not str
+        or not template["path"]
+        or Path(template["path"]).is_absolute()
+        or type(template["sha256"]) is not str
+        or len(template["sha256"]) != _SHA256_LENGTH
+        or any(char not in "0123456789abcdef" for char in template["sha256"])
+    ):
+        _fail("RGBD_SIM_BINDING_MANIFEST_INVALID", "template identity is invalid")
+
     scene_value = _object(value["scene"], "RGBD_SIM_BINDING_SCENE_INVALID", "scene", _SCENE_KEYS)
     scene_file, scene_path = _safe_relative_file(scene_value["path"], root, manifest.parent, "RGBD_SIM_BINDING_PATH_INVALID")
     scene_sha256 = _verify_sha256(scene_file, scene_value["sha256"])
@@ -296,7 +315,7 @@ def load_scene_binding(
         _fail("RGBD_SIM_BINDING_SCENE_INVALID", "scene size does not match manifest")
 
     sensor = _object(value["sensor"], "RGBD_SIM_BINDING_SENSOR_INVALID", "sensor", _SENSOR_KEYS)
-    if type(sensor["path"]) is not str or not sensor["path"].startswith("/"):
+    if sensor["path"] != "/RgbdLab/CameraRig/RgbdSensor":
         _fail("RGBD_SIM_BINDING_SENSOR_INVALID", "sensor path is invalid")
     resolution = sensor["resolution"]
     if (
