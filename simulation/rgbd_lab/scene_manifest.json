@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-08-02T16:14:52.302776+00:00",
+  "generated_at": "2026-08-02T16:37:01.110694+00:00",
   "generator": "tools.rgbd_lab.build_rgbd_scene",
   "port": 23009,
   "protected_assets_unchanged": true,
@@ -10,8 +10,8 @@
   },
   "scene": {
     "path": "BL23_rgbd_lab.ttt",
-    "sha256": "4ad8f920dde25d21a0973cca336e53c1f5c73a26b72292cb471ba95181cc6f40",
-    "size_bytes": 11602569
+    "sha256": "dd7e9957fc34a463f9602f1796ea8d5e302a0ed89e0593319aaef355e75e3369",
+    "size_bytes": 11602547
   },
   "sensor": {
     "path": "/RgbdLab/CameraRig/RgbdSensor",
@@ -56,69 +56,69 @@
       "path": "/RgbdLab/ProbeAnchors/center",
       "position_m": [
         0.0,
-        -0.9,
-        0.025
+        1.2,
+        0.0
       ],
       "pixel": [
         128,
-        128
+        32
       ],
-      "optical_z_m": 2.475,
-      "ray_range_m": 2.475
+      "optical_z_m": 2.5,
+      "ray_range_m": 2.5
     },
     {
       "path": "/RgbdLab/ProbeAnchors/off_axis_left",
       "position_m": [
-        -0.65,
         -0.9,
-        0.025
+        1.2,
+        0.0
       ],
       "pixel": [
-        73,
-        128
+        64,
+        32
       ],
-      "optical_z_m": 2.475,
-      "ray_range_m": 2.544
+      "optical_z_m": 2.5,
+      "ray_range_m": 2.813
     },
     {
       "path": "/RgbdLab/ProbeAnchors/off_axis_right",
       "position_m": [
-        0.65,
-        -0.9,
-        0.025
+        0.9,
+        1.2,
+        0.0
       ],
       "pixel": [
-        183,
-        128
+        192,
+        32
       ],
-      "optical_z_m": 2.475,
-      "ray_range_m": 2.544
+      "optical_z_m": 2.5,
+      "ray_range_m": 2.813
     }
   ],
   "validation_rois": {
     "near_block": [
-      72,
-      88,
-      112,
-      128
+      157,
+      99,
+      229,
+      157
     ],
     "far_block": [
-      144,
-      96,
-      184,
-      128
+      46,
+      104,
+      99,
+      152
     ],
     "step_low": [
-      72,
-      150,
-      112,
-      184
+      159,
+      175,
+      204,
+      216
     ],
     "step_high": [
-      144,
-      142,
-      184,
-      184
+      36,
+      175,
+      97,
+      236
     ]
   },
   "depth_order": {

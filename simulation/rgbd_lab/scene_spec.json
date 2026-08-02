@@ -68,31 +68,31 @@
   "probe_anchors": [
     {
       "path": "/RgbdLab/ProbeAnchors/center",
-      "position_m": [0.0, -0.9, 0.025],
-      "pixel": [128, 128],
-      "optical_z_m": 2.475,
-      "ray_range_m": 2.475
+      "position_m": [0.0, 1.2, 0.0],
+      "pixel": [128, 32],
+      "optical_z_m": 2.5,
+      "ray_range_m": 2.5
     },
     {
       "path": "/RgbdLab/ProbeAnchors/off_axis_left",
-      "position_m": [-0.65, -0.9, 0.025],
-      "pixel": [73, 128],
-      "optical_z_m": 2.475,
-      "ray_range_m": 2.544
+      "position_m": [-0.9, 1.2, 0.0],
+      "pixel": [64, 32],
+      "optical_z_m": 2.5,
+      "ray_range_m": 2.813
     },
     {
       "path": "/RgbdLab/ProbeAnchors/off_axis_right",
-      "position_m": [0.65, -0.9, 0.025],
-      "pixel": [183, 128],
-      "optical_z_m": 2.475,
-      "ray_range_m": 2.544
+      "position_m": [0.9, 1.2, 0.0],
+      "pixel": [192, 32],
+      "optical_z_m": 2.5,
+      "ray_range_m": 2.813
     }
   ],
   "validation_rois": {
-    "near_block": [72, 88, 112, 128],
-    "far_block": [144, 96, 184, 128],
-    "step_low": [72, 150, 112, 184],
-    "step_high": [144, 142, 184, 184]
+    "near_block": [157, 99, 229, 157],
+    "far_block": [46, 104, 99, 152],
+    "step_low": [159, 175, 204, 216],
+    "step_high": [36, 175, 97, 236]
   },
   "depth_order": {
     "near_block_less_than_far_block": true,

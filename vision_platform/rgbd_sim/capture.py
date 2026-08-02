@@ -188,8 +188,17 @@ class CoppeliaRgbdCapture:
                 ),
                 explicit_handling=True,
                 perspective=bool(int(perspective) == 1),
-                rgb_enabled=bool(int(rgb_ignored) == 0),
-                depth_enabled=bool(int(depth_ignored) == 0),
+                # Recent CoppeliaSim builds may return ``None`` for the legacy
+                # ignored-channel parameters.  The same transaction already
+                # obtained both image and depth buffers, so an unsupported
+                # flag is treated as enabled while explicit numeric values
+                # remain strict.
+                rgb_enabled=(
+                    True if rgb_ignored is None else bool(int(rgb_ignored) == 0)
+                ),
+                depth_enabled=(
+                    True if depth_ignored is None else bool(int(depth_ignored) == 0)
+                ),
             )
         except (AttributeError, RgbdSimContractError) as error:
             if isinstance(error, RgbdSimContractError):
