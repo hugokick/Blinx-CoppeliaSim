@@ -86,7 +86,12 @@ class OwnedCoppeliaSim:
             while time.monotonic() < deadline:
                 if process.poll() is not None:
                     raise RuntimeError(f"CoppeliaSim exited before port {port} became ready")
-                if _listener_pid(port) == process.pid or (_listener_pid(port) is None and _port_open(host, port)):
+                listener_pid = _listener_pid(port)
+                if listener_pid is not None and listener_pid != process.pid:
+                    raise RuntimeError(
+                        f"D1-01 port {port} is owned by unexpected PID {listener_pid}"
+                    )
+                if listener_pid == process.pid:
                     # Complete a real Remote API handshake before yielding the process.
                     from coppeliasim_zmqremoteapi_client import RemoteAPIClient
 

@@ -36,7 +36,8 @@ def test_load_scene_binding_validates_manifest_and_scene_hash() -> None:
     assert binding.sensor_path == "/RgbdLab/CameraRig/RgbdSensor"
     assert binding.resolution == (256, 256)
     assert binding.expected_source_depth_model == "optical_z"
-    assert binding.scene_sha256 == "4ad8f920dde25d21a0973cca336e53c1f5c73a26b72292cb471ba95181cc6f40"
+    scene = ROOT / "simulation" / "rgbd_lab" / "BL23_rgbd_lab.ttt"
+    assert binding.scene_sha256 == hashlib.sha256(scene.read_bytes()).hexdigest()
     assert set(binding.rois) == {"near_block", "far_block", "step_low", "step_high"}
     assert len(binding.anchors) == 3
 
@@ -50,6 +51,9 @@ def test_load_scene_binding_validates_manifest_and_scene_hash() -> None:
         (lambda payload: payload["validation_rois"].update(near_block=[0, 0, 257, 20]), "RGBD_SIM_BINDING_ROI_INVALID"),
         (lambda payload: payload["scene"].update(sha256="0" * 64), "RGBD_SIM_BINDING_SCENE_INVALID"),
         (lambda payload: payload.update(unexpected=True), "RGBD_SIM_BINDING_MANIFEST_INVALID"),
+        (lambda payload: payload["template"].update(unexpected=True), "RGBD_SIM_BINDING_MANIFEST_INVALID"),
+        (lambda payload: payload["sensor"].update(path="/RgbdLab/CameraRig/OtherSensor"), "RGBD_SIM_BINDING_SENSOR_INVALID"),
+        (lambda payload: payload["probe_anchors"][0]["position_m"].__setitem__(0, float("nan")), "RGBD_SIM_BINDING_ANCHOR_INVALID"),
     ],
 )
 def test_manifest_security_and_roi_contract(tmp_path: Path, mutate, code: str) -> None:
