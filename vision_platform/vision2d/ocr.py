@@ -9,6 +9,7 @@ from __future__ import annotations
 import math
 import time
 from dataclasses import dataclass, field
+from itertools import combinations
 from typing import Mapping, Sequence
 
 import cv2
@@ -57,6 +58,7 @@ class OCRCharacter:
     bbox_px: tuple[int, int, int, int]
     confidence: float
     failure_code: str | None = None
+    confidence_method: str = "knn_neighbor_distance"
 
     def __post_init__(self) -> None:
         if len(self.character) != 1:
@@ -66,6 +68,8 @@ class OCRCharacter:
         confidence = float(self.confidence)
         if not math.isfinite(confidence) or not 0.0 <= confidence <= 1.0:
             raise ValueError("confidence must be finite in [0, 1]")
+        if not self.confidence_method:
+            raise ValueError("confidence_method must be non-empty")
 
 
 @dataclass(frozen=True)
@@ -79,6 +83,7 @@ class OCRResult:
     failure_code: str | None
     processing_ms: float
     schema_version: int = 1
+    confidence_method: str = "knn_neighbor_distance"
 
     def __post_init__(self) -> None:
         if self.status not in {"PASS", "PARTIAL", "NO_TARGETS", "REJECTED"}:
@@ -89,6 +94,8 @@ class OCRResult:
             raise ValueError("image_size must be positive")
         if not math.isfinite(float(self.processing_ms)) or self.processing_ms < 0.0:
             raise ValueError("processing_ms must be finite")
+        if not self.confidence_method:
+            raise ValueError("confidence_method must be non-empty")
 
 
 def _invalid_result(code: str, image_size: tuple[int, int] = (1, 1)) -> OCRResult:
@@ -101,6 +108,7 @@ def _invalid_result(code: str, image_size: tuple[int, int] = (1, 1)) -> OCRResul
         character_count=0,
         failure_code=code,
         processing_ms=0.0,
+        confidence_method="none",
     )
 
 
@@ -334,7 +342,46 @@ def _map_bbox_back(
     return int(min_x), int(min_y), max(1, int(max_x - min_x)), max(1, int(max_y - min_y))
 
 
-def _predict(model: GlyphModel, feature: np.ndarray) -> tuple[str, float]:
+def _svm_pairwise_confidence(
+    classifier: object,
+    feature: np.ndarray,
+    label_count: int,
+    predicted_index: int,
+) -> float:
+    """Convert linear SVM pairwise decision margins into a bounded score."""
+    support_vectors = np.asarray(classifier.getSupportVectors(), dtype=np.float32)
+    if support_vectors.ndim != 2 or support_vectors.shape[0] == 0:
+        raise ValueError("SVM support vectors are unavailable")
+    sample = feature.reshape(-1).astype(np.float32)
+    votes = np.zeros(label_count, dtype=np.int32)
+    target_margins: list[float] = []
+    pair_index = 0
+    for left, right in combinations(range(label_count), 2):
+        rho, alpha, support_indices = classifier.getDecisionFunction(pair_index)
+        coefficients = np.asarray(alpha, dtype=np.float64).reshape(-1)
+        indices = np.asarray(support_indices, dtype=np.int32).reshape(-1)
+        if coefficients.size != indices.size or np.any(indices < 0) or np.any(indices >= support_vectors.shape[0]):
+            raise ValueError("SVM decision function support indices are invalid")
+        score = float(
+            np.sum(coefficients * (support_vectors[indices].astype(np.float64) @ sample.astype(np.float64)))
+            - float(rho)
+        )
+        normalized_margin = abs(score) / (1.0 + abs(score))
+        if score >= 0.0:
+            votes[left] += 1
+        else:
+            votes[right] += 1
+        if predicted_index in {left, right}:
+            target_margins.append(normalized_margin)
+        pair_index += 1
+    if not target_margins:
+        raise ValueError("SVM predicted class has no pairwise margins")
+    vote_ratio = float(votes[predicted_index]) / max(1, label_count - 1)
+    margin_strength = float(np.mean(target_margins))
+    return float(np.clip(0.5 * vote_ratio + 0.5 * margin_strength, 0.0, 1.0))
+
+
+def _predict(model: GlyphModel, feature: np.ndarray) -> tuple[str, float, str]:
     if model.method == "knn":
         _retval, prediction, _neighbors, distances = model.classifier.findNearest(feature, k=3)
         index = int(round(float(prediction.reshape(-1)[0])))
@@ -342,13 +389,20 @@ def _predict(model: GlyphModel, feature: np.ndarray) -> tuple[str, float]:
         # Feature distance is accumulated over 400 pixels; map it to a stable
         # bounded score rather than treating a single noisy pixel as failure.
         confidence = float(np.clip(math.exp(-mean_distance / 25.0), 0.0, 1.0))
+        confidence_method = "knn_neighbor_distance"
     else:
         _retval, prediction = model.classifier.predict(feature)
         index = int(round(float(prediction.reshape(-1)[0])))
-        confidence = 0.80
+        confidence = _svm_pairwise_confidence(
+            model.classifier,
+            feature,
+            len(model.labels),
+            index,
+        )
+        confidence_method = "svm_pairwise_margin"
     if index < 0 or index >= len(model.labels):
         raise ValueError("classifier returned an unknown label")
-    return model.labels[index], confidence
+    return model.labels[index], confidence, confidence_method
 
 
 def recognize_text(
@@ -398,16 +452,18 @@ def recognize_text(
             character_count=0,
             failure_code=failure,
             processing_ms=(time.perf_counter() - started) * 1000.0,
+            confidence_method="none",
         )
     characters: list[OCRCharacter] = []
+    confidence_method = "svm_pairwise_margin" if model.method == "svm" else "knn_neighbor_distance"
     for bbox in boxes:
         x, y, width, height = bbox
         crop = warped_gray[max(0, y) : y + height, max(0, x) : x + width]
         try:
             feature = _normalize_glyph(crop)
-            character, confidence = _predict(model, feature)
+            character, confidence, character_confidence_method = _predict(model, feature)
         except (TrainingError, cv2.error, ValueError):
-            character, confidence = "?", 0.0
+            character, confidence, character_confidence_method = "?", 0.0, "none"
         mapped_bbox = _map_bbox_back(
             bbox,
             angle_deg=-deskew_angle,
@@ -419,6 +475,7 @@ def recognize_text(
                 bbox_px=mapped_bbox,
                 confidence=confidence,
                 failure_code="CLASSIFICATION_FAILED" if character == "?" else None,
+                confidence_method=character_confidence_method,
             )
         )
     text = "".join(item.character for item in characters)
@@ -444,6 +501,7 @@ def recognize_text(
         character_count=len(characters),
         failure_code=failure_code,
         processing_ms=(time.perf_counter() - started) * 1000.0,
+        confidence_method=confidence_method,
     )
 
 

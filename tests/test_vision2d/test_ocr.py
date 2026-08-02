@@ -47,19 +47,13 @@ def test_svm_confidence_reports_explainable_pairwise_margin() -> None:
         method="svm",
         seed=13,
     )
-    first = recognize_text(make_text("A", scale=4), model)
-    second = recognize_text(make_text("2", scale=4), model)
+    first = recognize_text(make_text("AB12", scale=4), model, expected_text="AB12")
 
     assert first.status == "PASS"
-    assert second.status == "PASS"
     assert first.confidence_method == "svm_pairwise_margin"
-    assert second.confidence_method == "svm_pairwise_margin"
-    assert 0.0 <= first.characters[0].confidence <= 1.0
-    assert 0.0 <= second.characters[0].confidence <= 1.0
-    assert not (
-        abs(first.characters[0].confidence - 0.80) < 1e-9
-        and abs(second.characters[0].confidence - 0.80) < 1e-9
-    )
+    assert all(0.0 <= item.confidence <= 1.0 for item in first.characters)
+    assert len({round(item.confidence, 6) for item in first.characters}) > 1
+    assert any(abs(item.confidence - 0.80) >= 1e-9 for item in first.characters)
 
 
 def test_clean_text_is_recognized_in_order_with_bboxes_and_confidence() -> None:
