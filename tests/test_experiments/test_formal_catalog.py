@@ -18,6 +18,7 @@ FORMAL_EXPERIMENT_IDS = (
     "V1-04",
     "V1-05",
     "V1-06",
+    "V1-07",
 )
 LOGISTICS_EXPERIMENT_IDS = ("R1-05", "R1-06", "R1-07")
 MEASURED_LOGISTICS_CALIBRATION = (
@@ -107,6 +108,9 @@ def test_first_batch_declares_required_capabilities_without_unknown_or_dangerous
         "robot.move_world",
         "tool.suction",
         "camera.rgb",
+        "camera.profile",
+        "lighting.profile",
+        "vision2d.code_routing",
         "experiment.info",
         "scene.probe",
     }

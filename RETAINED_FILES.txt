@@ -379,3 +379,7 @@ simulation/vision_code_routing_lab/BL23_vision_code_routing_lab.ttt
 simulation/vision_code_routing_lab/scene_manifest.json
 simulation/vision_code_routing_lab/profiles.json
 tests/test_simulation/test_v1_07_scene_contract.py
+config/experiments/V1-07.json
+docs/experiments/V1-07.md
+student_programs/templates/v1_07_code_routing.py
+tests/test_vision_quality/test_v1_07_materials.py

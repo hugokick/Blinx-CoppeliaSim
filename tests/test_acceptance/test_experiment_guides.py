@@ -77,6 +77,21 @@ FORBIDDEN_CLAIMS = (
 )
 
 
+def test_v1_07_guide_has_code_routing_boundaries_and_evidence_contract():
+    path = ROOT / "docs" / "experiments" / "V1-07.md"
+    text = path.read_text(encoding="utf-8")
+    for heading in (
+        "## 实验目标", "## 安全边界", "## 操作步骤", "## 证据说明",
+        "## 错误解释", "## 自动检查", "## 人工验收", "## 真机迁移边界",
+    ):
+        assert heading in text
+    assert "PENDING_HUMAN_ACCEPTANCE" in text
+    assert "PENDING_HARDWARE" in text
+    assert "仿真通过不代表教学效果" in text
+    assert "raw" in text and "annotated" in text and "routes" in text
+    assert "计划" in text and "任何移动前" in text
+
+
 def _section(text, title):
     match = re.search(
         rf"^## {re.escape(title)}\s*$\n(.*?)(?=^## |\Z)",
