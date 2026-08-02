@@ -377,3 +377,6 @@ tests/test_rgbd/synthetic_factory.py
 tests/test_rgbd/test_synthetic_factory.py
 tests/test_rgbd/test_pipeline_contract.py
 tests/test_rgbd/test_performance.py
+vision_platform/rgbd/__init__.py
+tests/test_rgbd/test_public_api.py
+tests/test_rgbd/test_delivery.py
