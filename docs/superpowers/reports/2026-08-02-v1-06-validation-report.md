@@ -17,26 +17,26 @@
 | 6 场景清单与发布合同 | `3100c5a`, `78d26a0` |
 | 7 CoppeliaSim 在线验收 | `606f910` |
 | 8 结果面板证据 | `96d6455` |
-| 9 课程包与完整验证 | `ef8c1f1`（本记录） |
+| 9 课程包与完整验证 | `ef8c1f1`, `4dbd83d`（本记录及审查修复） |
 | 10 独立审查与推送 | 审查与推送门禁，无代码提交 |
 
 ## 自动化验证
 
-- V1-06 及相关回归聚焦套件：`408 passed, 0 skipped`，记录于 `artifacts/vision_lab/v2-2-v1-06/focused-final.txt`。
-- 完整静态套件：`1795 passed, 18 skipped`，记录于 `artifacts/vision_lab/v2-2-v1-06/full-static-final.txt`。静态套件中的 CoppeliaSim skip 未计为在线通过。
+- V1-06 及相关回归聚焦套件：`411 passed, 1 skipped`，记录于 `artifacts/vision_lab/v2-2-v1-06/focused-final-v2.txt`。唯一 skip 是未显式启用的 CoppeliaSim 在线测试。
+- 完整静态套件：`1798 passed, 18 skipped`，记录于 `artifacts/vision_lab/v2-2-v1-06/full-static-final-v2.txt`。静态套件中的 CoppeliaSim skip 未计为在线通过。
 - 发布合同、RETAINED 清单、场景绑定和保护资产检查均包含在聚焦套件中；RETAINED 清单共 348 项，无重复、缺失项或 `artifacts/` 项。
 
 ## 显式 CoppeliaSim 在线验收
 
 最终 wrapper 输出目录：
 
-`C:\Users\yqzhe\.config\superpowers\worktrees\robot-vision-lab\v2-2-v1-06-template-matching\artifacts\vision_lab\v2-2-v1-06-final-online`
+`C:\Users\yqzhe\.config\superpowers\worktrees\robot-vision-lab\v2-2-v1-06-template-matching\artifacts\vision_lab\v2-2-v1-06-final-v2-online`
 
 真实在线结果：`7 passed, 7 deselected`；V1-01～V1-06 的 scene probe 和实验运行均为 `PASS`。V1-06 证据包位于：
 
-`C:\Users\yqzhe\.config\superpowers\worktrees\robot-vision-lab\v2-2-v1-06-template-matching\artifacts\vision_lab\v2-2-v1-06-final-online\experiment-runs\20260802-041238-v1_06_template_matching-9b87bc64`
+`C:\Users\yqzhe\.config\superpowers\worktrees\robot-vision-lab\v2-2-v1-06-template-matching\artifacts\vision_lab\v2-2-v1-06-final-v2-online\experiment-runs\20260802-043259-v1_06_template_matching-0a62a1e3`
 
-V1-06 实际结果：`matched=true`，`score=0.9767017960548401`，`threshold=0.72`，ROI 为 `[0, 0, 512, 512]`，bundle 含 `raw`、`template`、`annotated` 三层，`scene_probe_status=PASS`。专用端口 `23005` 在 wrapper 清理后无监听进程；只使用本次启动并由 ownership token 识别的 CoppeliaSim 进程。
+V1-06 实际结果：`schema_version=1`、`matched=true`，`score=0.9767017960548401`，`threshold=0.72`，ROI 为 `[0, 0, 512, 512]`，bundle 含 `raw`、`template`、`annotated` 三层，`scene_probe_status=PASS`。专用端口 `23005` 在 wrapper 清理后无监听进程；只使用本次启动并由 ownership token 识别的 CoppeliaSim 进程。
 
 早期校准运行曾因模板与场景图案不一致得到 `score=0.241850...`；该运行未计为最终通过，模板资产随后按场景绑定重新生成，并以本记录中的最终在线证据复验通过。
 
