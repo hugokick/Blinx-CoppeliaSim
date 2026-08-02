@@ -156,4 +156,80 @@ class Point3M:
             object.__setattr__(self, name, float(value))
 
 
-__all__ = ["CameraIntrinsics", "DepthSample", "Point3M", "RgbdFrame"]
+@dataclass(frozen=True)
+class RgbdMeasurement:
+    status: str
+    sample: DepthSample
+    camera_frame_id: str
+    target_frame_id: str | None
+    point_camera_m: Point3M | None
+    point_target_m: Point3M | None
+    failure_code: str | None
+    schema_version: int = 1
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.sample, DepthSample):
+            raise RgbdContractError(
+                "RGBD_MEASUREMENT_INVALID", "sample type is invalid"
+            )
+        if self.point_camera_m is not None and not isinstance(self.point_camera_m, Point3M):
+            raise RgbdContractError(
+                "RGBD_MEASUREMENT_INVALID", "camera point type is invalid"
+            )
+        if self.point_target_m is not None and not isinstance(self.point_target_m, Point3M):
+            raise RgbdContractError(
+                "RGBD_MEASUREMENT_INVALID", "target point type is invalid"
+            )
+        if type(self.schema_version) is not int or self.schema_version != 1:
+            raise RgbdContractError(
+                "RGBD_MEASUREMENT_INVALID", "schema version must be 1"
+            )
+        if (
+            type(self.camera_frame_id) is not str
+            or not self.camera_frame_id
+            or len(self.camera_frame_id) > 80
+        ):
+            raise RgbdContractError(
+                "RGBD_MEASUREMENT_INVALID", "camera_frame_id is invalid"
+            )
+        if self.target_frame_id is not None and (
+            type(self.target_frame_id) is not str
+            or not self.target_frame_id
+            or len(self.target_frame_id) > 80
+        ):
+            raise RgbdContractError(
+                "RGBD_MEASUREMENT_INVALID", "target_frame_id is invalid"
+            )
+        if self.status == "PASS":
+            if (
+                self.sample.status != "PASS"
+                or not isinstance(self.point_camera_m, Point3M)
+                or self.failure_code is not None
+                or (self.target_frame_id is None) != (self.point_target_m is None)
+            ):
+                raise RgbdContractError(
+                    "RGBD_MEASUREMENT_INVALID", "PASS fields are inconsistent"
+                )
+        elif self.status == "NO_VALID_DEPTH":
+            if (
+                self.sample.status != "NO_VALID_DEPTH"
+                or self.point_camera_m is not None
+                or self.point_target_m is not None
+                or self.failure_code != "NO_VALID_DEPTH"
+            ):
+                raise RgbdContractError(
+                    "RGBD_MEASUREMENT_INVALID", "failure fields are inconsistent"
+                )
+        else:
+            raise RgbdContractError(
+                "RGBD_MEASUREMENT_INVALID", "measurement status is unsupported"
+            )
+
+
+__all__ = [
+    "CameraIntrinsics",
+    "DepthSample",
+    "Point3M",
+    "RgbdFrame",
+    "RgbdMeasurement",
+]
