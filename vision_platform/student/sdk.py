@@ -17,6 +17,8 @@ from vision_platform.student.protocol import CommandMessage, ResponseMessage
 _PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 _PROFILE_ID = re.compile(r"[a-z][a-z0-9_]{0,31}\Z")
 _SNAPSHOT_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,79}\Z")
+_TEMPLATE_ID_PATTERN = re.compile(r"[a-z][a-z0-9_]{0,63}\Z")
+_TEMPLATE_VERSION_PATTERN = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+\Z")
 _VISION_BUNDLE_NAME = re.compile(
     r"vision-bundle-[A-Za-z0-9][A-Za-z0-9_.-]*\.json\Z"
 )
@@ -48,6 +50,23 @@ _VISION2D_RESULT_FIELDS = frozenset(
         "image_size",
         "targets",
         "rejected_targets",
+    }
+)
+_TEMPLATE_MATCH_RESULT_FIELDS = frozenset(
+    {
+        "snapshot_id",
+        "vision_bundle_path",
+        "template_id",
+        "template_version",
+        "matched",
+        "status",
+        "score",
+        "threshold",
+        "bbox_px",
+        "center_px",
+        "image_size",
+        "search_roi_px",
+        "method",
     }
 )
 
@@ -209,6 +228,23 @@ class StudentVision2DResult:
     rejected_targets: tuple[Mapping[str, Any], ...]
 
 
+@dataclass(frozen=True)
+class StudentTemplateMatchResult:
+    snapshot_id: str
+    vision_bundle_path: str
+    template_id: str
+    template_version: str
+    matched: bool
+    status: str
+    score: float
+    threshold: float
+    bbox_px: tuple[int, int, int, int] | None
+    center_px: tuple[float, float] | None
+    image_size: tuple[int, int]
+    search_roi_px: tuple[int, int, int, int]
+    method: str
+
+
 def _freeze_json_native(value: Any) -> Any:
     if isinstance(value, dict):
         return MappingProxyType(
@@ -306,6 +342,121 @@ def _vision2d_result(value: Any) -> StudentVision2DResult:
         rejected_targets=_vision2d_items(
             value["rejected_targets"], field="rejected_targets"
         ),
+    )
+
+
+def _template_match_error(field: str) -> RuntimeError:
+    return RuntimeError(f"PROTOCOL_RESPONSE_INVALID: vision2d.template_match {field}")
+
+
+def _template_number(value: Any, field: str) -> float:
+    if type(value) not in {int, float}:
+        raise _template_match_error(field)
+    result = float(value)
+    if not isfinite(result) or not -1.0 <= result <= 1.0:
+        raise _template_match_error(field)
+    return result
+
+
+def _template_ints(value: Any, field: str, *, count: int) -> tuple[int, ...]:
+    if (
+        type(value) is not list
+        or len(value) != count
+        or any(type(item) is not int for item in value)
+    ):
+        raise _template_match_error(field)
+    return tuple(value)
+
+
+def _template_match_result(value: Any) -> StudentTemplateMatchResult:
+    if not isinstance(value, Mapping) or set(value) != _TEMPLATE_MATCH_RESULT_FIELDS:
+        raise _template_match_error("fields")
+    snapshot_id = value["snapshot_id"]
+    if type(snapshot_id) is not str or _SNAPSHOT_ID_PATTERN.fullmatch(snapshot_id) is None:
+        raise _template_match_error("snapshot_id")
+    bundle_path = value["vision_bundle_path"]
+    if (
+        type(bundle_path) is not str
+        or len(bundle_path) > 80
+        or _VISION_BUNDLE_NAME.fullmatch(bundle_path) is None
+        or "/" in bundle_path
+        or "\\" in bundle_path
+    ):
+        raise _template_match_error("vision_bundle_path")
+    template_id = value["template_id"]
+    if type(template_id) is not str or _TEMPLATE_ID_PATTERN.fullmatch(template_id) is None:
+        raise _template_match_error("template_id")
+    template_version = value["template_version"]
+    if (
+        type(template_version) is not str
+        or _TEMPLATE_VERSION_PATTERN.fullmatch(template_version) is None
+    ):
+        raise _template_match_error("template_version")
+    matched = value["matched"]
+    if type(matched) is not bool:
+        raise _template_match_error("matched")
+    status = value["status"]
+    if type(status) is not str or status not in {"MATCHED", "NOT_MATCHED"}:
+        raise _template_match_error("status")
+    if matched != (status == "MATCHED"):
+        raise _template_match_error("status")
+    score = _template_number(value["score"], "score")
+    threshold = _template_number(value["threshold"], "threshold")
+    bbox_value = value["bbox_px"]
+    bbox: tuple[int, int, int, int] | None
+    if bbox_value is None:
+        bbox = None
+    else:
+        parsed_bbox = _template_ints(bbox_value, "bbox_px", count=4)
+        if parsed_bbox[0] < 0 or parsed_bbox[1] < 0 or parsed_bbox[2] <= 0 or parsed_bbox[3] <= 0:
+            raise _template_match_error("bbox_px")
+        bbox = (parsed_bbox[0], parsed_bbox[1], parsed_bbox[2], parsed_bbox[3])
+    center_value = value["center_px"]
+    center: tuple[float, float] | None
+    if center_value is None:
+        center = None
+    else:
+        if type(center_value) is not list or len(center_value) != 2:
+            raise _template_match_error("center_px")
+        if any(type(item) not in {int, float} or not isfinite(float(item)) for item in center_value):
+            raise _template_match_error("center_px")
+        center = (float(center_value[0]), float(center_value[1]))
+    image_size = _template_ints(value["image_size"], "image_size", count=2)
+    if any(component <= 0 or component > 4096 for component in image_size):
+        raise _template_match_error("image_size")
+    search_roi = _template_ints(value["search_roi_px"], "search_roi_px", count=4)
+    if (
+        search_roi[0] < 0
+        or search_roi[1] < 0
+        or search_roi[2] <= 0
+        or search_roi[3] <= 0
+        or search_roi[0] + search_roi[2] > image_size[0]
+        or search_roi[1] + search_roi[3] > image_size[1]
+    ):
+        raise _template_match_error("search_roi_px")
+    if bbox is not None and (
+        bbox[0] + bbox[2] > image_size[0] or bbox[1] + bbox[3] > image_size[1]
+    ):
+        raise _template_match_error("bbox_px")
+    method = value["method"]
+    if method != "TM_CCOEFF_NORMED":
+        raise _template_match_error("method")
+    if (bbox is None) != (center is None):
+        raise _template_match_error("center_px")
+    return StudentTemplateMatchResult(
+        snapshot_id=snapshot_id,
+        vision_bundle_path=bundle_path,
+        template_id=template_id,
+        template_version=template_version,
+        matched=matched,
+        status=status,
+        score=score,
+        threshold=threshold,
+        bbox_px=bbox,
+        center_px=center,
+        image_size=(image_size[0], image_size[1]),
+        search_roi_px=(search_roi[0], search_roi[1], search_roi[2], search_roi[3]),
+        method=method,
     )
 
 
@@ -526,6 +677,12 @@ class StudentVision2D:
 
     def analyze(self) -> StudentVision2DResult:
         return _vision2d_result(self._rpc.call("vision2d.analyze"))
+
+    def template_match(self) -> StudentTemplateMatchResult:
+        return _template_match_result(self._rpc.call("vision2d.template_match"))
+
+    def match_template(self) -> StudentTemplateMatchResult:
+        return self.template_match()
 
 
 class StudentContext:
