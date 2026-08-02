@@ -39,6 +39,25 @@ def test_v1_07_guide_preserves_simulation_human_and_hardware_boundaries() -> Non
     assert "仿真通过不代表" in guide
 
 
+def test_v1_07_guide_lists_implemented_error_codes() -> None:
+    guide = (ROOT / "docs" / "experiments" / "V1-07.md").read_text(encoding="utf-8")
+    for code in (
+        "CODE_ROUTE_RECOGNITION_INVALID",
+        "CODE_ROUTE_PLAN_INVALID",
+        "CODE_ROUTE_SEQUENCE_INVALID",
+        "TARGET_OUT_OF_WORKSPACE",
+        "STUDENT_TOOL_HEIGHT_INVALID",
+    ):
+        assert code in guide
+    for stale_code in (
+        "CODE_ROUTE_PLAN_INCOMPLETE",
+        "CODE_ROUTE_WHITELIST_MISMATCH",
+        "ROBOT_SAFETY_VIOLATION",
+        "TOOL_SAFETY_VIOLATION",
+    ):
+        assert stale_code not in guide
+
+
 def test_v1_07_template_contains_no_private_or_host_escape_api() -> None:
     source = (ROOT / "student_programs" / "templates" / "v1_07_code_routing.py").read_text(encoding="utf-8")
     assert "ctx.vision2d.code_routes()" in source
