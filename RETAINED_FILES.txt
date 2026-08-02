@@ -366,3 +366,10 @@ tests/test_student_programs/test_v1_07_protocol_sdk.py
 vision_platform/student/code_route_guard.py
 tests/test_student_programs/test_v1_07_route_guard.py
 tests/test_student_programs/test_v1_07_gateway.py
+tools/vision_lab/generate_v1_07_code_assets.py
+simulation/vision_code_routing_lab/code_assets/qr_v1_07_a.png
+simulation/vision_code_routing_lab/code_assets/qr_v1_07_b.png
+simulation/vision_code_routing_lab/code_assets/ean_6901234567892.png
+simulation/vision_code_routing_lab/code_assets/ean_6901234567809.png
+simulation/vision_code_routing_lab/code_assets_manifest.json
+tests/test_simulation/test_v1_07_code_assets.py
