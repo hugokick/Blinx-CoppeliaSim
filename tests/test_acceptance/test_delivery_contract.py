@@ -189,6 +189,27 @@ V22_VISION2D_REQUIRED_RELEASE_PATHS = frozenset(
     }
 )
 
+V22_VISION_TEMPLATE_REQUIRED_RELEASE_PATHS = frozenset(
+    {
+        "config/experiments/V1-06.json",
+        "docs/experiments/V1-06.md",
+        "docs/superpowers/plans/2026-08-02-v1-06-template-matching-plan.md",
+        "docs/superpowers/specs/2026-08-02-v1-06-template-matching-design.md",
+        "simulation/vision_quality_lab/scene_manifest.json",
+        "simulation/vision_quality_lab/templates/manifest.json",
+        "simulation/vision_quality_lab/templates/v1_06_reference.png",
+        "student_programs/templates/v1_06_template_matching.py",
+        "tests/test_simulation/test_v1_06_scene_binding.py",
+        "tests/test_simulation/test_v1_06_template_asset.py",
+        "tests/test_student_programs/test_v1_06_gateway.py",
+        "tests/test_student_programs/test_v1_06_protocol_sdk.py",
+        "tests/test_vision_quality/test_v1_06_materials.py",
+        "tools/vision_lab/generate_v1_06_template.py",
+        "tools/vision_lab/run_v1_06_template_matching.ps1",
+        "vision_platform/vision2d/template_matching.py",
+    }
+)
+
 
 def _retained_release_paths() -> set[str]:
     return {
@@ -879,6 +900,7 @@ def test_formal_experiment_catalog_resolves_every_delivery_path():
         "V1-03",
         "V1-04",
         "V1-05",
+        "V1-06",
     )
     for item in catalog.definitions:
         assert item.scene.is_file()
@@ -923,6 +945,16 @@ def test_retained_files_contains_complete_vision2d_curriculum_delivery():
     )
 
 
+def test_retained_files_contains_complete_v1_06_template_delivery():
+    retained = _retained_release_paths()
+    missing = sorted(V22_VISION_TEMPLATE_REQUIRED_RELEASE_PATHS - retained)
+    assert not missing, "missing V1-06 template paths: " + ", ".join(missing)
+    assert all(
+        (ROOT / path).is_file()
+        for path in V22_VISION_TEMPLATE_REQUIRED_RELEASE_PATHS
+    )
+
+
 def test_formal_v1_definitions_stay_hardware_pending_without_grading_fields():
     import json
 
@@ -937,7 +969,7 @@ def test_formal_v1_definitions_stay_hardware_pending_without_grading_fields():
             for nested in value:
                 yield from collect_keys(nested)
 
-    for experiment_id in ("V1-01", "V1-02", "V1-03", "V1-04", "V1-05"):
+    for experiment_id in ("V1-01", "V1-02", "V1-03", "V1-04", "V1-05", "V1-06"):
         payload = json.loads(
             (ROOT / "config" / "experiments" / f"{experiment_id}.json")
             .read_text(encoding="utf-8")
