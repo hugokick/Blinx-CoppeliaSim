@@ -17,13 +17,14 @@
 | 6 场景清单与发布合同 | `3100c5a`, `78d26a0` |
 | 7 CoppeliaSim 在线验收 | `606f910` |
 | 8 结果面板证据 | `96d6455` |
-| Task 9/10 | 本记录提交后分别完成验证与独立审查 |
+| 9 课程包与完整验证 | `ef8c1f1`（本记录） |
+| 10 独立审查与推送 | 审查与推送门禁，无代码提交 |
 
 ## 自动化验证
 
 - V1-06 及相关回归聚焦套件：`408 passed, 0 skipped`，记录于 `artifacts/vision_lab/v2-2-v1-06/focused-final.txt`。
 - 完整静态套件：`1795 passed, 18 skipped`，记录于 `artifacts/vision_lab/v2-2-v1-06/full-static-final.txt`。静态套件中的 CoppeliaSim skip 未计为在线通过。
-- 发布合同、RETAINED 清单、场景绑定和保护资产检查均包含在聚焦套件中；RETAINED 清单共 347 项，无重复、缺失项或 `artifacts/` 项。
+- 发布合同、RETAINED 清单、场景绑定和保护资产检查均包含在聚焦套件中；RETAINED 清单共 348 项，无重复、缺失项或 `artifacts/` 项。
 
 ## 显式 CoppeliaSim 在线验收
 
