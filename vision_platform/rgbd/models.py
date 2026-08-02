@@ -140,4 +140,20 @@ class DepthSample:
             )
 
 
-__all__ = ["CameraIntrinsics", "DepthSample", "RgbdFrame"]
+@dataclass(frozen=True)
+class Point3M:
+    x_m: float
+    y_m: float
+    z_m: float
+
+    def __post_init__(self) -> None:
+        for name in ("x_m", "y_m", "z_m"):
+            value = getattr(self, name)
+            if type(value) not in {int, float} or not math.isfinite(float(value)):
+                raise RgbdContractError(
+                    "RGBD_POINT_INVALID", f"{name} must be finite"
+                )
+            object.__setattr__(self, name, float(value))
+
+
+__all__ = ["CameraIntrinsics", "DepthSample", "Point3M", "RgbdFrame"]
