@@ -438,6 +438,7 @@ def recognize_text(
             character_count=0,
             failure_code="SEGMENTATION_NOISY",
             processing_ms=(time.perf_counter() - started) * 1000.0,
+            confidence_method="none",
         )
     warped_gray, warped_mask, deskew_angle = _deskew(gray, threshold)
     boxes, segmentation_failure = _segment_characters(warped_mask)

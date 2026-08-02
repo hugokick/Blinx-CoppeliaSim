@@ -56,6 +56,18 @@ def test_svm_confidence_reports_explainable_pairwise_margin() -> None:
     assert any(abs(item.confidence - 0.80) >= 1e-9 for item in first.characters)
 
 
+def test_svm_no_target_result_does_not_claim_a_confidence_method() -> None:
+    model = train_glyph_classifier(
+        make_glyph_samples("AB", count=6, seed=14),
+        method="svm",
+        seed=14,
+    )
+    result = recognize_text(np.zeros((100, 260, 3), dtype=np.uint8), model)
+
+    assert result.status == "NO_TARGETS"
+    assert result.confidence_method == "none"
+
+
 def test_clean_text_is_recognized_in_order_with_bboxes_and_confidence() -> None:
     model = train_glyph_classifier(make_glyph_samples("AB12", count=10, seed=4), seed=4)
     result = recognize_text(make_text("AB12", scale=4), model, expected_text="AB12")
