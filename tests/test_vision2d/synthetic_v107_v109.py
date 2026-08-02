@@ -279,3 +279,46 @@ def make_glyph_samples(
                 )
             )
     return samples
+
+
+def make_surface_pair(
+    kind: str = "pass",
+    *,
+    brightness: int = 0,
+    noise_sigma: float = 0.0,
+    size: tuple[int, int] = (220, 220),
+) -> tuple[np.ndarray, np.ndarray]:
+    """Create a reference rectangle and one deterministic surface variant."""
+    height, width = size
+    reference = np.full((height, width), 235, dtype=np.uint8)
+    cv2.rectangle(reference, (55, 42), (155, 166), 48, thickness=-1)
+    candidate = reference.copy()
+    if kind == "missing":
+        candidate[92:137, 55:105] = 235
+    elif kind == "hole":
+        cv2.circle(candidate, (105, 103), 18, 235, thickness=-1)
+    elif kind == "foreign":
+        cv2.circle(candidate, (185, 175), 12, 48, thickness=-1)
+    elif kind == "broken":
+        candidate[100:108, 55:155] = 235
+    elif kind == "dimension":
+        candidate = np.full((height, width), 235, dtype=np.uint8)
+        cv2.rectangle(candidate, (45, 34), (170, 178), 48, thickness=-1)
+    elif kind != "pass":
+        raise ValueError(f"unknown surface fixture kind: {kind}")
+    if brightness:
+        reference = np.clip(reference.astype(np.int16) + brightness, 0, 255).astype(np.uint8)
+        candidate = np.clip(candidate.astype(np.int16) + brightness, 0, 255).astype(np.uint8)
+    if noise_sigma:
+        rng = np.random.default_rng(101)
+        reference = np.clip(
+            reference.astype(np.float32) + rng.normal(0.0, noise_sigma, reference.shape),
+            0,
+            255,
+        ).astype(np.uint8)
+        candidate = np.clip(
+            candidate.astype(np.float32) + rng.normal(0.0, noise_sigma, candidate.shape),
+            0,
+            255,
+        ).astype(np.uint8)
+    return cv2.cvtColor(reference, cv2.COLOR_GRAY2BGR), cv2.cvtColor(candidate, cv2.COLOR_GRAY2BGR)
