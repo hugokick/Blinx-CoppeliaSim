@@ -12,7 +12,7 @@
 - 分支：`codex/v2-2-v1-07-code-routing`
 - 基线：`origin/main` / `a8d7b98054f0740b65d0d718b34be97c0efaa667`
 - Task 11 完成时分支 tip：`908f916af8029359c6d622d34940f0feb3c0e381`
-- Task 12 报告提交后会重新记录最终 tip；本报告只在推送前提交。
+- Task 12 最后一次完整验证及推送前 tip：`acf64c0cae841e3d2537d3547d9d08602347795a`；本次 handoff 以远端同 SHA 校验为准。
 
 ## Task commits
 
