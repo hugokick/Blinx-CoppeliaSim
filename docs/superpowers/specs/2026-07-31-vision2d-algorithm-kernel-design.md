@@ -1,10 +1,10 @@
 # V2.2-C1 二维视觉算法基础包设计
 
-**文档状态：** 用户已确认  
-**编制日期：** 2026-07-31  
-**项目名称：** Robot Sim  
-**权威仓库：** `C:\Users\yqzhe\Documents\Robot Sim\Blinx-CoppeliaSim-clean`  
-**设计分支：** `codex/v2-2-vision2d-algorithm-kernel`  
+**文档状态：** 用户已确认<br>
+**编制日期：** 2026-07-31<br>
+**项目名称：** Robot Sim<br>
+**权威仓库：** `C:\Users\yqzhe\Documents\Robot Sim\Blinx-CoppeliaSim-clean`<br>
+**设计分支：** `codex/v2-2-vision2d-algorithm-kernel`<br>
 **开发基线：** V2.1 最终提交 `4bc638f50fd590ca700615da46741a86c4146b5f`
 
 ---
