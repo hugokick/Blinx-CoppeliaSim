@@ -37,8 +37,10 @@ def _validated_matrix(matrix: np.ndarray) -> np.ndarray:
         raise RgbdContractError(
             "RGBD_TRANSFORM_INVALID", "rotation must be proper and orthonormal"
         )
-    value.setflags(write=False)
-    return value
+    backing = value.tobytes(order="C")
+    return np.frombuffer(backing, dtype=np.float64, count=16).reshape(
+        (4, 4), order="C"
+    )
 
 
 @dataclass(frozen=True, eq=False)

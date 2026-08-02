@@ -10,6 +10,15 @@ import numpy as np
 from .errors import RgbdContractError
 
 
+def _immutable_c_copy(source: np.ndarray) -> np.ndarray:
+    """Copy an array onto a read-only bytes backing with C layout."""
+    contiguous = np.array(source, dtype=source.dtype, copy=True, order="C")
+    backing = contiguous.tobytes(order="C")
+    return np.frombuffer(backing, dtype=contiguous.dtype).reshape(
+        contiguous.shape, order="C"
+    )
+
+
 @dataclass(frozen=True)
 class CameraIntrinsics:
     width_px: int
@@ -86,10 +95,8 @@ class RgbdFrame:
                 "RGBD_FRAME_INVALID",
                 "depth_m must be finite non-negative float32 HxW matching image_bgr",
             )
-        image = np.array(source_image, dtype=np.uint8, copy=True, order="C")
-        depth = np.array(source_depth, dtype=np.float32, copy=True, order="C")
-        image.setflags(write=False)
-        depth.setflags(write=False)
+        image = _immutable_c_copy(source_image)
+        depth = _immutable_c_copy(source_depth)
         object.__setattr__(self, "image_bgr", image)
         object.__setattr__(self, "depth_m", depth)
 
