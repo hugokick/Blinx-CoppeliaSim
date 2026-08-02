@@ -138,3 +138,144 @@ def compose_side_by_side(*images: np.ndarray, gap: int = 36) -> np.ndarray:
         canvas[y : y + image.shape[0], x : x + image.shape[1]] = image
         x += image.shape[1] + gap
     return canvas
+
+
+# Original compact 5x7 glyphs.  These are test assets, not a system font.
+GLYPH_BITMAPS: dict[str, tuple[str, ...]] = {
+    "0": ("01110", "10001", "10011", "10101", "11001", "10001", "01110"),
+    "1": ("00100", "01100", "00100", "00100", "00100", "00100", "01110"),
+    "2": ("01110", "10001", "00001", "00010", "00100", "01000", "11111"),
+    "3": ("11110", "00001", "00001", "01110", "00001", "00001", "11110"),
+    "4": ("00010", "00110", "01010", "10010", "11111", "00010", "00010"),
+    "5": ("11111", "10000", "10000", "11110", "00001", "00001", "11110"),
+    "6": ("01110", "10000", "10000", "11110", "10001", "10001", "01110"),
+    "7": ("11111", "00001", "00010", "00100", "01000", "01000", "01000"),
+    "8": ("01110", "10001", "10001", "01110", "10001", "10001", "01110"),
+    "9": ("01110", "10001", "10001", "01111", "00001", "00001", "01110"),
+    "A": ("01110", "10001", "10001", "11111", "10001", "10001", "10001"),
+    "B": ("11110", "10001", "10001", "11110", "10001", "10001", "11110"),
+    "C": ("01111", "10000", "10000", "10000", "10000", "10000", "01111"),
+    "D": ("11110", "10001", "10001", "10001", "10001", "10001", "11110"),
+    "E": ("11111", "10000", "10000", "11110", "10000", "10000", "11111"),
+    "F": ("11111", "10000", "10000", "11110", "10000", "10000", "10000"),
+    "G": ("01111", "10000", "10000", "10111", "10001", "10001", "01111"),
+    "H": ("10001", "10001", "10001", "11111", "10001", "10001", "10001"),
+    "I": ("11111", "00100", "00100", "00100", "00100", "00100", "11111"),
+    "J": ("00111", "00010", "00010", "00010", "00010", "10010", "01100"),
+    "K": ("10001", "10010", "10100", "11000", "10100", "10010", "10001"),
+    "L": ("10000", "10000", "10000", "10000", "10000", "10000", "11111"),
+    "M": ("10001", "11011", "10101", "10101", "10001", "10001", "10001"),
+    "N": ("10001", "11001", "10101", "10011", "10001", "10001", "10001"),
+    "O": ("01110", "10001", "10001", "10001", "10001", "10001", "01110"),
+    "P": ("11110", "10001", "10001", "11110", "10000", "10000", "10000"),
+    "Q": ("01110", "10001", "10001", "10001", "10101", "10010", "01101"),
+    "R": ("11110", "10001", "10001", "11110", "10100", "10010", "10001"),
+    "S": ("01111", "10000", "10000", "01110", "00001", "00001", "11110"),
+    "T": ("11111", "00100", "00100", "00100", "00100", "00100", "00100"),
+    "U": ("10001", "10001", "10001", "10001", "10001", "10001", "01110"),
+    "V": ("10001", "10001", "10001", "10001", "10001", "01010", "00100"),
+    "W": ("10001", "10001", "10001", "10101", "10101", "11011", "10001"),
+    "X": ("10001", "10001", "01010", "00100", "01010", "10001", "10001"),
+    "Y": ("10001", "10001", "01010", "00100", "00100", "00100", "00100"),
+    "Z": ("11111", "00001", "00010", "00100", "01000", "10000", "11111"),
+    "-": ("00000", "00000", "00000", "11111", "00000", "00000", "00000"),
+}
+
+
+def make_glyph(
+    label: str,
+    *,
+    scale: int = 4,
+    rotate_deg: float = 0.0,
+    noise_sigma: float = 0.0,
+    brightness: float = 0.0,
+    broken: bool = False,
+) -> np.ndarray:
+    """Render one original 5x7 glyph to a BGR uint8 image."""
+    bitmap = GLYPH_BITMAPS[label]
+    margin = 2 * scale
+    glyph = np.full((7 * scale + 2 * margin, 5 * scale + 2 * margin), 255, dtype=np.uint8)
+    for row, bits in enumerate(bitmap):
+        for column, bit in enumerate(bits):
+            if bit == "1":
+                glyph[
+                    margin + row * scale : margin + (row + 1) * scale,
+                    margin + column * scale : margin + (column + 1) * scale,
+                ] = 0
+    if broken:
+        middle = glyph.shape[0] // 2
+        glyph[middle : middle + max(1, scale // 2), margin:-margin] = 255
+    transformed = _transform_gray(
+        glyph,
+        rotate_deg=rotate_deg,
+        noise_sigma=noise_sigma,
+        brightness=brightness,
+        seed=31 + ord(label),
+    )
+    return cv2.cvtColor(transformed, cv2.COLOR_GRAY2BGR)
+
+
+def make_text(
+    text: str,
+    *,
+    scale: int = 4,
+    spacing: int | None = None,
+    rotate_deg: float = 0.0,
+    noise_sigma: float = 0.0,
+    brightness: float = 0.0,
+    broken_index: int | None = None,
+) -> np.ndarray:
+    """Render a text line from the original bitmap glyphs."""
+    if spacing is None:
+        spacing = scale * 2
+    glyphs = [
+        make_glyph(
+            label,
+            scale=scale,
+            broken=index == broken_index,
+        )
+        for index, label in enumerate(text)
+    ]
+    height = max(glyph.shape[0] for glyph in glyphs)
+    width = sum(glyph.shape[1] for glyph in glyphs) + spacing * max(0, len(glyphs) - 1)
+    canvas = np.full((height, width), 255, dtype=np.uint8)
+    x = 0
+    for glyph in glyphs:
+        y = (height - glyph.shape[0]) // 2
+        gray = cv2.cvtColor(glyph, cv2.COLOR_BGR2GRAY)
+        canvas[y : y + gray.shape[0], x : x + gray.shape[1]] = np.minimum(
+            canvas[y : y + gray.shape[0], x : x + gray.shape[1]], gray
+        )
+        x += gray.shape[1] + spacing
+    transformed = _transform_gray(
+        canvas,
+        rotate_deg=rotate_deg,
+        noise_sigma=noise_sigma,
+        brightness=brightness,
+        seed=41,
+    )
+    return cv2.cvtColor(transformed, cv2.COLOR_GRAY2BGR)
+
+
+def make_glyph_samples(
+    labels: str = "AB12",
+    *,
+    count: int = 8,
+    seed: int = 20260802,
+) -> dict[str, list[np.ndarray]]:
+    """Make separate deterministic training samples for every label."""
+    rng = np.random.default_rng(seed)
+    samples: dict[str, list[np.ndarray]] = {}
+    for label in labels:
+        samples[label] = []
+        for _index in range(count):
+            samples[label].append(
+                make_glyph(
+                    label,
+                    scale=int(rng.choice([3, 4, 5])),
+                    rotate_deg=float(rng.choice([-3.0, 0.0, 3.0])),
+                    noise_sigma=float(rng.choice([0.0, 0.5, 1.0])),
+                    brightness=float(rng.choice([-4.0, 0.0, 4.0])),
+                )
+            )
+    return samples
