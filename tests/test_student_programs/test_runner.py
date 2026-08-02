@@ -4615,3 +4615,137 @@ def test_v1_07_runner_routes_motion_and_tool_commands_through_gateway(tmp_path):
     assert session.application.tool.on_calls == 1
     assert session.application.tool.off_calls == 1
     assert session.application.robot.home_calls == 1
+
+
+def test_code_route_final_evidence_rejects_mid_motion_and_preserves_primary_error(
+    tmp_path,
+    monkeypatch,
+):
+    class FailOnSecondMoveRobot(FakeRobot):
+        def __init__(self, actions):
+            super().__init__(actions)
+            self.attempts = 0
+
+        def move_world(self, x, y, z, *, speed):
+            self.attempts += 1
+            if self.attempts == 2:
+                self._record_timeouts("robot.move_world")
+                self.actions.append(("move-failed", float(x), float(y), float(z)))
+                raise RuntimeError("mid-motion-failure")
+            return super().move_world(x, y, z, speed=speed)
+
+    class RouteEvidenceGateway:
+        def __init__(self, **kwargs):
+            self.evidence = kwargs["evidence"]
+            self.final_call = None
+
+        def collect_probe(self, phase):
+            return {
+                "schema_version": 1,
+                "experiment_id": "V1-07",
+                "phase": phase,
+                "status": "PASS",
+                "matched": 4,
+                "expected": 4,
+                "final_occupancy": (
+                    {
+                        "route_blue": ["part_b", "part_d"],
+                        "route_red": ["part_a", "part_c"],
+                    }
+                    if phase == "final"
+                    else {}
+                ),
+            }
+
+        def record_probe_report(self, phase, report):
+            return dict(report)
+
+        def route_validate_move(self, current, target):
+            return None
+
+        def route_validate_tool_on(self, pose):
+            return None
+
+        def route_note_tool_off(self, pose):
+            return True
+
+        def route_validate_home(self):
+            return None
+
+        def reset_environment(self):
+            return None
+
+        def record_code_route_final(self, *, final_probe, primary_error):
+            self.final_call = {
+                "final_probe": final_probe,
+                "primary_error": primary_error,
+            }
+            payload = {
+                "status": "REJECTED",
+                "error": primary_error,
+                "completed_entry_ids": ["entry_a"],
+                "motion_events": [
+                    {"name": "robot.move_world", "status": "PASS"},
+                    {"name": "tool.on", "status": "PASS"},
+                ],
+            }
+            return self.evidence.record_json_artifact(
+                "V1-07-zfinal-mid-motion.json",
+                payload,
+            )
+
+    actions = []
+    robot = FailOnSecondMoveRobot(actions)
+    tool = FakeTool(actions)
+    session = FakeSession(robot=robot, tool=tool)
+    context, definition, manifest = experiment_bundle(
+        tmp_path,
+        experiment_id="V1-07",
+    )
+    gateway_holder = {}
+    monkeypatch.setattr(
+        runner_module,
+        "StudentExperimentGateway",
+        lambda **kwargs: gateway_holder.setdefault(
+            "gateway", RouteEvidenceGateway(**kwargs)
+        ),
+    )
+    controller, _, _ = make_controller(
+        tmp_path,
+        "def main(ctx):\n"
+        "    ctx.robot.move_world(100, 20, 20, speed=10)\n"
+        "    ctx.tool.on()\n"
+        "    ctx.robot.move_world(100, 20, 100, speed=10)\n"
+        "    ctx.robot.move_world(120, 20, 100, speed=10)\n",
+        session=session,
+        experiment_context=context,
+        experiment_definition=definition,
+        scene_manifest=manifest,
+    )
+
+    assert controller.validate().ok is True
+    controller.start()
+    result = controller.wait(timeout_s=5)
+    gateway = gateway_holder["gateway"]
+
+    assert result.status == "FAILED"
+    assert result.error is not None
+    assert "mid-motion-failure" in result.error["message"]
+    assert gateway.final_call is not None
+    assert gateway.final_call["primary_error"]["code"] == result.error["code"]
+    assert gateway.final_call["final_probe"]["status"] == "PASS"
+    assert tool.off_calls == 1
+    assert robot.home_calls == 1
+    assert robot.attempts == 3  # student motion plus the cleanup safe-lift
+    summary = json.loads(result.summary_path.read_text(encoding="utf-8"))
+    assert summary["final_evidence_artifact"] == (
+        "V1-07-zfinal-mid-motion.json"
+    )
+    final_bundle = json.loads(
+        (result.evidence_dir / summary["final_evidence_artifact"]).read_text(
+            encoding="utf-8"
+        )
+    )
+    assert final_bundle["status"] == "REJECTED"
+    assert final_bundle["error"]["code"] == result.error["code"]
+    assert len(final_bundle["completed_entry_ids"]) < 4

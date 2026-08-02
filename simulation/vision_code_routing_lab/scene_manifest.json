@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "scene_id": "vision-code-routing-lab",
-  "generated_at": "2026-08-02T11:22:30.075745+00:00",
+  "generated_at": "2026-08-02T12:30:12.900298+00:00",
   "generator": "simulation.training_scenes.build_scene",
   "template": {
     "path": "simulation/vision_lab/BL23_vision_lab.ttt",
@@ -9,8 +9,8 @@
   },
   "scene": {
     "path": "simulation/vision_code_routing_lab/BL23_vision_code_routing_lab.ttt",
-    "sha256": "ee6553c6432df4593c1342cfd1cc64f82dda815127756eb6b54dab0ddef33f1e",
-    "size_bytes": 12087269
+    "sha256": "90dd6e744343102a9bdbe36b497676381ca4562f3b9fc5923b59f228c45598d6",
+    "size_bytes": 12099854
   },
   "required_paths": [
     "/BLX_base_link",

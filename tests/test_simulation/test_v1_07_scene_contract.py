@@ -4,6 +4,12 @@ import hashlib
 import json
 from pathlib import Path
 
+from simulation.training_scenes.build_scene import (
+    _code_bar_width_mm,
+    _code_render_x,
+    _code_scale_mm_per_px,
+)
+
 
 ROOT = Path(__file__).resolve().parents[2]
 LAB = ROOT / "simulation" / "vision_code_routing_lab"
@@ -46,3 +52,13 @@ def test_scene_parts_bins_and_slots_are_unique_and_bounded() -> None:
     assert len(set(asset_ids)) == 4
     assert len(slots) == len(set(slots)) == 4
     assert all(20 <= x <= 140 and -90 <= y <= 90 and 10 <= z <= 140 for x, y, z in slots)
+
+
+def test_ean_scene_bars_have_a_minimum_physical_width_for_fixed_camera() -> None:
+    assert _code_render_x("ean13", 10, 3, 100) == 87
+    assert _code_render_x("qr", 10, 3, 100) == 10
+    assert _code_scale_mm_per_px("ean13", 0.0986) == 0.117
+    assert _code_scale_mm_per_px("qr", 0.0986) == 0.0986
+    assert _code_bar_width_mm("ean13", 1.0, 0.351) == 0.351
+    assert _code_bar_width_mm("ean13", 1.0, 0.592) == 0.592
+    assert _code_bar_width_mm("qr", 1.0, 0.296) == 0.296

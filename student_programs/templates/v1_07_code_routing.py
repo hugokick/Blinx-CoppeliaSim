@@ -38,6 +38,7 @@ def main(ctx):
                 pick_z_mm=entry.pick_xyz_mm[2],
                 safe_z_mm=plan.safe_z_mm,
                 speed=plan.speed_mm_s,
+                use_command_xy=True,
             )
             ctx.log(f"{entry.part_id}: {entry.code_type}/{entry.payload} -> {entry.route_id}")
         ctx.robot.home()

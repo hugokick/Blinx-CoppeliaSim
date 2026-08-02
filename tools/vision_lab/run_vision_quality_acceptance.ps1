@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string]$OutputDir = "artifacts\vision_lab\v2-2-v1-06",
+    [string]$OutputDir = "artifacts\vision_lab\v2-2-v1-07",
     [string]$CoppeliaRoot = $(if ($env:COPPELIASIM_ROOT) {
         $env:COPPELIASIM_ROOT
     } else {
@@ -24,10 +24,15 @@ $OutputDir = (Resolve-Path -LiteralPath $OutputDir).Path
 
 $SummaryPath = Join-Path $OutputDir "acceptance-summary.json"
 $JUnitPath = Join-Path $OutputDir "vision-quality-online.xml"
+$CodeRoutingJUnitPath = Join-Path $OutputDir "v1-07-online.xml"
 $SummaryTempPath = Join-Path $OutputDir (
     ".acceptance-summary." + [guid]::NewGuid().ToString("N") + ".tmp"
 )
-foreach ($OwnedEvidencePath in @($SummaryPath, $JUnitPath)) {
+foreach ($OwnedEvidencePath in @(
+    $SummaryPath,
+    $JUnitPath,
+    $CodeRoutingJUnitPath
+)) {
     if (Test-Path -LiteralPath $OwnedEvidencePath) {
         if (-not (Test-Path -LiteralPath $OwnedEvidencePath -PathType Leaf)) {
             throw "Acceptance evidence target is not a file: $OwnedEvidencePath"
@@ -41,6 +46,9 @@ $Python = Join-Path $ProjectRoot ".venv-vision\Scripts\python.exe"
 $Scene = Join-Path `
     $ProjectRoot `
     "simulation\vision_quality_lab\BL23_vision_quality_lab.ttt"
+$CodeRoutingScene = Join-Path `
+    $ProjectRoot `
+    "simulation\vision_code_routing_lab\BL23_vision_code_routing_lab.ttt"
 $CallerQtPlatformExists = Test-Path Env:QT_QPA_PLATFORM
 $CallerQtPlatform = $env:QT_QPA_PLATFORM
 $CallerPythonUtf8Exists = Test-Path Env:PYTHONUTF8
@@ -51,6 +59,8 @@ $LocationPushed = $false
 $OwnedProcessId = $null
 $OwnedProcessPath = $null
 $OwnedProcessStartTimeUtcTicks = $null
+$OwnedProcessPort = $null
+$CodeRoutingPort = $Port
 $FailureMessage = $null
 $Steps = [ordered]@{}
 $ExperimentPayloads = [ordered]@{}
@@ -737,6 +747,7 @@ try {
     $OwnedProcessStartTimeUtcTicks = [long](
         $Launch.ProcessStartTimeUtcTicks
     )
+    $OwnedProcessPort = $Port
 
     Invoke-CheckedPython `
         -Name "vision_quality_online" `
@@ -784,6 +795,63 @@ try {
         -ExperimentId "V1-06" `
         -StepName "v1_06_experiment_run" `
         -ExperimentOutput $ExperimentOutput
+
+    if (-not (Test-Path -LiteralPath $CodeRoutingScene -PathType Leaf)) {
+        throw "V1-07 code-routing scene is missing: $CodeRoutingScene"
+    }
+    $SceneLoaderCode = @"
+import sys
+from pathlib import Path
+from coppeliasim_zmqremoteapi_client import RemoteAPIClient
+
+target = Path(sys.argv[1]).resolve()
+client = RemoteAPIClient(host=sys.argv[2], port=int(sys.argv[3]))
+sim = client.require("sim")
+sim.stopSimulation()
+for _ in range(100):
+    if sim.getSimulationState() == sim.simulation_stopped:
+        break
+else:
+    raise RuntimeError("simulation did not stop before scene reload")
+sim.loadScene(str(target))
+reported = Path(sim.getStringParam(sim.stringparam_scene_path_and_name)).resolve()
+if reported != target:
+    raise RuntimeError(f"loaded scene mismatch: expected={target} reported={reported}")
+sim.getObject("/VisionCodeRoutingLab")
+sim.getObject("/BLX_base_link")
+print(f"READY {target}")
+"@
+    Invoke-CheckedPython `
+        -Name "v1_07_scene_load" `
+        -TimeoutSeconds $OnlineTimeoutSeconds `
+        -Arguments @(
+            "-c", $SceneLoaderCode,
+            $CodeRoutingScene,
+            $HostAddress,
+            [string]$CodeRoutingPort
+        )
+
+    Invoke-CheckedPython `
+        -Name "v1_07_online" `
+        -TimeoutSeconds $OnlineTimeoutSeconds `
+        -Arguments @(
+            "-m", "pytest",
+            "tests/test_acceptance/test_coppeliasim_v1_07.py",
+            "-m", "coppeliasim",
+            "--coppelia-host", $HostAddress,
+            "--coppelia-port", [string]$CodeRoutingPort,
+            "--junitxml", $CodeRoutingJUnitPath,
+            "-q"
+        )
+    Assert-JUnitNoSkips `
+        -Name "v1_07_online" `
+        -Path $CodeRoutingJUnitPath `
+        -ExpectedTests 1
+
+    $ExperimentPayloads["V1-07"] = Invoke-CheckedExperiment `
+        -ExperimentId "V1-07" `
+        -StepName "v1_07_experiment_run" `
+        -ExperimentOutput $ExperimentOutput
 } catch {
     $FailureMessage = $_.Exception.Message
 } finally {
@@ -807,11 +875,11 @@ try {
                 -ProcessStartTimeUtcTicks $OwnedProcessStartTimeUtcTicks
             if (
                 Get-NetTCPConnection `
-                    -LocalPort $Port `
+                    -LocalPort $OwnedProcessPort `
                     -State Listen `
                     -ErrorAction SilentlyContinue
             ) {
-                throw "CoppeliaSim listener remains on port $Port"
+                throw "CoppeliaSim listener remains on port $OwnedProcessPort"
             }
         } catch {
             $CleanupFailure = (
@@ -849,6 +917,9 @@ try {
         scene = $Scene
         host = $HostAddress
         port = $Port
+        code_routing_scene = $CodeRoutingScene
+        code_routing_port = $CodeRoutingPort
+        online_junit = @($JUnitPath, $CodeRoutingJUnitPath)
         steps = $Steps
         experiment_summary = $(
             if ($ExperimentPayloads["V1-01"]) {
@@ -907,6 +978,13 @@ try {
                     $null
                 }
             )
+            "V1-07" = $(
+                if ($ExperimentPayloads["V1-07"]) {
+                    $ExperimentPayloads["V1-07"].summary
+                } else {
+                    $null
+                }
+            )
         }
         experiment_evidence_by_id = [ordered]@{
             "V1-01" = $(
@@ -947,6 +1025,13 @@ try {
             "V1-06" = $(
                 if ($ExperimentPayloads["V1-06"]) {
                     $ExperimentPayloads["V1-06"].evidence
+                } else {
+                    $null
+                }
+            )
+            "V1-07" = $(
+                if ($ExperimentPayloads["V1-07"]) {
+                    $ExperimentPayloads["V1-07"].evidence
                 } else {
                     $null
                 }

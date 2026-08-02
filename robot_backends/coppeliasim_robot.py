@@ -1,4 +1,5 @@
 import math
+import time
 
 from robot_backends.base import RobotBackend
 
@@ -186,6 +187,44 @@ class CoppeliaSimRobotBackend(RobotBackend):
     # RobotBackend interface
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _pose_within_mm(actual_m, target_m, tolerance_mm):
+        try:
+            actual = tuple(float(value) for value in actual_m)
+            target = tuple(float(value) for value in target_m)
+            tolerance = float(tolerance_mm)
+        except (TypeError, ValueError, OverflowError):
+            return False
+        if len(actual) != 3 or len(target) != 3 or not math.isfinite(tolerance):
+            return False
+        return all(
+            math.isfinite(left)
+            and math.isfinite(right)
+            and abs(left - right) * 1000.0 <= tolerance
+            for left, right in zip(actual, target)
+        )
+
+    def _settle_tip_to_target(self, target_m, *, timeout_s=0.35, tolerance_mm=0.15):
+        """Wait for a running simulation to settle the IK TCP readback."""
+        get_state = getattr(self._sim, "getSimulationState", None)
+        if not callable(get_state) or self._ik_tip_handle is None:
+            return
+        try:
+            stopped = int(getattr(self._sim, "simulation_stopped", 0))
+            if int(get_state()) == stopped:
+                return
+        except (TypeError, ValueError, RuntimeError):
+            return
+        deadline = time.monotonic() + float(timeout_s)
+        while time.monotonic() < deadline:
+            try:
+                actual = self._sim.getObjectPosition(self._ik_tip_handle, -1)
+            except Exception:
+                return
+            if self._pose_within_mm(actual, target_m, tolerance_mm):
+                return
+            time.sleep(0.01)
+
     def home(self):
         """Initialize / reset: resolve handles and move joints to home position."""
         self._ensure_connected()
@@ -314,6 +353,8 @@ class CoppeliaSimRobotBackend(RobotBackend):
                 self._ik_group,
                 True,
             )
+
+        self._settle_tip_to_target(position)
 
         # Read back joint positions
         for i, handle in enumerate(self._joint_handles):

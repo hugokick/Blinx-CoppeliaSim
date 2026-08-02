@@ -279,6 +279,19 @@ def test_positive_solution_six_elements():
     assert len(pose) == 6
 
 
+def test_simulation_pose_tolerance_uses_millimetres() -> None:
+    assert CoppeliaSimRobotBackend._pose_within_mm(
+        (0.0400, -0.0450, 0.1110),
+        (0.0402, -0.0451, 0.1112),
+        0.25,
+    ) is True
+    assert CoppeliaSimRobotBackend._pose_within_mm(
+        (0.0400, -0.0450, 0.1110),
+        (0.0403, -0.0450, 0.1110),
+        0.25,
+    ) is False
+
+
 # ------------------------------------------------------------------
 # Tests: state maintenance
 # ------------------------------------------------------------------

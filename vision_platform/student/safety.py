@@ -154,6 +154,7 @@ class StudentMotionGuard:
         target: Point3,
         *,
         speed: float,
+        horizontal_tolerance_mm: float = 0.0,
     ) -> Point3:
         start = self._validate_point(current, endpoint="current")
         end = self._validate_point(target, endpoint="target")
@@ -175,9 +176,17 @@ class StudentMotionGuard:
                     else {"speed": value}
                 ),
             )
-        horizontal = abs(start[0] - end[0]) > 1e-6 or abs(
-            start[1] - end[1]
-        ) > 1e-6
+        tolerance = self._finite_number(horizontal_tolerance_mm)
+        if tolerance is None or tolerance < 0.0 or tolerance > 1.0:
+            raise VisionPlatformError(
+                "STUDENT_MOTION_TOLERANCE_INVALID",
+                "水平反馈容差必须在 0 到 1 mm 之间",
+                details={"horizontal_tolerance_mm": horizontal_tolerance_mm},
+            )
+        horizontal = max(
+            abs(start[0] - end[0]),
+            abs(start[1] - end[1]),
+        ) > max(1e-6, tolerance)
         if horizontal and (
             start[2] < self.workspace.safe_z_mm
             or end[2] < self.workspace.safe_z_mm

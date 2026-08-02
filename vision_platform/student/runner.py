@@ -2682,10 +2682,22 @@ class StudentProgramController:
             ("x_mm", "y_mm", "z_mm", "speed"),
         )
         current = self._read_pose()
+        route_feedback_tolerance_mm = 0.0
+        if self._experiment_gateway is not None:
+            route_guard = getattr(self._experiment_gateway, "route_guard", None)
+            completion = getattr(route_guard, "completion", None)
+            if callable(completion):
+                try:
+                    route_feedback_tolerance_mm = (
+                        1.0 if bool(completion().get("active")) else 0.0
+                    )
+                except Exception:
+                    route_feedback_tolerance_mm = 0.0
         target = self._guard.validate_move(
             current,
             (args["x_mm"], args["y_mm"], args["z_mm"]),
             speed=args["speed"],
+            horizontal_tolerance_mm=route_feedback_tolerance_mm,
         )
         if self._experiment_gateway is not None:
             self._experiment_gateway.route_validate_move(current, target)
@@ -3056,6 +3068,7 @@ class StudentProgramController:
                     quarantined=True,
                 )
             scene_probe_status: str | None = None
+            final_probe_report: Mapping[str, Any] | None = None
             experiment_gateway = self._experiment_gateway
             timeout_restore_error: dict[str, Any] | None = None
             try:
@@ -3079,6 +3092,7 @@ class StudentProgramController:
                                 experiment_gateway,
                                 "final",
                             )
+                        final_probe_report = final_probe
                         reported_status = final_probe.get("status")
                         scene_probe_status = (
                             reported_status
@@ -3115,7 +3129,7 @@ class StudentProgramController:
                             }
                         )
                         try:
-                            experiment_gateway.record_probe_error(
+                            final_probe_report = experiment_gateway.record_probe_error(
                                 "final",
                                 code=(
                                     "EXPERIMENT_SCENE_FINAL_PROBE_ERROR"
@@ -3242,6 +3256,45 @@ class StudentProgramController:
                     cleanup_errors,
                     quarantined=True,
                 )
+            final_evidence_artifact: str | None = None
+            record_final_evidence = getattr(
+                experiment_gateway,
+                "record_code_route_final",
+                None,
+            )
+            if callable(record_final_evidence):
+                route_primary_error = (
+                    _json_safe(error) if error is not None else None
+                )
+                if final_status != "PASS" and route_primary_error is None:
+                    route_primary_error = final_error
+                try:
+                    final_evidence_artifact = record_final_evidence(
+                        final_probe=final_probe_report,
+                        primary_error=route_primary_error,
+                    )
+                except BaseException as final_evidence_error:
+                    diagnostic = _exception_error(
+                        final_evidence_error,
+                        code="CODE_ROUTE_FINAL_EVIDENCE_FAILED",
+                    )
+                    cleanup_errors.append(
+                        {
+                            "stage": "code_route.final_evidence",
+                            "error": diagnostic,
+                        }
+                    )
+                    if final_status == "PASS":
+                        final_status = "FAILED"
+                        final_error = diagnostic
+                    elif final_error is None:
+                        final_error = diagnostic
+                    else:
+                        final_error = _error_with_cleanup_details(
+                            final_error,
+                            cleanup_errors,
+                            quarantined=backend_quarantined,
+                        )
             final_error, cleanup_errors = _seal_terminal_payload(
                 final_error,
                 cleanup_errors,
@@ -3266,6 +3319,7 @@ class StudentProgramController:
                         error=final_error,
                         cleanup_errors=cleanup_errors,
                         scene_probe_status=scene_probe_status,
+                        final_evidence_artifact=final_evidence_artifact,
                     )
                 except BaseException as finalize_error:
                     prior_status = final_status

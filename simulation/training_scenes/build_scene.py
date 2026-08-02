@@ -1450,6 +1450,27 @@ def _code_rectangles(code_type: str, payload: str) -> tuple[np.ndarray, list[tup
     return gray, rectangles
 
 
+def _code_bar_width_mm(code_type: str, width_px: float, scale_mm_per_px: float) -> float:
+    """Return the physical width of one rendered code bar."""
+    del code_type
+    return float(width_px) * float(scale_mm_per_px)
+
+
+def _code_scale_mm_per_px(code_type: str, scale_mm_per_px: float) -> float:
+    """Phase-lock EAN modules to the fixed camera's pixel grid."""
+    scale = float(scale_mm_per_px)
+    if code_type == "ean13":
+        return max(scale, 0.117)
+    return scale
+
+
+def _code_render_x(code_type: str, x_px: int, width_px: int, image_width_px: int) -> int:
+    """Compensate CoppeliaSim's horizontal image-axis orientation for EAN."""
+    if code_type == "ean13":
+        return int(image_width_px) - int(x_px) - int(width_px)
+    return int(x_px)
+
+
 def _code_part(sim: Any, part: dict[str, Any], asset: dict[str, Any], parent: int) -> int:
     center = [float(value) for value in part["position_mm"]]
     size = [float(value) for value in part["size_mm"]]
@@ -1482,17 +1503,23 @@ def _code_part(sim: Any, part: dict[str, Any], asset: dict[str, Any], parent: in
     )
     gray, rectangles = _code_rectangles(asset["code_type"], asset["payload"])
     scale = min(face_width / float(gray.shape[1]), face_height / float(gray.shape[0]))
+    scale = _code_scale_mm_per_px(asset["code_type"], scale)
     origin_x = center[0] - gray.shape[1] * scale / 2.0
     origin_y = center[1] - gray.shape[0] * scale / 2.0
     for index, (x, y, width, height) in enumerate(rectangles):
+        render_x = _code_render_x(asset["code_type"], x, width, gray.shape[1])
         pieces.append(
             _shape(
                 sim,
                 name=f"{part['alias']}_code_{index:04d}",
                 shape="cuboid",
-                size_mm=[width * scale, height * scale, 0.3],
+                size_mm=[
+                    _code_bar_width_mm(asset["code_type"], width, scale),
+                    height * scale,
+                    0.3,
+                ],
                 position_mm=[
-                    origin_x + (x + width / 2.0) * scale,
+                    origin_x + (render_x + width / 2.0) * scale,
                     origin_y + (y + height / 2.0) * scale,
                     face_z + 0.65,
                 ],
@@ -1504,7 +1531,21 @@ def _code_part(sim: Any, part: dict[str, Any], asset: dict[str, Any], parent: in
     compound = int(sim.groupShapes(pieces, False))
     _alias(sim, compound, part["alias"])
     sim.setObjectParent(compound, parent, True)
-    _set_int_parameter(sim, compound, sim.shapeintparam_static, 0)
+    relocate_frame = getattr(sim, "relocateShapeFrame", None)
+    if callable(relocate_frame):
+        relocate_frame(
+            compound,
+            [
+                center[0] / 1000.0,
+                center[1] / 1000.0,
+                center[2] / 1000.0,
+                0.0,
+                0.0,
+                0.0,
+                1.0,
+            ],
+        )
+    _set_int_parameter(sim, compound, sim.shapeintparam_static, 1)
     _set_int_parameter(sim, compound, sim.shapeintparam_respondable, 1)
     _dummy(sim, "CodeFace", compound)
     return compound

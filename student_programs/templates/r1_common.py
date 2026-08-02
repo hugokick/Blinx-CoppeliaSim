@@ -305,6 +305,7 @@ def pick_and_place(
     pick_z_mm,
     safe_z_mm,
     speed,
+    use_command_xy=False,
 ):
     x_mm, y_mm = _finite_vector(pick_xy, 2, "pick_xy")
     drop_x, drop_y, drop_z = _finite_vector(drop_xyz, 3, "drop_xyz")
@@ -331,11 +332,14 @@ def pick_and_place(
                 speed=speed,
             )
         ctx.robot.move_world(x_mm, y_mm, hover_z_mm, speed=speed)
-        pick_hover_x, pick_hover_y, _ = _finite_vector(
-            ctx.robot.pose(),
-            3,
-            "robot.pose",
-        )
+        if use_command_xy:
+            pick_hover_x, pick_hover_y = x_mm, y_mm
+        else:
+            pick_hover_x, pick_hover_y, _ = _finite_vector(
+                ctx.robot.pose(),
+                3,
+                "robot.pose",
+            )
         ctx.robot.move_world(
             pick_hover_x,
             pick_hover_y,
@@ -343,11 +347,14 @@ def pick_and_place(
             speed=8.0,
         )
         ctx.tool.on()
-        pick_low_x, pick_low_y, _ = _finite_vector(
-            ctx.robot.pose(),
-            3,
-            "robot.pose",
-        )
+        if use_command_xy:
+            pick_low_x, pick_low_y = x_mm, y_mm
+        else:
+            pick_low_x, pick_low_y, _ = _finite_vector(
+                ctx.robot.pose(),
+                3,
+                "robot.pose",
+            )
         ctx.robot.move_world(
             pick_low_x,
             pick_low_y,
@@ -355,11 +362,14 @@ def pick_and_place(
             speed=speed,
         )
         ctx.robot.move_world(drop_x, drop_y, hover_z_mm, speed=speed)
-        drop_hover_x, drop_hover_y, _ = _finite_vector(
-            ctx.robot.pose(),
-            3,
-            "robot.pose",
-        )
+        if use_command_xy:
+            drop_hover_x, drop_hover_y = drop_x, drop_y
+        else:
+            drop_hover_x, drop_hover_y, _ = _finite_vector(
+                ctx.robot.pose(),
+                3,
+                "robot.pose",
+            )
         ctx.robot.move_world(
             drop_hover_x,
             drop_hover_y,
@@ -367,11 +377,14 @@ def pick_and_place(
             speed=8.0,
         )
         ctx.tool.off()
-        drop_low_x, drop_low_y, _ = _finite_vector(
-            ctx.robot.pose(),
-            3,
-            "robot.pose",
-        )
+        if use_command_xy:
+            drop_low_x, drop_low_y = drop_x, drop_y
+        else:
+            drop_low_x, drop_low_y, _ = _finite_vector(
+                ctx.robot.pose(),
+                3,
+                "robot.pose",
+            )
         ctx.robot.move_world(
             drop_low_x,
             drop_low_y,

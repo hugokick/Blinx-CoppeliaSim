@@ -89,6 +89,24 @@ def test_horizontal_tolerance_and_safe_height_boundary_are_allowed():
     ) == (120.0, 20.0, 100.0)
 
 
+def test_route_feedback_tolerance_allows_only_small_low_height_xy_correction():
+    guard = _guard()
+
+    assert guard.validate_move(
+        (40.0, -45.0, 111.0),
+        (40.4, -45.0, 18.0),
+        speed=8,
+        horizontal_tolerance_mm=1.0,
+    ) == (40.4, -45.0, 18.0)
+    with pytest.raises(MotionSafetyError, match="低于安全高度"):
+        guard.validate_move(
+            (40.0, -45.0, 111.0),
+            (41.1, -45.0, 18.0),
+            speed=8,
+            horizontal_tolerance_mm=1.0,
+        )
+
+
 @pytest.mark.parametrize("step_mm", (0.1, 0.5))
 def test_repeated_small_low_altitude_horizontal_steps_are_rejected(
     step_mm: float,

@@ -54,6 +54,15 @@ def test_scene_without_group_needs_no_activation() -> None:
     assert sim.positions == []
 
 
+def test_code_routing_scene_group_is_independently_reset_without_logistics_mutation() -> None:
+    sim = FakeSim()
+
+    activate_scene_group(sim, active_path="/VisionCodeRoutingLab")
+
+    assert sim.requested_paths == []
+    assert sim.positions == []
+
+
 def test_unknown_scene_group_fails_closed_before_mutating_scene() -> None:
     sim = FakeSim()
 

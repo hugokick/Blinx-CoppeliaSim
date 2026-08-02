@@ -386,3 +386,4 @@ tests/test_vision_quality/test_v1_07_materials.py
 tools/vision_lab/run_v1_07_code_routing.ps1
 tests/test_experiments/test_v1_07_cli.py
 tests/test_vision_platform/test_v1_07_result_panel.py
+tests/test_acceptance/test_coppeliasim_v1_07.py

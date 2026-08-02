@@ -505,6 +505,7 @@ class StudentExperimentGateway:
         self._probe_lock = RLock()
         self.route_guard = CodeRouteGuard()
         self._route_evidence: dict[str, Any] | None = None
+        self._route_completion_before_reset: dict[str, Any] | None = None
 
     def dispatch(self, name: str, args: Mapping[str, Any]) -> Any:
         if name == "experiment.info":
@@ -1188,7 +1189,94 @@ class StudentExperimentGateway:
         }
         copied = _copy_json_native(public, path="vision2d.code_routes")
         assert isinstance(copied, dict)
+        self._route_evidence = {
+            "plan": plan,
+            "snapshot_id": snapshot_id,
+            "raw": recorded.image_bgr.copy(),
+            "annotated": annotated.copy(),
+            "raw_record": dict(recorded.record),
+            "profile": {**profile, "code_route_plan_id": plan.plan_id},
+        }
+        self._route_completion_before_reset = None
         return copied
+
+    def record_code_route_final(
+        self,
+        *,
+        final_probe: Mapping[str, Any] | None,
+        primary_error: Mapping[str, Any] | None,
+    ) -> str | None:
+        context = self._route_evidence
+        if context is None:
+            return None
+        plan = context["plan"]
+        completion = (
+            getattr(self, "_route_completion_before_reset", None)
+            or self.route_guard.completion()
+        )
+        probe = (
+            {}
+            if final_probe is None
+            else _copy_json_native(final_probe, path="code_route.final_probe")
+        )
+        commands_path = Path(self.evidence.directory) / "commands.jsonl"
+        commands = []
+        if commands_path.is_file():
+            for line in commands_path.read_text(encoding="utf-8").splitlines():
+                item = json.loads(line)
+                if item.get("name") in {"robot.home", "robot.move_world", "tool.on", "tool.off"}:
+                    commands.append(
+                        {
+                            "plan_id": plan.plan_id,
+                            "sequence": len(commands) + 1,
+                            "name": item["name"],
+                            "status": item.get("status", "UNKNOWN"),
+                        }
+                    )
+        probe_pass = isinstance(probe, Mapping) and probe.get("status") == "PASS"
+        success = completion["all_complete"] and probe_pass and primary_error is None
+        error = (
+            None
+            if success
+            else _copy_json_native(
+                primary_error
+                or {"code": "CODE_ROUTE_FINAL_STATE_INVALID", "message": "路线终态未通过"},
+                path="code_route.error",
+            )
+        )
+        result = {
+            **code_route_plan_to_dict(plan),
+            "status": "PASS" if success else "REJECTED",
+            "snapshot_id": context["snapshot_id"],
+            "motion_events": commands,
+            "completed_entry_ids": completion["completed_entry_ids"],
+            "final_occupancy": probe.get("final_occupancy", {}) if isinstance(probe, Mapping) else {},
+            "error": error,
+            "human_acceptance": "PENDING_HUMAN_ACCEPTANCE",
+            "hardware_status": "PENDING_HARDWARE",
+        }
+        bundle = VisionResultBundle(
+            schema_version=1,
+            bundle_id=f"V1-07-zfinal-{context['snapshot_id']}",
+            experiment_id=self.context.experiment_id,
+            source_snapshot_id=context["snapshot_id"],
+            status="PASS" if success else "REJECTED",
+            layers=(
+                VisionImageLayer("raw", "原图", context["raw"]),
+                VisionImageLayer("annotated", "代码与仓位标注", context["annotated"]),
+            ),
+            result=result,
+            profile=context["profile"],
+            hardware_status="PENDING_HARDWARE",
+        )
+        artifact = record_vision_bundle(
+            self.evidence,
+            bundle,
+            existing_layer_records={"raw": context["raw_record"]},
+        )
+        self._route_evidence = None
+        self._route_completion_before_reset = None
+        return artifact
 
     def route_validate_move(self, current: Any, target: Any) -> None:
         if "vision2d.code_routing" in self._definition.capabilities:
@@ -1220,8 +1308,9 @@ class StudentExperimentGateway:
                 profile_controller.reset(),
                 path="vision.profile.reset",
             )
+        if self._route_evidence is not None:
+            self._route_completion_before_reset = self.route_guard.completion()
         self.route_guard.reset()
-        self._route_evidence = None
         return result
 
     def record_probe(self, phase: str) -> dict[str, Any]:
