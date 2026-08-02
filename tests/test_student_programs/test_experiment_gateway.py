@@ -372,6 +372,7 @@ def _factory_bundle(
         public_parameters={
             "baseline_profile_id": selected_baseline,
             "allowed_profile_ids": selected_allowed,
+            "camera_path": "/VisionQualityLab/CameraRig/Camera",
         },
     )
     definition = replace(

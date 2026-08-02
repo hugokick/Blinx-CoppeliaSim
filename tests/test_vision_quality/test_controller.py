@@ -492,6 +492,46 @@ def test_constructor_rejects_nonmatching_camera_backend(camera_factory) -> None:
         _controller(sim, camera_factory(sim))
 
 
+def test_constructor_accepts_catalog_bound_nonlegacy_sensor_path() -> None:
+    sim = FakeSim()
+    custom_path = "/VisionCodeRoutingLab/CameraRig/Camera"
+    sim.handles[custom_path] = 1
+    base = _catalog()
+    catalog = VisionProfileCatalog(
+        base.baseline_profile_id,
+        custom_path,
+        base.camera_rig_path,
+        base.key_light_path,
+        base.fill_light_path,
+        base.near_clip_m,
+        base.far_clip_m,
+        base.profiles,
+    )
+    camera = FakeCamera(sim, sensor_path=custom_path)
+
+    assert _controller(sim, camera, catalog=catalog).current().profile_id == "standard"
+
+
+def test_constructor_rejects_camera_sensor_path_mismatch_with_catalog() -> None:
+    sim = FakeSim()
+    custom_path = "/VisionCodeRoutingLab/CameraRig/Camera"
+    sim.handles[custom_path] = 1
+    base = _catalog()
+    catalog = VisionProfileCatalog(
+        base.baseline_profile_id,
+        custom_path,
+        base.camera_rig_path,
+        base.key_light_path,
+        base.fill_light_path,
+        base.near_clip_m,
+        base.far_clip_m,
+        base.profiles,
+    )
+
+    with pytest.raises(RuntimeError, match="VISION_PROFILE_BACKEND_UNAVAILABLE"):
+        _controller(sim, FakeCamera(sim), catalog=catalog)
+
+
 def test_constructor_rejects_coppeliasim_camera_without_callable_read() -> None:
     sim = FakeSim()
     camera = FakeCamera(sim)

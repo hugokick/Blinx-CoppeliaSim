@@ -530,6 +530,7 @@ def profile_factory_bundle(
     parameters = {
         "baseline_profile_id": "standard",
         "allowed_profile_ids": list(allowed_profile_ids),
+        "camera_path": "/VisionQualityLab/CameraRig/Camera",
     }
     definition = ExperimentDefinition(
         experiment_id="V1-01",
@@ -4586,3 +4587,31 @@ def test_bind_experiment_preserves_backend_quarantine_until_safe_reset(
     assert controller._backend_quarantine_error == {
         "code": "STUDENT_BACKEND_CONNECTION_QUARANTINED"
     }
+
+
+def test_v1_07_runner_routes_motion_and_tool_commands_through_gateway(tmp_path):
+    controller, session, _ = make_controller(
+        tmp_path,
+        "def main(ctx):\n    pass\n",
+    )
+    calls: list[tuple] = []
+    controller._experiment_gateway = SimpleNamespace(
+        route_validate_move=lambda current, target: calls.append(("move", current, target)),
+        route_validate_tool_on=lambda pose: calls.append(("tool.on", pose)),
+        route_note_tool_off=lambda pose: calls.append(("tool.off", pose)) or True,
+        route_validate_home=lambda: calls.append(("home",)),
+    )
+    session.application.robot.current = (100.0, 20.0, 120.0)
+
+    controller._command_move_world(
+        {"x_mm": 100.0, "y_mm": 20.0, "z_mm": 20.0, "speed": 10.0}
+    )
+    controller._command_tool_on({})
+    controller._command_tool_off({})
+    controller._command_home({})
+
+    assert [call[0] for call in calls] == ["move", "tool.on", "tool.off", "home"]
+    assert session.application.robot.moves == [(100.0, 20.0, 20.0, 10.0)]
+    assert session.application.tool.on_calls == 1
+    assert session.application.tool.off_calls == 1
+    assert session.application.robot.home_calls == 1

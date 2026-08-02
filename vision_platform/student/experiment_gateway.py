@@ -3,6 +3,7 @@ from __future__ import annotations
 import errno
 import hashlib
 import json
+import math
 from dataclasses import dataclass
 from itertools import count
 from math import isfinite
@@ -18,6 +19,11 @@ from vision_platform.experiments.models import (
     ExperimentDefinition,
     ExperimentRunContext,
 )
+from vision_platform.experiments.code_routing import (
+    CodeRouteError,
+    build_code_route_plan,
+    code_route_plan_to_dict,
+)
 from vision_platform.experiments.probes import probe_experiment
 from vision_platform.vision2d import (
     analyze_image,
@@ -32,6 +38,8 @@ from vision_platform.vision2d.template_matching import (
     match_template,
     template_match_result_to_dict,
 )
+from vision_platform.vision2d.code_recognition import CodeRecognitionResult, recognize_codes
+from vision_platform.student.code_route_guard import CodeRouteGuard
 from vision_platform.vision_quality.controller import controller_for_experiment
 from vision_platform.vision_quality.evidence import record_vision_bundle
 from vision_platform.vision_quality.models import (
@@ -58,6 +66,13 @@ _TEMPLATE_MATCH_CAPABILITIES = frozenset(
         "camera.profile",
         "lighting.profile",
         "vision2d.template_matching",
+    }
+)
+_CODE_ROUTE_CAPABILITIES = frozenset(
+    {
+        "camera.rgb", "camera.profile", "lighting.profile",
+        "vision2d.code_routing", "robot.home", "robot.pose",
+        "robot.move_world", "tool.suction", "scene.probe",
     }
 )
 
@@ -147,6 +162,35 @@ def _sha256(path: Path) -> str:
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _sha256_file(path: Path) -> str:
+    return _sha256(path)
+
+
+def _annotate_code_routes(
+    image_bgr: np.ndarray,
+    recognition: CodeRecognitionResult,
+    plan: Any,
+) -> np.ndarray:
+    annotated = image_bgr.copy()
+    entry_by_payload = {entry.payload: entry for entry in plan.entries}
+    for reading in recognition.readings:
+        entry = entry_by_payload[reading.data]
+        points = np.rint(np.asarray(reading.polygon_px, dtype=np.float64)).astype(np.int32)
+        cv2.polylines(annotated, [points], True, (0, 180, 0), 2, cv2.LINE_AA)
+        origin = (max(0, int(reading.bbox_px[0])), max(16, int(reading.bbox_px[1]) - 4))
+        cv2.putText(
+            annotated,
+            f"{entry.part_id}->{entry.route_id}",
+            origin,
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.45,
+            (0, 100, 0),
+            1,
+            cv2.LINE_AA,
+        )
+    return annotated
 
 
 def _template_root(scene_manifest_path: Path) -> Path:
@@ -459,6 +503,8 @@ class StudentExperimentGateway:
         self.capture_timeout_s = float(capture_timeout_s)
         self._snapshot_ids = count(1)
         self._probe_lock = RLock()
+        self.route_guard = CodeRouteGuard()
+        self._route_evidence: dict[str, Any] | None = None
 
     def dispatch(self, name: str, args: Mapping[str, Any]) -> Any:
         if name == "experiment.info":
@@ -491,6 +537,9 @@ class StudentExperimentGateway:
         if name == "vision2d.template_match":
             self._require_exact_args(name, args, ())
             return self._template_match()
+        if name == "vision2d.code_routes":
+            self._require_exact_args(name, args, ())
+            return self._code_routes()
         raise ValueError(f"COMMAND_NOT_ALLOWED: {name}")
 
     @staticmethod
@@ -954,6 +1003,210 @@ class StudentExperimentGateway:
         assert isinstance(public, dict)
         return public
 
+    def _validated_code_asset_binding(self) -> dict[str, tuple[float, float, float]]:
+        binding = self._scene_manifest.get("code_assets_manifest")
+        route_binding = self._scene_manifest.get("code_routing")
+        if (
+            not isinstance(binding, Mapping)
+            or set(binding) != {"path", "sha256"}
+            or type(binding.get("path")) is not str
+            or type(binding.get("sha256")) is not str
+            or len(binding["sha256"]) != 64
+            or any(character not in "0123456789abcdef" for character in binding["sha256"])
+            or not isinstance(route_binding, Mapping)
+            or set(route_binding)
+            != {
+                "part_ids", "initial_positions_mm",
+                "calibration_plane_z_mm", "calibration_matrix", "route_slots_mm",
+            }
+        ):
+            raise VisionPlatformError("CODE_ROUTE_CONFIG_INVALID", "码面或构件绑定缺失")
+        relative = Path(binding["path"])
+        root = self._definition.scene_manifest.parent.resolve()
+        if relative.is_absolute() or any(part in {".", ".."} for part in relative.parts):
+            raise VisionPlatformError("CODE_ROUTE_CONFIG_INVALID", "码面清单路径不安全")
+        candidate = root / relative
+        if candidate.is_symlink():
+            raise VisionPlatformError("CODE_ROUTE_CONFIG_INVALID", "码面清单不得使用链接")
+        resolved = candidate.resolve(strict=True)
+        if resolved.parent != root or _sha256_file(resolved) != binding["sha256"]:
+            raise VisionPlatformError("CODE_ROUTE_CONFIG_INVALID", "码面清单哈希或路径不匹配")
+        try:
+            payload = json.loads(resolved.read_text(encoding="utf-8"))
+        except Exception as error:
+            raise VisionPlatformError("CODE_ROUTE_CONFIG_INVALID", "码面清单格式无效") from error
+        if not isinstance(payload, Mapping) or set(payload) != {"schema_version", "entries"} or payload["schema_version"] != 1:
+            raise VisionPlatformError("CODE_ROUTE_CONFIG_INVALID", "码面清单格式无效")
+        route_config = self._definition.public_parameters.get("code_routing")
+        if not isinstance(route_config, Mapping):
+            raise VisionPlatformError("CODE_ROUTE_CONFIG_INVALID", "路线配置无效")
+        routes = route_config.get("routes")
+        if not isinstance(payload["entries"], list) or not isinstance(routes, (tuple, list)):
+            raise VisionPlatformError("CODE_ROUTE_CONFIG_INVALID", "码面条目无效")
+        try:
+            expected = {
+                (route["part_id"], route["code_type"], route["payload"])
+                for route in routes
+            }
+        except (KeyError, TypeError) as error:
+            raise VisionPlatformError("CODE_ROUTE_CONFIG_INVALID", "路线配置无效") from error
+        entries = payload["entries"]
+        required_entry_fields = {"part_id", "code_type", "payload"}
+        if (
+            len(entries) != len(routes)
+            or any(
+                not isinstance(entry, Mapping)
+                or not required_entry_fields <= set(entry)
+                or any(type(entry[field]) is not str for field in required_entry_fields)
+                for entry in entries
+            )
+        ):
+            raise VisionPlatformError("CODE_ROUTE_CONFIG_INVALID", "码面条目无效")
+        actual = {(entry["part_id"], entry["code_type"], entry["payload"]) for entry in entries}
+        part_ids = route_binding["part_ids"]
+        initial_positions = route_binding["initial_positions_mm"]
+
+        def matrix(value: Any) -> tuple[tuple[float, float, float], tuple[float, float, float]]:
+            if not isinstance(value, (list, tuple)) or len(value) != 2:
+                raise VisionPlatformError("CODE_ROUTE_CONFIG_INVALID", "标定矩阵无效")
+            rows = []
+            for row in value:
+                if not isinstance(row, (list, tuple)) or len(row) != 3:
+                    raise VisionPlatformError("CODE_ROUTE_CONFIG_INVALID", "标定矩阵无效")
+                if any(type(component) not in {int, float} or not math.isfinite(float(component)) for component in row):
+                    raise VisionPlatformError("CODE_ROUTE_CONFIG_INVALID", "标定矩阵无效")
+                rows.append(tuple(float(component) for component in row))
+            return (rows[0], rows[1])  # type: ignore[return-value]
+
+        route_slots = route_binding["route_slots_mm"]
+        if not isinstance(route_slots, Mapping) or any(
+            type(route_id) is not str or not isinstance(slots, (list, tuple))
+            for route_id, slots in route_slots.items()
+        ):
+            raise VisionPlatformError("CODE_ROUTE_CONFIG_INVALID", "仓位绑定无效")
+        if sum(len(slots) for slots in route_slots.values()) != len(routes) or any(
+            not isinstance(slot, (list, tuple))
+            or len(slot) != 3
+            or any(type(component) not in {int, float} or not math.isfinite(float(component)) for component in slot)
+            for slots in route_slots.values()
+            for slot in slots
+        ):
+            raise VisionPlatformError("CODE_ROUTE_CONFIG_INVALID", "仓位绑定无效")
+        manifest_slots = {
+            (route_id, tuple(float(component) for component in slot))
+            for route_id, slots in route_slots.items()
+            for slot in slots
+        }
+        configured_slots = {
+            (route["route_id"], tuple(float(component) for component in route["drop_xyz_mm"]))
+            for route in routes
+        }
+        if (
+            actual != expected
+            or type(part_ids) is not list
+            or len(part_ids) != len(expected)
+            or len(set(part_ids)) != len(part_ids)
+            or any(type(part_id) is not str for part_id in part_ids)
+            or set(part_ids) != {item[0] for item in expected}
+            or not isinstance(initial_positions, Mapping)
+            or set(initial_positions) != set(part_ids)
+            or any(
+                not isinstance(position, (list, tuple))
+                or len(position) != 3
+                or any(type(component) not in {int, float} or not math.isfinite(float(component)) for component in position)
+                for position in initial_positions.values()
+            )
+            or type(route_binding["calibration_plane_z_mm"]) not in {int, float}
+            or not math.isfinite(float(route_binding["calibration_plane_z_mm"]))
+            or float(route_binding["calibration_plane_z_mm"]) != 27.4
+            or matrix(route_binding["calibration_matrix"]) != matrix(route_config.get("calibration_matrix"))
+            or len(manifest_slots) != len(routes)
+            or configured_slots != manifest_slots
+        ):
+            raise VisionPlatformError("CODE_ROUTE_CONFIG_INVALID", "码面、路线和场景构件不一致")
+        return {
+            part_id: tuple(float(component) for component in initial_positions[part_id])
+            for part_id in part_ids
+        }
+
+    def _code_routes(self) -> dict[str, Any]:
+        if self.route_guard.completion()["active"]:
+            raise VisionPlatformError("CODE_ROUTE_PLAN_ALREADY_ACTIVE", "本次运行已有路线计划")
+        if not _CODE_ROUTE_CAPABILITIES <= set(self._definition.capabilities):
+            raise VisionPlatformError("CODE_ROUTE_CONTEXT_REQUIRED", "当前实验没有代码路由能力")
+        scene_part_positions = self._validated_code_asset_binding()
+        profile = self._profile_public(self._profiles_required().current(), path="vision2d.code_routes.profile")
+        if profile.get("profile_id") != "standard" or profile.get("resolution") != [1024, 1024]:
+            raise VisionPlatformError("CODE_ROUTE_PROFILE_MISMATCH", "代码路由必须使用 standard 1024x1024")
+        recorded = self._capture_raw(profile)
+        recognition = recognize_codes(recorded.image_bgr, max_codes=4)
+        try:
+            plan = build_code_route_plan(
+                recognition,
+                routing_config=self._definition.public_parameters["code_routing"],
+                workspace=self._definition.workspace,
+                scene_part_ids=set(scene_part_positions),
+                image_size=(recorded.image_bgr.shape[1], recorded.image_bgr.shape[0]),
+            )
+        except CodeRouteError as error:
+            raise VisionPlatformError(error.code, str(error)) from error
+        for entry in plan.entries:
+            expected = scene_part_positions[entry.part_id]
+            if (
+                math.hypot(entry.pick_xyz_mm[0] - expected[0], entry.pick_xyz_mm[1] - expected[1]) > 3.0
+                or abs(entry.pick_xyz_mm[2] - expected[2]) > 0.25
+            ):
+                raise VisionPlatformError("CODE_ROUTE_SCENE_POSITION_MISMATCH", f"{entry.part_id} 的视觉坐标与绑定初态不一致")
+        annotated = _annotate_code_routes(recorded.image_bgr, recognition, plan)
+        result = code_route_plan_to_dict(plan)
+        snapshot_id = recorded.value["snapshot_id"]
+        bundle = VisionResultBundle(
+            schema_version=1,
+            bundle_id=f"{self.context.experiment_id}-{snapshot_id}",
+            experiment_id=self.context.experiment_id,
+            source_snapshot_id=snapshot_id,
+            status="PASS",
+            layers=(
+                VisionImageLayer("raw", "原图", recorded.image_bgr),
+                VisionImageLayer("annotated", "代码与仓位标注", annotated),
+            ),
+            result=result,
+            profile={**profile, "code_route_plan_id": plan.plan_id},
+            hardware_status="PENDING_HARDWARE",
+        )
+        bundle_path = record_vision_bundle(
+            self.evidence,
+            bundle,
+            existing_layer_records={"raw": recorded.record},
+        )
+        self.route_guard.activate(plan)
+        public = {
+            "schema_version": 1,
+            "snapshot_id": snapshot_id,
+            "vision_bundle_path": bundle_path,
+            **result,
+        }
+        copied = _copy_json_native(public, path="vision2d.code_routes")
+        assert isinstance(copied, dict)
+        return copied
+
+    def route_validate_move(self, current: Any, target: Any) -> None:
+        if "vision2d.code_routing" in self._definition.capabilities:
+            self.route_guard.validate_move(current, target)
+
+    def route_validate_tool_on(self, pose: Any) -> None:
+        if "vision2d.code_routing" in self._definition.capabilities:
+            self.route_guard.validate_tool_on(pose)
+
+    def route_note_tool_off(self, pose: Any) -> bool:
+        if "vision2d.code_routing" not in self._definition.capabilities:
+            return True
+        return self.route_guard.validate_tool_off(pose)
+
+    def route_validate_home(self) -> None:
+        if "vision2d.code_routing" in self._definition.capabilities:
+            self.route_guard.validate_home()
+
     def reset_environment(self) -> dict[str, Any] | None:
         profile_controller = (
             self._profile_controller
@@ -961,12 +1214,15 @@ class StudentExperimentGateway:
             <= set(self._definition.capabilities)
             else None
         )
-        if profile_controller is None:
-            return None
-        return self._profile_public(
-            profile_controller.reset(),
-            path="vision.profile.reset",
-        )
+        result = None
+        if profile_controller is not None:
+            result = self._profile_public(
+                profile_controller.reset(),
+                path="vision.profile.reset",
+            )
+        self.route_guard.reset()
+        self._route_evidence = None
+        return result
 
     def record_probe(self, phase: str) -> dict[str, Any]:
         report = self.collect_probe(phase)

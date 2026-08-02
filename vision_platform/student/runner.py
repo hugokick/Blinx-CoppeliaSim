@@ -2588,6 +2588,7 @@ class StudentProgramController:
             "experiment.info",
             "vision2d.analyze",
             "vision2d.template_match",
+            "vision2d.code_routes",
         }:
             gateway = self._experiment_gateway
             if gateway is None:
@@ -2668,6 +2669,8 @@ class StudentProgramController:
 
     def _command_home(self, args: Mapping[str, Any]) -> None:
         self._require_args(args, ())
+        if self._experiment_gateway is not None:
+            self._experiment_gateway.route_validate_home()
         self._raise_if_stopping()
         self._application.robot.move_home()
         self._raise_if_stopping()
@@ -2684,6 +2687,8 @@ class StudentProgramController:
             (args["x_mm"], args["y_mm"], args["z_mm"]),
             speed=args["speed"],
         )
+        if self._experiment_gateway is not None:
+            self._experiment_gateway.route_validate_move(current, target)
         self._raise_if_stopping()
         self._application.robot.move_world(
             target[0],
@@ -2701,6 +2706,8 @@ class StudentProgramController:
         self._require_args(args, ())
         pose = self._read_pose()
         self._guard.validate_tool_on(pose)
+        if self._experiment_gateway is not None:
+            self._experiment_gateway.route_validate_tool_on(pose)
         self._raise_if_stopping()
         self._application.tool.on()
 
@@ -2708,6 +2715,14 @@ class StudentProgramController:
         self._require_args(args, ())
         self._raise_if_stopping()
         self._application.tool.off()
+        if (
+            self._experiment_gateway is not None
+            and not self._experiment_gateway.route_note_tool_off(self._read_pose())
+        ):
+            raise VisionPlatformError(
+                "CODE_ROUTE_SEQUENCE_INVALID",
+                "吸盘已安全关闭，但路线顺序已中止",
+            )
 
     def _raise_if_stopping(self) -> None:
         with self._condition:

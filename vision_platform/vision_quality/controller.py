@@ -21,7 +21,6 @@ _ANGLE_TOLERANCE_RAD = math.radians(0.05)
 _POSITION_TOLERANCE_M = 0.0005
 _LIGHT_TOLERANCE = 0.001
 _CLIPPING_TOLERANCE_M = 0.0005
-_SENSOR_PATH = "/VisionQualityLab/CameraRig/Camera"
 
 _LightState = tuple[
     int,
@@ -125,6 +124,9 @@ def controller_for_experiment(
 
     try:
         catalog = load_profile_catalog_bytes(content)
+        published_camera_path = definition.public_parameters.get("camera_path")
+        if type(published_camera_path) is not str or published_camera_path != catalog.sensor_path:
+            raise _profile_context_required()
         allowed = definition.public_parameters.get("allowed_profile_ids")
         baseline = definition.public_parameters.get("baseline_profile_id")
         if (
@@ -332,8 +334,9 @@ class VisionProfileController:
         if (
             not isinstance(camera, CoppeliaSimCamera)
             or not callable(getattr(camera, "read", None))
-            or catalog.sensor_path != _SENSOR_PATH
-            or camera.sensor_path != _SENSOR_PATH
+            or type(catalog.sensor_path) is not str
+            or type(camera.sensor_path) is not str
+            or camera.sensor_path != catalog.sensor_path
         ):
             raise VisionProfileError("VISION_PROFILE_BACKEND_UNAVAILABLE")
         resolver = getattr(camera, "_resolver", None)

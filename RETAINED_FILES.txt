@@ -363,3 +363,6 @@ docs/superpowers/plans/2026-08-02-v1-07-code-routing-plan.md
 vision_platform/experiments/code_routing.py
 tests/test_experiments/test_code_routing.py
 tests/test_student_programs/test_v1_07_protocol_sdk.py
+vision_platform/student/code_route_guard.py
+tests/test_student_programs/test_v1_07_route_guard.py
+tests/test_student_programs/test_v1_07_gateway.py

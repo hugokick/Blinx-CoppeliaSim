@@ -255,3 +255,22 @@ def test_vision2d_analysis_requires_camera_and_profile_declarations():
     assert report.reasons["vision2d.analysis"] == (
         "二维视觉分析必须同时声明相机与成对视觉配置能力"
     )
+
+
+def test_code_routing_requires_complete_sim_camera_robot_and_tool_contract() -> None:
+    required = (
+        "camera.rgb", "camera.profile", "lighting.profile", "vision2d.code_routing",
+        "robot.home", "robot.pose", "robot.move_world", "tool.suction", "scene.probe",
+    )
+    ready = SimpleNamespace(
+        config=SimpleNamespace(camera_backend="sim", robot_backend="sim"),
+        sim=object(), camera=object(), robot=object(), tool=object(),
+    )
+    assert check_capabilities(ready, required).ready
+    for field in ("camera", "robot", "tool", "sim"):
+        broken = SimpleNamespace(**ready.__dict__)
+        setattr(broken, field, None)
+        assert "vision2d.code_routing" in check_capabilities(broken, required).missing
+    replay = SimpleNamespace(**ready.__dict__)
+    replay.config = SimpleNamespace(camera_backend="replay", robot_backend="sim")
+    assert "vision2d.code_routing" in check_capabilities(replay, required).missing
