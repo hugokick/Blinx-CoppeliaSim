@@ -128,3 +128,45 @@ def test_ocr_profile_catalog_rejects_invalid_fixed_profile_values(
     path.write_text(json.dumps(payload, allow_nan=True), encoding="utf-8")
     with pytest.raises(ValueError):
         scene_builder._load_ocr_profile_catalog(path)
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda payload: payload.__setitem__("near_clip_m", 10**1000),
+        lambda payload: payload["profiles"][0].__setitem__(
+            "perspective_angle_deg", 10**1000
+        ),
+        lambda payload: payload["profiles"][0].__setitem__(
+            "key_diffuse_rgb", [10**1000, 0.8, 0.8]
+        ),
+    ],
+)
+def test_ocr_profile_catalog_rejects_unbounded_integer_values(tmp_path, mutate):
+    payload = json.loads(
+        (ROOT / "simulation" / "vision_ocr_sorting_lab" / "profiles.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    mutate(payload)
+    path = tmp_path / "profiles.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError):
+        scene_builder._load_ocr_profile_catalog(path)
+
+
+@pytest.mark.parametrize("tamper", ["hash", "path"])
+def test_ocr_assets_manifest_rejects_tampered_label_binding(tmp_path, tamper):
+    payload = json.loads(
+        (ROOT / "simulation" / "vision_ocr_sorting_lab" / "ocr_assets_manifest.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    if tamper == "hash":
+        payload["labels"][0]["sha256"] = "0" * 64
+    else:
+        payload["labels"][0]["path"] = "../labels/A1.png"
+    path = tmp_path / "ocr_assets_manifest.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError):
+        scene_builder._validate_ocr_assets_manifest(path)

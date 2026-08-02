@@ -335,6 +335,15 @@ def _load(path: Path) -> dict[str, Any]:
 
 def _load_ocr_profile_catalog(path: Path) -> VisionProfileCatalog:
     """Load the V1-08 profile without broadening the shared catalog allowlist."""
+    def _safe_float(value: Any) -> float | None:
+        if type(value) not in (int, float):
+            return None
+        try:
+            converted = float(value)
+        except (OverflowError, ValueError):
+            return None
+        return converted if math.isfinite(converted) else None
+
     payload = _load(path)
     expected_fields = {
         "schema_version",
@@ -365,13 +374,13 @@ def _load_ocr_profile_catalog(path: Path) -> VisionProfileCatalog:
         raise ValueError("OCR profile fill-light path is invalid")
     near = payload["near_clip_m"]
     far = payload["far_clip_m"]
+    near_value = _safe_float(near)
+    far_value = _safe_float(far)
     if (
-        type(near) not in (int, float)
-        or type(far) not in (int, float)
-        or not math.isfinite(float(near))
-        or not math.isfinite(float(far))
-        or float(near) != 0.05
-        or float(far) != 1.0
+        near_value is None
+        or far_value is None
+        or near_value != 0.05
+        or far_value != 1.0
     ):
         raise ValueError("OCR profile clipping values are invalid")
     profiles = payload["profiles"]
@@ -406,26 +415,32 @@ def _load_ocr_profile_catalog(path: Path) -> VisionProfileCatalog:
         raise ValueError("OCR profile resolution must be 1024x1024")
     angle = item["perspective_angle_deg"]
     rig_z = item["camera_rig_z_m"]
+    angle_value = _safe_float(angle)
+    rig_z_value = _safe_float(rig_z)
     if (
-        type(angle) not in (int, float)
-        or type(rig_z) not in (int, float)
-        or not math.isfinite(float(angle))
-        or not math.isfinite(float(rig_z))
-        or float(angle) != 20.0
-        or float(rig_z) != 0.5
+        angle_value is None
+        or rig_z_value is None
+        or angle_value != 20.0
+        or rig_z_value != 0.5
     ):
         raise ValueError("OCR profile camera parameters are invalid")
     for name, value, expected_rgb in (
         ("key_diffuse_rgb", item["key_diffuse_rgb"], [0.8, 0.8, 0.8]),
         ("fill_diffuse_rgb", item["fill_diffuse_rgb"], [0.35, 0.35, 0.35]),
     ):
+        converted_rgb = (
+            [_safe_float(component) for component in value]
+            if isinstance(value, list)
+            else None
+        )
         if (
             not isinstance(value, list)
             or len(value) != 3
             or any(type(component) not in (int, float) for component in value)
-            or any(not math.isfinite(float(component)) for component in value)
-            or any(float(component) < 0.0 or float(component) > 1.0 for component in value)
-            or [float(component) for component in value] != expected_rgb
+            or converted_rgb is None
+            or any(component is None for component in converted_rgb)
+            or any(component < 0.0 or component > 1.0 for component in converted_rgb if component is not None)
+            or converted_rgb != expected_rgb
         ):
             raise ValueError(f"OCR profile {name} is invalid")
     profile = VisionProfile(
@@ -447,6 +462,65 @@ def _load_ocr_profile_catalog(path: Path) -> VisionProfileCatalog:
         far_clip_m=far,
         profiles=(profile,),
     )
+
+
+def _validate_ocr_assets_manifest(path: Path) -> dict[str, Any]:
+    """Validate every scene label before opening a CoppeliaSim connection."""
+    payload = _load(path)
+    labels = payload.get("labels")
+    if not isinstance(labels, list) or len(labels) != 4:
+        raise ValueError("OCR assets manifest must contain four labels")
+    expected_ids = ["A1", "A2", "B1", "B2"]
+    seen_paths: set[str] = set()
+    validated: list[dict[str, Any]] = []
+    required_fields = {
+        "identifier",
+        "path",
+        "purpose",
+        "size_px",
+        "channels",
+        "sha256",
+    }
+    for item, expected_id in zip(labels, expected_ids):
+        if not isinstance(item, dict) or set(item) != required_fields:
+            raise ValueError("OCR scene label fields are invalid")
+        if item["identifier"] != expected_id or item["purpose"] != "scene_label":
+            raise ValueError("OCR scene labels must be A1, A2, B1, and B2")
+        raw_path = item["path"]
+        if (
+            not isinstance(raw_path, str)
+            or not raw_path
+            or raw_path != raw_path.strip()
+            or Path(raw_path).is_absolute()
+            or bool(Path(raw_path).anchor)
+            or "\\" in raw_path
+            or any(part in {".", ".."} for part in Path(raw_path).parts)
+            or not raw_path.startswith("labels/")
+            or raw_path in seen_paths
+        ):
+            raise ValueError("OCR label path must be a unique labels-relative path")
+        seen_paths.add(raw_path)
+        asset_path = path.parent / Path(raw_path)
+        if not asset_path.is_file() or asset_path.is_symlink():
+            raise ValueError("OCR label path must be a regular file")
+        try:
+            attributes = getattr(asset_path.lstat(), "st_file_attributes", 0)
+        except OSError as exc:
+            raise ValueError("OCR label path identity could not be inspected") from exc
+        if attributes & _REPARSE_POINT or asset_path.stat().st_nlink != 1:
+            raise ValueError("OCR label path must not be an alias")
+        if item["size_px"] != [64, 96] or type(item["channels"]) is not int or item["channels"] != 3:
+            raise ValueError("OCR scene labels must be 64x96 three-channel images")
+        digest = item["sha256"]
+        if not isinstance(digest, str) or _LOWER_SHA256.fullmatch(digest) is None:
+            raise ValueError("OCR scene label sha256 is invalid")
+        if _sha256(asset_path) != digest:
+            raise ValueError("OCR scene label sha256 does not match bytes")
+        image = cv2.imread(str(asset_path), cv2.IMREAD_COLOR)
+        if image is None or image.shape != (96, 64, 3) or image.dtype != np.uint8:
+            raise ValueError("OCR scene label image cannot be decoded")
+        validated.append(dict(item))
+    return {"labels": validated}
 
 
 def _write_exclusive(path: Path, payload: dict[str, Any]) -> None:
@@ -1057,11 +1131,12 @@ def _validate_spec(spec: dict[str, Any], formal: _FormalScene) -> None:
             label="profiles",
             must_exist=True,
         )
-        _project_file_from_relative(
+        ocr_assets_path = _project_file_from_relative(
             spec["ocr_assets_manifest"],
             label="ocr_assets_manifest",
             must_exist=True,
         )
+        _validate_ocr_assets_manifest(ocr_assets_path)
         _load_ocr_profile_catalog(
             _project_file_from_relative(spec["profiles"], label="profiles", must_exist=True)
         )

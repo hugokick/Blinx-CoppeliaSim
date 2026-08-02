@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "scene_id": "vision-ocr-sorting-lab",
-  "generated_at": "2026-08-02T17:02:14.349690+00:00",
+  "generated_at": "2026-08-02T17:07:58.759755+00:00",
   "generator": "simulation.training_scenes.build_scene",
   "template": {
     "path": "simulation/vision_lab/BL23_vision_lab.ttt",
@@ -9,8 +9,8 @@
   },
   "scene": {
     "path": "simulation/vision_ocr_sorting_lab/BL23_vision_ocr_sorting_lab.ttt",
-    "sha256": "b80cf5ebe1a6e973ddec0b3a4b0f03f3c548a3e76e7415398de674d85030ac9f",
-    "size_bytes": 11674470
+    "sha256": "3edece9986156cfae5c2ffc65237858caf04ed8be4118a7c8aacf6269d779fab",
+    "size_bytes": 11674465
   },
   "required_paths": [
     "/BLX_base_link",
