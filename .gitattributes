@@ -2,3 +2,4 @@
 simulation/vision_quality_lab/profiles.json text eol=lf
 simulation/vision_code_routing_lab/profiles.json text eol=lf
 simulation/vision_code_routing_lab/code_assets_manifest.json text eol=lf
+simulation/rgbd_lab/*.json text eol=lf

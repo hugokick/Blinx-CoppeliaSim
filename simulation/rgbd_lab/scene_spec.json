@@ -1,0 +1,102 @@
+{
+  "schema_version": 1,
+  "port": 23009,
+  "formal_scene_template": "simulation/vision_lab/BL23_vision_lab.ttt",
+  "output_relative": "simulation/rgbd_lab/BL23_rgbd_lab.ttt",
+  "source_depth_model": "optical_z",
+  "required_paths": [
+    "/RgbdLab",
+    "/RgbdLab/CameraRig/RgbdSensor",
+    "/RgbdLab/ReferencePlane",
+    "/RgbdLab/Targets/near_block",
+    "/RgbdLab/Targets/far_block",
+    "/RgbdLab/Targets/step_low",
+    "/RgbdLab/Targets/step_high",
+    "/RgbdLab/ProbeAnchors/center",
+    "/RgbdLab/ProbeAnchors/off_axis_left",
+    "/RgbdLab/ProbeAnchors/off_axis_right"
+  ],
+  "sensor": {
+    "path": "/RgbdLab/CameraRig/RgbdSensor",
+    "resolution": [256, 256],
+    "perspective_angle_deg": 60.0,
+    "near_clip_m": 0.05,
+    "far_clip_m": 5.0,
+    "explicit_handling": true,
+    "perspective": true,
+    "rgb_enabled": true,
+    "depth_enabled": true,
+    "position_m": [0.0, 0.0, 2.5],
+    "orientation_quaternion": [1.0, 0.0, 0.0, 0.0]
+  },
+  "reference_plane": {
+    "path": "/RgbdLab/ReferencePlane",
+    "size_m": [4.0, 4.0, 0.05],
+    "top_z_m": 0.0,
+    "color": [0.32, 0.36, 0.42]
+  },
+  "targets": [
+    {
+      "path": "/RgbdLab/Targets/near_block",
+      "size_m": [0.45, 0.45, 0.8],
+      "position_m": [-0.55, 0.0, 0.4],
+      "top_z_m": 0.8,
+      "color": [0.9, 0.12, 0.08]
+    },
+    {
+      "path": "/RgbdLab/Targets/far_block",
+      "size_m": [0.45, 0.45, 0.4],
+      "position_m": [0.55, 0.0, 0.2],
+      "top_z_m": 0.4,
+      "color": [0.08, 0.35, 0.9]
+    },
+    {
+      "path": "/RgbdLab/Targets/step_low",
+      "size_m": [0.4, 0.35, 0.3],
+      "position_m": [-0.55, 0.7, 0.15],
+      "top_z_m": 0.3,
+      "color": [0.1, 0.75, 0.25]
+    },
+    {
+      "path": "/RgbdLab/Targets/step_high",
+      "size_m": [0.4, 0.35, 0.7],
+      "position_m": [0.55, 0.7, 0.35],
+      "top_z_m": 0.7,
+      "color": [0.95, 0.75, 0.08]
+    }
+  ],
+  "probe_anchors": [
+    {
+      "path": "/RgbdLab/ProbeAnchors/center",
+      "position_m": [0.0, -0.9, 0.025],
+      "pixel": [128, 128],
+      "optical_z_m": 2.475,
+      "ray_range_m": 2.475
+    },
+    {
+      "path": "/RgbdLab/ProbeAnchors/off_axis_left",
+      "position_m": [-0.65, -0.9, 0.025],
+      "pixel": [73, 128],
+      "optical_z_m": 2.475,
+      "ray_range_m": 2.544
+    },
+    {
+      "path": "/RgbdLab/ProbeAnchors/off_axis_right",
+      "position_m": [0.65, -0.9, 0.025],
+      "pixel": [183, 128],
+      "optical_z_m": 2.475,
+      "ray_range_m": 2.544
+    }
+  ],
+  "validation_rois": {
+    "near_block": [72, 88, 112, 128],
+    "far_block": [144, 96, 184, 128],
+    "step_low": [72, 150, 112, 184],
+    "step_high": [144, 142, 184, 184]
+  },
+  "depth_order": {
+    "near_block_less_than_far_block": true,
+    "step_high_less_than_step_low": true,
+    "minimum_margin_m": 0.05
+  }
+}
