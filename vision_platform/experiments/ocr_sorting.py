@@ -49,9 +49,15 @@ def _text(value: Any, name: str, code: str) -> str:
 
 
 def _finite(value: Any, name: str, code: str) -> float:
-    if type(value) not in {int, float} or not math.isfinite(float(value)):
+    if type(value) not in {int, float}:
         raise _error(code, f"{name} must be a finite built-in number")
-    return float(value)
+    try:
+        normalized = float(value)
+    except OverflowError:
+        raise _error(code, f"{name} must be a finite built-in number") from None
+    if not math.isfinite(normalized):
+        raise _error(code, f"{name} must be a finite built-in number")
+    return normalized
 
 
 def _integer(value: Any, name: str, code: str, *, positive: bool = False) -> int:
@@ -258,6 +264,8 @@ def _validate_workspace(config: Mapping[str, Any]) -> tuple[tuple[float, float],
     workspace_safe = _finite(workspace["safe_z_mm"], "workspace.safe_z_mm", code)
     if not x_range[0] < x_range[1] or not y_range[0] < y_range[1] or not z_range[0] < z_range[1]:
         raise _error(code, "workspace ranges are invalid")
+    if not z_range[0] <= workspace_safe <= z_range[1]:
+        raise _error(code, "workspace.safe_z_mm is outside the workspace z range")
     return (x_range[0], x_range[1]), (y_range[0], y_range[1]), (z_range[0], z_range[1]), workspace_safe
 
 

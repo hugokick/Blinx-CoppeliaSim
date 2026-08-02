@@ -247,6 +247,24 @@ def test_scene_parts_must_match_the_route_parts() -> None:
         build_ocr_sort_plan(_config(), _analysis(), scene_part_ids={"part_a", "part_b"})
 
 
+@pytest.mark.parametrize("field", ["training_accuracy_min", "confidence_min", "safe_z_mm", "speed_mm_s"])
+def test_oversized_integer_numbers_fail_as_stable_ocr_errors(field: str) -> None:
+    config = _config()
+    config[field] = 10**1000
+    if field == "safe_z_mm":
+        config["workspace"]["safe_z_mm"] = 10**1000
+    with pytest.raises(OcrSortError):
+        _build(config)
+
+
+def test_safe_height_must_remain_inside_workspace_z_range() -> None:
+    config = _config()
+    config["safe_z_mm"] = 1000.0
+    config["workspace"]["safe_z_mm"] = 1000.0
+    with pytest.raises(OcrSortError):
+        _build(config)
+
+
 def test_source_analysis_is_not_mutated_and_results_are_immutable() -> None:
     analysis = _analysis()
     before = analysis
