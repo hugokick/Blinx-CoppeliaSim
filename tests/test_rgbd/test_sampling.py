@@ -50,6 +50,51 @@ def test_no_valid_depth_is_structured() -> None:
     assert sample.failure_code == "NO_VALID_DEPTH"
 
 
+def test_min_valid_count_shortfall_is_structured_no_valid_depth() -> None:
+    depth = np.zeros((3, 3), dtype=np.float32)
+    depth[1, 1] = 0.4
+    sample = sample_depth(
+        _frame(depth), 1, 1, window_size=3, min_valid_count=2
+    )
+    assert sample.status == "NO_VALID_DEPTH"
+    assert sample.valid_count == 1
+    assert sample.depth_m is None
+    assert sample.failure_code == "NO_VALID_DEPTH"
+
+
+@pytest.mark.parametrize(
+    ("u_px", "v_px", "window_size"),
+    [
+        (0, 0, 0),
+        (0, 0, -1),
+        (0.0, 0, 1),
+        (0, 0.0, 1),
+    ],
+)
+def test_sample_rejects_zero_negative_window_and_float_pixels(
+    u_px: object, v_px: object, window_size: object
+) -> None:
+    with pytest.raises(RgbdContractError) as captured:
+        sample_depth(
+            _frame(np.ones((3, 3), dtype=np.float32)),
+            u_px,
+            v_px,
+            window_size=window_size,
+        )
+    assert captured.value.code == "RGBD_SAMPLE_INVALID"
+
+
+def test_sampling_does_not_mutate_frame_depth() -> None:
+    depth = np.array(
+        [[0.0, 0.2, 0.0], [0.4, 0.6, 0.8], [0.0, 1.0, 0.0]],
+        dtype=np.float32,
+    )
+    frame = _frame(depth)
+    before = frame.depth_m.copy()
+    sample_depth(frame, 1, 1, window_size=3)
+    assert np.array_equal(frame.depth_m, before)
+
+
 @pytest.mark.parametrize(
     "arguments",
     [

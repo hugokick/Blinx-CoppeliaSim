@@ -39,6 +39,32 @@ def test_top_left_pixel_uses_integer_center_without_half_offset() -> None:
 
 
 @pytest.mark.parametrize(
+    ("u_px", "v_px", "expected"),
+    [
+        (0.0, 0.0, (-1.5975, -0.958, 2.0)),
+        (639.0, 0.0, (1.5975, -0.958, 2.0)),
+        (0.0, 479.0, (-1.5975, 0.958, 2.0)),
+        (639.0, 479.0, (1.5975, 0.958, 2.0)),
+    ],
+)
+def test_four_image_corners_match_analytic_deprojection(
+    u_px: float, v_px: float, expected: tuple[float, float, float]
+) -> None:
+    point = deproject_pixel(_intrinsics(), u_px=u_px, v_px=v_px, depth_m=2.0)
+    assert (point.x_m, point.y_m, point.z_m) == pytest.approx(expected, abs=1e-7)
+
+
+def test_deprojection_is_deterministic_for_repeated_call() -> None:
+    first = deproject_pixel(_intrinsics(), u_px=17.0, v_px=23.0, depth_m=1.25)
+    second = deproject_pixel(_intrinsics(), u_px=17.0, v_px=23.0, depth_m=1.25)
+    assert (first.x_m, first.y_m, first.z_m) == (
+        second.x_m,
+        second.y_m,
+        second.z_m,
+    )
+
+
+@pytest.mark.parametrize(
     ("u_px", "v_px", "depth_m"),
     [
         (-0.1, 0.0, 1.0),

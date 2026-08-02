@@ -40,6 +40,36 @@ def test_tilted_plane_measurement_matches_independent_equation() -> None:
     assert json.loads(json.dumps(payload, allow_nan=False)) == payload
 
 
+def test_plane_measurement_matches_known_depth_and_full_3d_point() -> None:
+    image, depth = make_plane(8, 6, depth_m=2.0)
+    intrinsics = CameraIntrinsics(8, 6, 4.0, 4.0, 3.5, 2.5)
+    payload = measurement_to_dict(
+        measure_pixel(
+            RgbdFrame(image, depth), intrinsics, u_px=5, v_px=4, window_size=1
+        )
+    )
+    assert payload["status"] == "PASS"
+    assert payload["depth_m"] == pytest.approx(2.0, abs=1e-7)
+    assert payload["point_camera_m"] == pytest.approx(
+        [0.75, 0.75, 2.0], abs=1e-7
+    )
+
+
+def test_box_center_measurement_matches_known_depth_and_full_3d_point() -> None:
+    image, depth = make_box(8, 8, plane_m=1.5, box_m=0.75)
+    intrinsics = CameraIntrinsics(8, 8, 4.0, 4.0, 3.5, 3.5)
+    payload = measurement_to_dict(
+        measure_pixel(
+            RgbdFrame(image, depth), intrinsics, u_px=4, v_px=4, window_size=1
+        )
+    )
+    assert payload["status"] == "PASS"
+    assert payload["depth_m"] == pytest.approx(0.75, abs=1e-7)
+    assert payload["point_camera_m"] == pytest.approx(
+        [0.09375, 0.09375, 0.75], abs=1e-7
+    )
+
+
 def test_all_synthetic_surfaces_feed_the_same_measurement_contract() -> None:
     intrinsics = CameraIntrinsics(12, 10, 100.0, 120.0, 5.5, 4.5)
     for factory in (make_plane, make_step, make_box, make_tilted_plane):

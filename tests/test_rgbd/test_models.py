@@ -60,6 +60,17 @@ def test_frame_copies_and_seals_exact_arrays() -> None:
     assert not frame.depth_m.flags.writeable
 
 
+def test_frame_arrays_cannot_reenable_write_access() -> None:
+    frame = RgbdFrame(
+        np.zeros((2, 3, 3), dtype=np.uint8),
+        np.ones((2, 3), dtype=np.float32),
+    )
+    with pytest.raises(ValueError):
+        frame.image_bgr.setflags(write=True)
+    with pytest.raises(ValueError):
+        frame.depth_m.setflags(write=True)
+
+
 @pytest.mark.parametrize(
     "depth",
     [
