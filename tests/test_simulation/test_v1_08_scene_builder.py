@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 from pathlib import Path
 
 import pytest
@@ -68,3 +69,62 @@ def test_v1_08_spec_is_strictly_validated_before_remote_connection(monkeypatch):
     monkeypatch.setattr(scene_builder, "RemoteAPIClient", ForbiddenClient)
     with pytest.raises(AssertionError, match="remote connection"):
         scene_builder.build_scene(spec_path=SPEC, host="127.0.0.1", port=23008)
+
+
+def test_existing_v1_08_release_recovery_does_not_require_code_assets_manifest():
+    manifest_path = SPEC.parent / "scene_manifest.json"
+    scene_path = SPEC.parent / "BL23_vision_ocr_sorting_lab.ttt"
+    template_path = ROOT / "simulation" / "vision_lab" / "BL23_vision_lab.ttt"
+    profile_path = SPEC.parent / "profiles.json"
+    assets_path = SPEC.parent / "ocr_assets_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    formal = scene_builder._FORMAL_SCENES[
+        "simulation/vision_ocr_sorting_lab/scene_spec.json"
+    ]
+    release = scene_builder._recoverable_release(
+        scene_path,
+        manifest_path,
+        formal,
+        hashlib.sha256(template_path.read_bytes()).hexdigest(),
+        (
+            "simulation/vision_ocr_sorting_lab/profiles.json",
+            profile_path,
+            hashlib.sha256(profile_path.read_bytes()).hexdigest(),
+        ),
+        None,
+        (
+            "simulation/vision_ocr_sorting_lab/ocr_assets_manifest.json",
+            assets_path,
+            hashlib.sha256(assets_path.read_bytes()).hexdigest(),
+        ),
+    )
+    assert release is not None
+    assert release.scene_sha256 == manifest["scene"]["sha256"]
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("baseline_profile_id", "not_standard"),
+        ("profile.perspective_angle_deg", float("inf")),
+        ("profile.resolution", [1024.0, 1024]),
+        ("profile.key_diffuse_rgb", [1.5, 0.8, 0.8]),
+        ("profile.camera_rig_z_m", "0.5"),
+    ],
+)
+def test_ocr_profile_catalog_rejects_invalid_fixed_profile_values(
+    tmp_path, field, value
+):
+    payload = json.loads(
+        (ROOT / "simulation" / "vision_ocr_sorting_lab" / "profiles.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    if field.startswith("profile."):
+        payload["profiles"][0][field.split(".", 1)[1]] = value
+    else:
+        payload[field] = value
+    path = tmp_path / "profiles.json"
+    path.write_text(json.dumps(payload, allow_nan=True), encoding="utf-8")
+    with pytest.raises(ValueError):
+        scene_builder._load_ocr_profile_catalog(path)

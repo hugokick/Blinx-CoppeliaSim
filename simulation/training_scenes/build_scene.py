@@ -347,7 +347,13 @@ def _load_ocr_profile_catalog(path: Path) -> VisionProfileCatalog:
         "far_clip_m",
         "profiles",
     }
-    if set(payload) != expected_fields or payload["schema_version"] != 1:
+    if (
+        set(payload) != expected_fields
+        or type(payload["schema_version"]) is not int
+        or payload["schema_version"] != 1
+        or type(payload["baseline_profile_id"]) is not str
+        or payload["baseline_profile_id"] != "standard"
+    ):
         raise ValueError("OCR profile catalog schema is invalid")
     if payload["sensor_path"] != "/VisionOcrSortingLab/CameraRig/Camera":
         raise ValueError("OCR profile sensor path is invalid")
@@ -359,9 +365,14 @@ def _load_ocr_profile_catalog(path: Path) -> VisionProfileCatalog:
         raise ValueError("OCR profile fill-light path is invalid")
     near = payload["near_clip_m"]
     far = payload["far_clip_m"]
-    if type(near) not in (int, float) or type(far) not in (int, float):
-        raise ValueError("OCR profile clipping values must be numeric")
-    if not math.isfinite(float(near)) or not math.isfinite(float(far)) or not 0.01 <= float(near) < float(far):
+    if (
+        type(near) not in (int, float)
+        or type(far) not in (int, float)
+        or not math.isfinite(float(near))
+        or not math.isfinite(float(far))
+        or float(near) != 0.05
+        or float(far) != 1.0
+    ):
         raise ValueError("OCR profile clipping values are invalid")
     profiles = payload["profiles"]
     if not isinstance(profiles, list) or len(profiles) != 1:
@@ -378,9 +389,45 @@ def _load_ocr_profile_catalog(path: Path) -> VisionProfileCatalog:
     }
     if not isinstance(item, dict) or set(item) != required_profile:
         raise ValueError("OCR profile fields are invalid")
+    if (
+        type(item["profile_id"]) is not str
+        or item["profile_id"] != "standard"
+        or type(item["label"]) is not str
+        or item["label"] != "OCR 分拣固定视图"
+    ):
+        raise ValueError("OCR profile identity is invalid")
     resolution = item["resolution"]
-    if resolution != [1024, 1024]:
+    if (
+        not isinstance(resolution, list)
+        or len(resolution) != 2
+        or any(type(value) is not int for value in resolution)
+        or resolution != [1024, 1024]
+    ):
         raise ValueError("OCR profile resolution must be 1024x1024")
+    angle = item["perspective_angle_deg"]
+    rig_z = item["camera_rig_z_m"]
+    if (
+        type(angle) not in (int, float)
+        or type(rig_z) not in (int, float)
+        or not math.isfinite(float(angle))
+        or not math.isfinite(float(rig_z))
+        or float(angle) != 20.0
+        or float(rig_z) != 0.5
+    ):
+        raise ValueError("OCR profile camera parameters are invalid")
+    for name, value, expected_rgb in (
+        ("key_diffuse_rgb", item["key_diffuse_rgb"], [0.8, 0.8, 0.8]),
+        ("fill_diffuse_rgb", item["fill_diffuse_rgb"], [0.35, 0.35, 0.35]),
+    ):
+        if (
+            not isinstance(value, list)
+            or len(value) != 3
+            or any(type(component) not in (int, float) for component in value)
+            or any(not math.isfinite(float(component)) for component in value)
+            or any(float(component) < 0.0 or float(component) > 1.0 for component in value)
+            or [float(component) for component in value] != expected_rgb
+        ):
+            raise ValueError(f"OCR profile {name} is invalid")
     profile = VisionProfile(
         profile_id=item["profile_id"],
         label=item["label"],
@@ -2200,30 +2247,30 @@ def _recoverable_release(
                 or _sha256(profile_path) != profile_hash
             ):
                 return None
-        if formal.scene_id == "vision-code-routing-lab":
-            if code_assets_manifest is None:
-                return None
-        if formal.scene_id == "vision-ocr-sorting-lab":
-            if ocr_assets_manifest is None:
-                return None
-            asset_relative, asset_path, asset_hash = ocr_assets_manifest
-            if (
-                not isinstance(manifest.get("ocr_assets_manifest"), dict)
-                or set(manifest["ocr_assets_manifest"]) != {"path", "sha256"}
-                or manifest["ocr_assets_manifest"].get("path") != asset_relative
-                or manifest["ocr_assets_manifest"].get("sha256") != asset_hash
-                or _sha256(asset_path) != asset_hash
-            ):
-                return None
-            asset_relative, asset_path, asset_hash = code_assets_manifest
-            if (
-                not isinstance(manifest.get("code_assets_manifest"), dict)
-                or set(manifest["code_assets_manifest"]) != {"path", "sha256"}
-                or manifest["code_assets_manifest"].get("path") != asset_relative
-                or manifest["code_assets_manifest"].get("sha256") != asset_hash
-                or _sha256(asset_path) != asset_hash
-            ):
-                return None
+            if formal.scene_id == "vision-code-routing-lab":
+                if code_assets_manifest is None:
+                    return None
+                asset_relative, asset_path, asset_hash = code_assets_manifest
+                if (
+                    not isinstance(manifest.get("code_assets_manifest"), dict)
+                    or set(manifest["code_assets_manifest"]) != {"path", "sha256"}
+                    or manifest["code_assets_manifest"].get("path") != asset_relative
+                    or manifest["code_assets_manifest"].get("sha256") != asset_hash
+                    or _sha256(asset_path) != asset_hash
+                ):
+                    return None
+            if formal.scene_id == "vision-ocr-sorting-lab":
+                if ocr_assets_manifest is None:
+                    return None
+                asset_relative, asset_path, asset_hash = ocr_assets_manifest
+                if (
+                    not isinstance(manifest.get("ocr_assets_manifest"), dict)
+                    or set(manifest["ocr_assets_manifest"]) != {"path", "sha256"}
+                    or manifest["ocr_assets_manifest"].get("path") != asset_relative
+                    or manifest["ocr_assets_manifest"].get("sha256") != asset_hash
+                    or _sha256(asset_path) != asset_hash
+                ):
+                    return None
         sha256 = scene.get("sha256")
         size = scene.get("size_bytes")
         if (
