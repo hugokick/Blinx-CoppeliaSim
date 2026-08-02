@@ -373,3 +373,7 @@ tests/test_rgbd/test_transforms.py
 vision_platform/rgbd/measurement.py
 vision_platform/rgbd/serialization.py
 tests/test_rgbd/test_serialization.py
+tests/test_rgbd/synthetic_factory.py
+tests/test_rgbd/test_synthetic_factory.py
+tests/test_rgbd/test_pipeline_contract.py
+tests/test_rgbd/test_performance.py
