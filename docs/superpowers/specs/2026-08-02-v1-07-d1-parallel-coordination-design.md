@@ -1,6 +1,6 @@
 # V2.2 V1-07 与 D1 RGB-D 并行开发协调设计
 
-**状态：** 方案已确认，等待书面规格审核
+**状态：** 架构已审核确认，可进入受控基线门禁与实施
 
 **日期：** 2026-08-02
 
@@ -84,14 +84,16 @@ simulation/vision_code_routing_lab/
   BL23_vision_code_routing_lab.ttt
   scene_manifest.json
   code_assets_manifest.json
+  profiles.json
 ```
 
 场景至少包含：
 
-- BL23/OpenR6 机器人、吸盘、俯视相机和确定性复位脚本；
+- BL23/OpenR6 机器人、吸盘、俯视相机和主机受控的确定性复位合同；
 - 四个可抓取构件，其中同时覆盖 QR 和 EAN-13；
 - 至少两个有稳定对象路径和落点锚点的仓位；
 - 足够清晰、尺寸固定且来源可证明的原创码面资产；
+- 与场景清单哈希绑定的固定 1024x1024 窄视场 profile，以及上线前的像素坐标到场景初态交叉校验；
 - 初态、可抓取区域、安全高度、仓位占用和任务终态探针。
 
 不得修改或覆盖现有 `BL23_vision_lab.ttt`、`BL23_vision_quality_lab.ttt`、URDF、STL、机器人网格和现有正式资产。若新场景无法通过真实 CoppeliaSim 在线探针，不得用 mock、回放或静态 fixture 代替在线 PASS。
@@ -150,9 +152,10 @@ V1-07 至少包含：
 ```text
 vision_platform/rgbd/
 tests/test_rgbd/
-docs/superpowers/specs/2026-08-02-d1-rgbd-kernel-design.md
 docs/superpowers/plans/2026-08-02-d1-rgbd-kernel-plan.md
 ```
+
+本协调设计即为 D1 本轮的批准设计依据，不再创建内容重复的单独 D1 设计文档。
 
 最小能力包括：
 
@@ -201,7 +204,7 @@ docs/superpowers/plans/2026-08-02-d1-rgbd-kernel-plan.md
 - 主线：`codex/v2-2-v1-07-code-routing`；
 - 并行：`codex/v2-2-d1-rgbd-kernel`。
 
-每端先写自己的设计和逐 Task 实施计划，经审核后按 TDD 执行。每个 Task 都必须完成 RED、确认失败原因、最小 GREEN、专项回归、相关全量回归和独立提交。两端只推送自己的分支，不合并 `main`，不互相 cherry-pick。
+两端先完整阅读本协调设计和各自逐 Task 实施计划，经审核后按 TDD 执行。每个 Task 都必须完成 RED、确认失败原因、最小 GREEN、专项回归、相关全量回归和独立提交。两端只推送自己的分支，不合并 `main`，不互相 cherry-pick。
 
 完成后由单一集成端按顺序处理：先集成 V1-07 并运行静态及在线回归，再集成 D1 纯底座并运行静态回归。D1 没有在线 CoppeliaSim PASS。出现共享接口需求时，由所属分支提出集成建议，不得越界直接修改。
 
