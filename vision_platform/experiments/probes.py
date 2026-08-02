@@ -19,6 +19,7 @@ _KNOWN_PROBE_KINDS = frozenset(
         "ordered_slots",
         "class_zones",
         "vision_profile_observation",
+        "code_route_occupancy",
     }
 )
 _GROUP_BY_KIND = {
@@ -422,6 +423,79 @@ def _probe_vision_profile(
     }
 
 
+def _probe_code_route_occupancy(
+    sim: Any,
+    definition: Any,
+    *,
+    experiment_id: str,
+    phase: str,
+    parameters: Mapping[str, Any],
+    manifest: Mapping[str, Any],
+    tolerance_mm: float,
+) -> dict[str, Any]:
+    route_config = _mapping(
+        parameters.get("code_routing"),
+        "public_parameters.code_routing",
+    )
+    routes = _sequence(
+        route_config.get("routes"),
+        "public_parameters.code_routing.routes",
+        length=4,
+    )
+    scene_contract = _mapping(
+        manifest.get("code_routing"),
+        "scene_manifest.code_routing",
+    )
+    initial = _mapping(
+        scene_contract.get("initial_positions_mm"),
+        "scene_manifest.code_routing.initial_positions_mm",
+    )
+    rows: list[dict[str, Any]] = []
+    occupancy: dict[str, list[str]] = {}
+    matched = 0
+    for index, raw in enumerate(routes):
+        route = _mapping(raw, f"public_parameters.code_routing.routes[{index}]")
+        part_id = _alias(route.get("part_id"), f"routes[{index}].part_id")
+        route_id = _alias(route.get("route_id"), f"routes[{index}].route_id")
+        expected = (
+            _position(initial.get(part_id), f"initial_positions_mm.{part_id}")
+            if phase == "initial"
+            else _position(route.get("drop_xyz_mm"), f"routes[{index}].drop_xyz_mm")
+        )
+        actual = _world_mm(sim, f"/VisionCodeRoutingLab/Parts/{part_id}")
+        distance_mm = _distance_mm(actual, expected)
+        is_match = distance_mm <= tolerance_mm
+        matched += int(is_match)
+        if phase == "final" and is_match:
+            occupancy.setdefault(route_id, []).append(part_id)
+        rows.append(
+            {
+                "part_id": part_id,
+                "route_id": route_id,
+                "position_mm": actual,
+                "expected_mm": expected,
+                "distance_mm": distance_mm,
+                "matched": is_match,
+            }
+        )
+    if phase == "final":
+        for route_id in {row["route_id"] for row in rows}:
+            occupancy.setdefault(route_id, [])
+            occupancy[route_id].sort()
+    return {
+        "schema_version": 1,
+        "experiment_id": experiment_id,
+        "phase": phase,
+        "status": "PASS" if matched == 4 else "FAIL",
+        "matched": matched,
+        "expected": 4,
+        "tolerance_mm": tolerance_mm,
+        "rows": rows,
+        "final_occupancy": dict(sorted(occupancy.items())),
+        "hardware_status": "PENDING_HARDWARE",
+    }
+
+
 def probe_experiment(
     sim: Any,
     definition: Any,
@@ -465,6 +539,17 @@ def probe_experiment(
             phase=phase,
             parameters=parameters,
             manifest=manifest,
+        )
+
+    if kind == "code_route_occupancy":
+        return _probe_code_route_occupancy(
+            sim,
+            definition,
+            experiment_id=experiment_id,
+            phase=phase,
+            parameters=parameters,
+            manifest=manifest,
+            tolerance_mm=tolerance,
         )
 
     if kind == "motion_observation":

@@ -95,6 +95,17 @@ class VisionResultPanel(QWidget):
         metadata_layout.addWidget(self.metrics_label, 1, 0, 1, 2)
         root.addWidget(metadata)
 
+        self.route_summary_label = QLabel("代码路由：—")
+        self.route_summary_label.setObjectName("visionRouteSummary")
+        self.route_summary_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        root.addWidget(self.route_summary_label)
+        self.route_text = QPlainTextEdit()
+        self.route_text.setObjectName("visionRouteDetails")
+        self.route_text.setReadOnly(True)
+        self.route_text.setMaximumBlockCount(400)
+        self.route_text.setMinimumHeight(150)
+        root.addWidget(self.route_text)
+
         layer_row = QHBoxLayout()
         layer_row.addWidget(QLabel("显示图层"))
         self.layer_combo = QComboBox()
@@ -205,6 +216,8 @@ class VisionResultPanel(QWidget):
         self.status_label.setText(message)
         self.profile_label.setText("配置档：—")
         self.metrics_label.setText("结果状态：—　图层：0")
+        self.route_summary_label.setText("代码路由：—")
+        self.route_text.clear()
         self.preview_label.clear()
         self.preview_label.setText("等待视觉结果")
         self.result_text.clear()
@@ -325,6 +338,7 @@ class VisionResultPanel(QWidget):
                 f"　框：{bbox_text}　中心：{center_text}"
             )
         self.metrics_label.setText(metrics)
+        self._show_code_routes(result)
         public_bundle = {
             key: value
             for key, value in bundle.items()
@@ -346,6 +360,42 @@ class VisionResultPanel(QWidget):
         self.layer_combo.setCurrentIndex(0)
         self.layer_combo.blockSignals(False)
         self._render_selected_layer()
+
+    def _show_code_routes(self, result: Any) -> None:
+        required = {
+            "plan_id", "status", "entries", "motion_events",
+            "completed_entry_ids", "final_occupancy", "error",
+            "human_acceptance", "hardware_status",
+        }
+        if not isinstance(result, dict) or not required <= set(result):
+            self.route_summary_label.setText("代码路由：—")
+            self.route_text.clear()
+            return
+        entries = result["entries"]
+        if not isinstance(entries, list):
+            self.route_summary_label.setText("代码路由：证据格式无效")
+            self.route_text.clear()
+            return
+        lines = []
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            lines.append(
+                f"{entry.get('entry_id', '—')} | {entry.get('code_type', '—')} | "
+                f"{entry.get('payload', '—')} | {entry.get('part_id', '—')} -> "
+                f"{entry.get('route_id', '—')} | pick={entry.get('pick_xyz_mm', '—')} | "
+                f"drop={entry.get('drop_xyz_mm', '—')}"
+            )
+        lines.append(f"motion_events={result['motion_events']}")
+        lines.append(f"completed={result['completed_entry_ids']}")
+        lines.append(f"final_occupancy={result['final_occupancy']}")
+        lines.append(f"error={result['error']}")
+        lines.append(f"human={result['human_acceptance']}")
+        lines.append(f"hardware={result['hardware_status']}")
+        self.route_summary_label.setText(
+            f"代码路由：{result['status']}　计划：{result['plan_id']}"
+        )
+        self.route_text.setPlainText("\n".join(lines))
 
     @staticmethod
     def _format_number(value: Any, *, digits: int, suffix: str) -> str:

@@ -17,9 +17,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import cv2
+import numpy as np
 from coppeliasim_zmqremoteapi_client import RemoteAPIClient
 
 from simulation.vision_lab.hashing import asset_sha256
+from vision_platform.vision2d.code_recognition import encode_ean13_payload
 from vision_platform.vision_quality import load_profile_catalog
 from vision_platform.vision_quality.catalog import load_profile_catalog_bytes
 from vision_platform.coppelia_scene import stage_scene_for_coppeliasim
@@ -89,6 +92,20 @@ _VISION_QUALITY_REQUIRED_PATHS = (
     "/VisionQualityLab/Samples/ResolutionTarget", "/VisionQualityLab/CameraRig",
     "/VisionQualityLab/CameraRig/Camera", "/VisionQualityLab/Lighting",
     "/VisionQualityLab/Lighting/KeyLight", "/VisionQualityLab/Lighting/FillLight",
+)
+_CODE_ROUTING_REQUIRED_PATHS = (
+    "/BLX_base_link", "/BLX_tool_suction", "/VisionCodeRoutingLab",
+    "/VisionCodeRoutingLab/Workspace", "/VisionCodeRoutingLab/CameraRig/Camera",
+    "/VisionCodeRoutingLab/Lighting", "/VisionCodeRoutingLab/Lighting/KeyLight",
+    "/VisionCodeRoutingLab/Lighting/FillLight",
+    "/VisionCodeRoutingLab/Parts", "/VisionCodeRoutingLab/Parts/part_a",
+    "/VisionCodeRoutingLab/Parts/part_a/CodeFace", "/VisionCodeRoutingLab/Parts/part_b",
+    "/VisionCodeRoutingLab/Parts/part_b/CodeFace", "/VisionCodeRoutingLab/Parts/part_c",
+    "/VisionCodeRoutingLab/Parts/part_c/CodeFace", "/VisionCodeRoutingLab/Parts/part_d",
+    "/VisionCodeRoutingLab/Parts/part_d/CodeFace", "/VisionCodeRoutingLab/Bins/route_red",
+    "/VisionCodeRoutingLab/Bins/route_red/red_1", "/VisionCodeRoutingLab/Bins/route_red/red_2",
+    "/VisionCodeRoutingLab/Bins/route_blue", "/VisionCodeRoutingLab/Bins/route_blue/blue_1",
+    "/VisionCodeRoutingLab/Bins/route_blue/blue_2",
 )
 
 
@@ -257,6 +274,13 @@ _FORMAL_SCENES = {
         root_path="/VisionQualityLab",
         output_relative="simulation/vision_quality_lab/BL23_vision_quality_lab.ttt",
         required_paths=_VISION_QUALITY_REQUIRED_PATHS,
+    ),
+    "simulation/vision_code_routing_lab/scene_spec.json": _FormalScene(
+        spec_relative="simulation/vision_code_routing_lab/scene_spec.json",
+        scene_id="vision-code-routing-lab",
+        root_path="/VisionCodeRoutingLab",
+        output_relative="simulation/vision_code_routing_lab/BL23_vision_code_routing_lab.ttt",
+        required_paths=_CODE_ROUTING_REQUIRED_PATHS,
     ),
 }
 
@@ -587,6 +611,103 @@ def _validate_vision_samples(payload: Any) -> None:
             raise ValueError("ResolutionTarget stripe_count must be integer 12")
 
 
+def _validate_code_routing(spec: dict[str, Any], formal: _FormalScene) -> None:
+    _exact_keys(
+        spec,
+        {
+            "schema_version", "scene_id", "template", "output", "remove_paths",
+            "root_path", "code_assets_manifest", "profiles", "workspace", "camera",
+            "safe_z_mm", "parts", "bins", "reset_contract", "required_paths",
+        },
+        label="scene spec",
+    )
+    if type(spec["schema_version"]) is not int or spec["schema_version"] != 1:
+        raise ValueError("scene schema_version must be integer 1")
+    bindings = {
+        "scene_id": formal.scene_id,
+        "root_path": formal.root_path,
+        "template": TEMPLATE_RELATIVE,
+        "output": formal.output_relative,
+        "code_assets_manifest": "simulation/vision_code_routing_lab/code_assets_manifest.json",
+        "profiles": "simulation/vision_code_routing_lab/profiles.json",
+    }
+    for field, expected in bindings.items():
+        if spec[field] != expected:
+            raise ValueError(f"{field} must be {expected}")
+    if spec["remove_paths"] != ["/VisionLab"]:
+        raise ValueError("remove_paths must be exactly ['/VisionLab']")
+    if spec["required_paths"] != list(formal.required_paths):
+        raise ValueError("required_paths must match the formal code-routing contract")
+    if type(spec["safe_z_mm"]) not in (int, float) or float(spec["safe_z_mm"]) != 110.0:
+        raise ValueError("safe_z_mm must be 110 mm")
+
+    _validate_workspace(spec["workspace"])
+    camera = _exact_keys(
+        spec["camera"],
+        {"alias", "rig_position_m", "orientation_deg", "code_face_plane_z_mm"},
+        label="code-routing camera",
+    )
+    if camera["alias"] != "Camera":
+        raise ValueError("code-routing camera alias must be Camera")
+    if _vector(camera["rig_position_m"], label="camera rig_position_m", length=3) != [0.085, 0.0, 0.5]:
+        raise ValueError("code-routing camera rig position is fixed")
+    if _vector(camera["orientation_deg"], label="camera orientation_deg", length=3) != [180.0, 0.0, 0.0]:
+        raise ValueError("code-routing camera orientation is fixed")
+    plane = _vector([camera["code_face_plane_z_mm"]], label="camera code_face_plane_z_mm", length=1)[0]
+    if plane != 27.4:
+        raise ValueError("code face calibration plane must be 27.4 mm")
+
+    parts = spec["parts"]
+    if not isinstance(parts, list) or len(parts) != 4:
+        raise ValueError("parts must contain four code-routing parts")
+    expected_parts = ("part_a", "part_b", "part_c", "part_d")
+    expected_assets = {"qr_v1_07_a", "qr_v1_07_b", "ean_6901234567892", "ean_6901234567809"}
+    aliases = []
+    assets = []
+    for item in parts:
+        part = _exact_keys(item, {"alias", "code_asset_id", "position_mm", "size_mm"}, label="code-routing part")
+        aliases.append(_alias_value(part["alias"], label="part alias"))
+        asset_id = _alias_value(part["code_asset_id"], label="code asset id")
+        assets.append(asset_id)
+        _vector(part["position_mm"], label="part position_mm", length=3)
+        _vector(part["size_mm"], label="part size_mm", length=3, positive=True)
+    if tuple(aliases) != expected_parts or len(set(aliases)) != 4:
+        raise ValueError("code-routing parts must be ordered part_a through part_d")
+    if set(assets) != expected_assets:
+        raise ValueError("code-routing parts must bind all four original code assets")
+
+    bins = spec["bins"]
+    if not isinstance(bins, list) or len(bins) != 2:
+        raise ValueError("bins must contain route_red and route_blue")
+    bin_aliases = []
+    slot_positions = []
+    for item in bins:
+        bin_spec = _exact_keys(item, {"alias", "color_rgb", "slots"}, label="route bin")
+        bin_aliases.append(_alias_value(bin_spec["alias"], label="bin alias"))
+        color = _vector(bin_spec["color_rgb"], label="bin color_rgb", length=3)
+        if any(value < 0.0 or value > 1.0 for value in color):
+            raise ValueError("bin color_rgb values must be between 0 and 1")
+        slots = bin_spec["slots"]
+        if not isinstance(slots, list) or len(slots) != 2:
+            raise ValueError("each route bin must contain two slots")
+        slot_aliases = []
+        for slot in slots:
+            slot_spec = _exact_keys(slot, {"alias", "position_mm"}, label="route slot")
+            slot_aliases.append(_alias_value(slot_spec["alias"], label="slot alias"))
+            position = _vector(slot_spec["position_mm"], label="slot position_mm", length=3)
+            slot_positions.append(tuple(position))
+        if len(set(slot_aliases)) != 2:
+            raise ValueError("route slot aliases must be unique")
+    if bin_aliases != ["route_red", "route_blue"] or len(set(bin_aliases)) != 2:
+        raise ValueError("route bins must be ordered route_red and route_blue")
+    if len(set(slot_positions)) != 4:
+        raise ValueError("route slot positions must be unique")
+
+    reset = _exact_keys(spec["reset_contract"], {"strategy", "tool_off", "robot_home"}, label="reset_contract")
+    if reset != {"strategy": "scene_reload", "tool_off": True, "robot_home": True}:
+        raise ValueError("reset_contract must bind host-controlled scene reload")
+
+
 def _validate_spec(spec: dict[str, Any], formal: _FormalScene) -> None:
     if formal.scene_id == "robot-basics":
         detail_field = "markers"
@@ -612,6 +733,18 @@ def _validate_spec(spec: dict[str, Any], formal: _FormalScene) -> None:
         _vector(camera["rig_position_m"], label="camera rig_position_m", length=3)
         _vector(camera["orientation_deg"], label="camera orientation_deg", length=3)
         _validate_vision_samples(spec["samples"])
+        return
+    elif formal.scene_id == "vision-code-routing-lab":
+        _validate_code_routing(spec, formal)
+        _project_file_from_relative(spec["profiles"], label="profiles", must_exist=True)
+        _project_file_from_relative(
+            spec["code_assets_manifest"],
+            label="code_assets_manifest",
+            must_exist=True,
+        )
+        load_profile_catalog(
+            _project_file_from_relative(spec["profiles"], label="profiles", must_exist=True)
+        )
         return
     else:
         raise ValueError("unsupported formal scene")
@@ -1292,17 +1425,246 @@ def _build_vision_quality(
         sim.getObject(path)
 
 
-def _attach_logistics_camera_scope(sim: Any, root: int) -> int:
-    script_text = """
+def _code_rectangles(code_type: str, payload: str) -> tuple[np.ndarray, list[tuple[int, int, int, int]]]:
+    if code_type == "qr":
+        encoded = cv2.QRCodeEncoder_create().encode(payload)
+        gray = cv2.copyMakeBorder(encoded, 4, 4, 4, 4, cv2.BORDER_CONSTANT, value=255)
+    elif code_type == "ean13":
+        gray = cv2.cvtColor(
+            encode_ean13_payload(payload, module_px=3, bar_height_px=72),
+            cv2.COLOR_BGR2GRAY,
+        )
+    else:
+        raise ValueError(f"unsupported code type: {code_type}")
+    mask = np.asarray(gray < 128, dtype=np.uint8)
+    rectangles: list[tuple[int, int, int, int]] = []
+    if code_type == "qr":
+        for row, column in np.argwhere(mask):
+            rectangles.append((int(column), int(row), 1, 1))
+    else:
+        count, _labels, stats, _centroids = cv2.connectedComponentsWithStats(mask, 8)
+        for component in range(1, count):
+            x, y, width, height, area = (int(value) for value in stats[component])
+            if area > 0:
+                rectangles.append((x, y, width, height))
+    return gray, rectangles
+
+
+def _code_bar_width_mm(code_type: str, width_px: float, scale_mm_per_px: float) -> float:
+    """Return the physical width of one rendered code bar."""
+    del code_type
+    return float(width_px) * float(scale_mm_per_px)
+
+
+def _code_scale_mm_per_px(code_type: str, scale_mm_per_px: float) -> float:
+    """Phase-lock EAN modules to the fixed camera's pixel grid."""
+    scale = float(scale_mm_per_px)
+    if code_type == "ean13":
+        return max(scale, 0.117)
+    return scale
+
+
+def _code_render_x(code_type: str, x_px: int, width_px: int, image_width_px: int) -> int:
+    """Compensate CoppeliaSim's horizontal image-axis orientation for EAN."""
+    if code_type == "ean13":
+        return int(image_width_px) - int(x_px) - int(width_px)
+    return int(x_px)
+
+
+def _code_part(sim: Any, part: dict[str, Any], asset: dict[str, Any], parent: int) -> int:
+    center = [float(value) for value in part["position_mm"]]
+    size = [float(value) for value in part["size_mm"]]
+    pieces = [
+        _shape(
+            sim,
+            name=f"{part['alias']}_body",
+            shape="cuboid",
+            size_mm=size,
+            position_mm=center,
+            color=[0.75, 0.75, 0.75],
+            parent=parent,
+            respondable=True,
+        )
+    ]
+    face_width = size[0] - 4.0
+    face_height = size[1] - 4.0
+    face_z = center[2] + size[2] / 2.0 + 0.6
+    pieces.append(
+        _shape(
+            sim,
+            name=f"{part['alias']}_face_plate",
+            shape="cuboid",
+            size_mm=[face_width, face_height, 1.0],
+            position_mm=[center[0], center[1], face_z],
+            color=[0.98, 0.98, 0.98],
+            parent=parent,
+            respondable=False,
+        )
+    )
+    gray, rectangles = _code_rectangles(asset["code_type"], asset["payload"])
+    scale = min(face_width / float(gray.shape[1]), face_height / float(gray.shape[0]))
+    scale = _code_scale_mm_per_px(asset["code_type"], scale)
+    origin_x = center[0] - gray.shape[1] * scale / 2.0
+    origin_y = center[1] - gray.shape[0] * scale / 2.0
+    for index, (x, y, width, height) in enumerate(rectangles):
+        render_x = _code_render_x(asset["code_type"], x, width, gray.shape[1])
+        pieces.append(
+            _shape(
+                sim,
+                name=f"{part['alias']}_code_{index:04d}",
+                shape="cuboid",
+                size_mm=[
+                    _code_bar_width_mm(asset["code_type"], width, scale),
+                    height * scale,
+                    0.3,
+                ],
+                position_mm=[
+                    origin_x + (render_x + width / 2.0) * scale,
+                    origin_y + (y + height / 2.0) * scale,
+                    face_z + 0.65,
+                ],
+                color=[0.01, 0.01, 0.01],
+                parent=parent,
+                respondable=False,
+            )
+        )
+    compound = int(sim.groupShapes(pieces, False))
+    _alias(sim, compound, part["alias"])
+    sim.setObjectParent(compound, parent, True)
+    relocate_frame = getattr(sim, "relocateShapeFrame", None)
+    if callable(relocate_frame):
+        relocate_frame(
+            compound,
+            [
+                center[0] / 1000.0,
+                center[1] / 1000.0,
+                center[2] / 1000.0,
+                0.0,
+                0.0,
+                0.0,
+                1.0,
+            ],
+        )
+    _set_int_parameter(sim, compound, sim.shapeintparam_static, 1)
+    _set_int_parameter(sim, compound, sim.shapeintparam_respondable, 1)
+    _dummy(sim, "CodeFace", compound)
+    return compound
+
+
+def _build_bin(sim: Any, specification: dict[str, Any], parent: int) -> None:
+    group = _dummy(sim, specification["alias"], parent)
+    slots = specification["slots"]
+    center_x = sum(float(slot["position_mm"][0]) for slot in slots) / len(slots)
+    center_y = sum(float(slot["position_mm"][1]) for slot in slots) / len(slots)
+    color = [float(value) for value in specification["color_rgb"]]
+    _shape(
+        sim,
+        name="Floor",
+        shape="cuboid",
+        size_mm=[34, 34, 2],
+        position_mm=[center_x, center_y, 11],
+        color=color,
+        parent=group,
+        respondable=True,
+    )
+    for name, dx, dy, sx, sy in (
+        ("WallLeft", -18, 0, 2, 38),
+        ("WallRight", 18, 0, 2, 38),
+        ("WallFront", 0, -18, 38, 2),
+        ("WallBack", 0, 18, 38, 2),
+    ):
+        _shape(
+            sim,
+            name=name,
+            shape="cuboid",
+            size_mm=[sx, sy, 12],
+            position_mm=[center_x + dx, center_y + dy, 17],
+            color=color,
+            parent=group,
+            respondable=True,
+        )
+    for slot in slots:
+        handle = _dummy(sim, slot["alias"], group)
+        sim.setObjectPosition(
+            handle,
+            [float(value) / 1000.0 for value in slot["position_mm"]],
+            group,
+        )
+
+
+def _build_code_routing(
+    sim: Any,
+    spec: dict[str, Any],
+    root: int,
+    *,
+    code_assets: dict[str, Any],
+    profile_catalog: Any,
+) -> None:
+    _build_workspace(sim, spec["workspace"], root)
+    parts_group = _dummy(sim, "Parts", root)
+    bins_group = _dummy(sim, "Bins", root)
+    camera_rig = _dummy(sim, "CameraRig", root)
+    standard = profile_catalog.require(profile_catalog.baseline_profile_id)
+    camera_spec = spec["camera"]
+    sim.setObjectPosition(
+        camera_rig,
+        [float(value) for value in camera_spec["rig_position_m"]],
+        sim.handle_world,
+    )
+    options = 1 | 2 | 4 | 64 | 128
+    camera = int(
+        sim.createVisionSensor(
+            options,
+            [int(standard.resolution[0]), int(standard.resolution[1]), 0, 0],
+            [
+                float(profile_catalog.near_clip_m),
+                float(profile_catalog.far_clip_m),
+                math.radians(float(standard.perspective_angle_deg)),
+                0.02, 0.0, 0.0, 0.08, 0.08, 0.10, 0.0, 0.0,
+            ],
+        )
+    )
+    _alias(sim, camera, camera_spec["alias"])
+    sim.setObjectParent(camera, camera_rig, False)
+    sim.setObjectPosition(camera, [0.0, 0.0, 0.0], camera_rig)
+    sim.setObjectOrientation(
+        camera,
+        [math.radians(float(value)) for value in camera_spec["orientation_deg"]],
+        camera_rig,
+    )
+    assets = {entry["asset_id"]: entry for entry in code_assets["entries"]}
+    if set(assets) != {part["code_asset_id"] for part in spec["parts"]}:
+        raise ValueError("code assets and scene parts do not match")
+    for part in spec["parts"]:
+        _code_part(sim, part, assets[part["code_asset_id"]], parts_group)
+    for bin_specification in spec["bins"]:
+        _build_bin(sim, bin_specification, bins_group)
+    _build_vision_lighting(sim, profile_catalog, root)
+
+
+def _attach_camera_scope(
+    sim: Any,
+    root: int,
+    *,
+    scene_root_path: str,
+    camera_path: str,
+) -> int:
+    allowed = {
+        ("/LogisticsLab", "/LogisticsLab/Camera"),
+        ("/VisionCodeRoutingLab", "/VisionCodeRoutingLab/CameraRig/Camera"),
+    }
+    if (scene_root_path, camera_path) not in allowed:
+        raise ValueError("camera render scope is not an approved formal scene")
+    script_text = f"""
 function sysCall_init()
     trainingCollection = sim.createCollection(1)
     sim.addItemToCollection(
         trainingCollection,
         sim.handle_tree,
-        sim.getObject('/LogisticsLab'),
+        sim.getObject('{scene_root_path}'),
         0
     )
-    local camera = sim.getObject('/LogisticsLab/Camera')
+    local camera = sim.getObject('{camera_path}')
     sim.setObjectInt32Param(
         camera,
         sim.visionintparam_entity_to_render,
@@ -1317,17 +1679,28 @@ function sysCall_cleanup()
     end
 end
 """.strip()
-    handle = int(
-        sim.createScript(
-            sim.scripttype_simulation,
-            script_text,
-            0,
-            "lua",
-        )
-    )
+    handle = int(sim.createScript(sim.scripttype_simulation, script_text, 0, "lua"))
     _alias(sim, handle, "CameraRenderScope")
     sim.setObjectParent(handle, root, True)
     return handle
+
+
+def _attach_logistics_camera_scope(sim: Any, root: int) -> int:
+    return _attach_camera_scope(
+        sim,
+        root,
+        scene_root_path="/LogisticsLab",
+        camera_path="/LogisticsLab/Camera",
+    )
+
+
+def _attach_code_routing_camera_scope(sim: Any, root: int) -> int:
+    return _attach_camera_scope(
+        sim,
+        root,
+        scene_root_path="/VisionCodeRoutingLab",
+        camera_path="/VisionCodeRoutingLab/CameraRig/Camera",
+    )
 
 
 def _stop_simulation(sim: Any) -> None:
@@ -1350,6 +1723,7 @@ def _recoverable_release(
     formal: _FormalScene,
     template_hash: str,
     profile_catalog: tuple[str, Path, str] | None = None,
+    code_assets_manifest: tuple[str, Path, str] | None = None,
 ) -> _RecoverableRelease | None:
     if not output.is_file() or not manifest_path.is_file():
         return None
@@ -1372,7 +1746,7 @@ def _recoverable_release(
             or scene.get("path") != formal.output_relative
         ):
             return None
-        if formal.scene_id == "vision-quality-lab":
+        if formal.scene_id in {"vision-quality-lab", "vision-code-routing-lab"}:
             if profile_catalog is None:
                 return None
             profile_relative, profile_path, profile_hash = profile_catalog
@@ -1382,6 +1756,18 @@ def _recoverable_release(
                 or stored_profile.get("path") != profile_relative
                 or stored_profile.get("sha256") != profile_hash
                 or _sha256(profile_path) != profile_hash
+            ):
+                return None
+        if formal.scene_id == "vision-code-routing-lab":
+            if code_assets_manifest is None:
+                return None
+            asset_relative, asset_path, asset_hash = code_assets_manifest
+            if (
+                not isinstance(manifest.get("code_assets_manifest"), dict)
+                or set(manifest["code_assets_manifest"]) != {"path", "sha256"}
+                or manifest["code_assets_manifest"].get("path") != asset_relative
+                or manifest["code_assets_manifest"].get("sha256") != asset_hash
+                or _sha256(asset_path) != asset_hash
             ):
                 return None
         sha256 = scene.get("sha256")
@@ -1490,7 +1876,11 @@ def build_scene(
         profile_catalog_content: bytes | None = None
         profile_catalog_hash: str | None = None
         profile_catalog = None
-        if formal.scene_id == "vision-quality-lab":
+        code_assets_path: Path | None = None
+        code_assets_content: bytes | None = None
+        code_assets_hash: str | None = None
+        code_assets = None
+        if formal.scene_id in {"vision-quality-lab", "vision-code-routing-lab"}:
             profile_catalog_path = _project_file_from_relative(
                 spec["profiles"],
                 label="profiles",
@@ -1503,6 +1893,15 @@ def build_scene(
             profile_catalog = load_profile_catalog_bytes(
                 profile_catalog_content
             )
+        if formal.scene_id == "vision-code-routing-lab":
+            code_assets_path = _project_file_from_relative(
+                spec["code_assets_manifest"],
+                label="code_assets_manifest",
+                must_exist=True,
+            )
+            code_assets_content = code_assets_path.read_bytes()
+            code_assets_hash = hashlib.sha256(code_assets_content).hexdigest()
+            code_assets = json.loads(code_assets_content.decode("utf-8"))
         token = uuid.uuid4().hex
         staged_scene = output.parent / (
             f".{output.stem}.staged-{token}.ttt"
@@ -1543,6 +1942,15 @@ def build_scene(
                 root,
                 profile_catalog=profile_catalog,
             )
+        elif formal.scene_id == "vision-code-routing-lab":
+            _build_code_routing(
+                sim,
+                spec,
+                root,
+                code_assets=code_assets,
+                profile_catalog=profile_catalog,
+            )
+            _attach_code_routing_camera_scope(sim, root)
         else:
             raise RuntimeError(f"unsupported formal scene: {formal.scene_id}")
         for path in formal.required_paths:
@@ -1569,6 +1977,12 @@ def build_scene(
             and profile_catalog_path.read_bytes() != profile_catalog_content
         ):
             raise RuntimeError("vision profile catalog changed during scene build")
+        if (
+            code_assets_path is not None
+            and code_assets_content is not None
+            and code_assets_path.read_bytes() != code_assets_content
+        ):
+            raise RuntimeError("code assets manifest changed during scene build")
 
         manifest = {
             "schema_version": 1,
@@ -1593,6 +2007,44 @@ def build_scene(
                 "path": spec["profiles"],
                 "sha256": profile_catalog_hash,
             }
+        if formal.scene_id == "vision-code-routing-lab":
+            if not isinstance(code_assets_content, bytes) or code_assets_hash is None:
+                raise RuntimeError("code assets manifest was not loaded")
+            standard = profile_catalog.require(profile_catalog.baseline_profile_id)
+            plane_z_mm = float(spec["camera"]["code_face_plane_z_mm"])
+            distance_mm = float(standard.camera_rig_z_m) * 1000.0 - plane_z_mm
+            scale_mm_per_px = (
+                2.0
+                * distance_mm
+                * math.tan(math.radians(float(standard.perspective_angle_deg)) / 2.0)
+                / float(standard.resolution[0])
+            )
+            pixel_center = (float(standard.resolution[0]) - 1.0) / 2.0
+            rig_x_mm = float(spec["camera"]["rig_position_m"][0]) * 1000.0
+            rig_y_mm = float(spec["camera"]["rig_position_m"][1]) * 1000.0
+            manifest["code_assets_manifest"] = {
+                "path": Path(spec["code_assets_manifest"]).name,
+                "sha256": code_assets_hash,
+            }
+            manifest["code_routing"] = {
+                "part_ids": [part["alias"] for part in spec["parts"]],
+                "initial_positions_mm": {
+                    part["alias"]: list(part["position_mm"]) for part in spec["parts"]
+                },
+                "calibration_plane_z_mm": plane_z_mm,
+                "calibration_matrix": [
+                    [-scale_mm_per_px, 0.0, rig_x_mm + scale_mm_per_px * pixel_center],
+                    [0.0, scale_mm_per_px, rig_y_mm - scale_mm_per_px * pixel_center],
+                ],
+                "route_slots_mm": {
+                    bin_specification["alias"]: [
+                        list(slot["position_mm"])
+                        for slot in bin_specification["slots"]
+                    ]
+                    for bin_specification in spec["bins"]
+                },
+            }
+            manifest["reset_contract"] = dict(spec["reset_contract"])
         _write_exclusive(staged_manifest, manifest)
 
         old_release = _recoverable_release(
@@ -1604,6 +2056,11 @@ def build_scene(
                 (spec["profiles"], profile_catalog_path, profile_catalog_hash)
                 if profile_catalog_path is not None
                 and profile_catalog_hash is not None
+                else None
+            ),
+            (
+                (Path(spec["code_assets_manifest"]).name, code_assets_path, code_assets_hash)
+                if code_assets_path is not None and code_assets_hash is not None
                 else None
             ),
         )

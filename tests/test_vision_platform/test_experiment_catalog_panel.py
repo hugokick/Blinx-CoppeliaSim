@@ -70,7 +70,7 @@ def test_catalog_panel_shows_hardware_boundary_and_selects(qtbot):
     assert "学生解释码垛顺序" in panel.human_checks.toPlainText()
 
 
-def test_catalog_panel_preserves_formal_order_through_v1_05(qtbot):
+def test_catalog_panel_preserves_formal_order_through_v1_07(qtbot):
     catalog = ExperimentCatalog.load(
         ROOT / "config" / "experiments" / "catalog.json",
         project_root=ROOT,
@@ -82,15 +82,16 @@ def test_catalog_panel_preserves_formal_order_through_v1_05(qtbot):
         panel.experiment_combo.itemData(index)
         for index in range(panel.experiment_combo.count())
     )
-    assert visible_ids[-6:-1] == (
+    assert visible_ids[-7:-1] == (
         "V1-01",
         "V1-02",
         "V1-03",
         "V1-04",
         "V1-05",
+        "V1-06",
     )
-    assert visible_ids[-1] == "V1-06"
-    panel.experiment_combo.setCurrentIndex(panel.experiment_combo.count() - 2)
+    assert visible_ids[-1] == "V1-07"
+    panel.experiment_combo.setCurrentIndex(panel.experiment_combo.count() - 3)
     assert "二维视觉分析" in panel.capabilities_label.text()
 
 

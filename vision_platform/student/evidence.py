@@ -56,6 +56,7 @@ _RUN_METADATA_RESERVED_FIELDS = frozenset(
         "robot_backend",
         "hardware_status",
         "scene_probe_status",
+        "final_evidence_artifact",
     }
 )
 _SNAPSHOT_RESERVED_FIELDS = frozenset({"snapshot_id", "path", "sha256"})
@@ -465,6 +466,7 @@ class StudentRunEvidence:
         error,
         cleanup_errors,
         scene_probe_status: str | None = None,
+        final_evidence_artifact: str | None = None,
     ) -> Path:
         with self._lock:
             self._ensure_open()
@@ -475,6 +477,15 @@ class StudentRunEvidence:
             }:
                 raise ValueError(
                     "scene_probe_status must be PASS, FAIL, ERROR or None"
+                )
+            if final_evidence_artifact is not None and (
+                _JSON_ARTIFACT_PATTERN.fullmatch(final_evidence_artifact)
+                is None
+                or final_evidence_artifact.rsplit(".", 1)[0].upper()
+                in _WINDOWS_RESERVED_NAMES
+            ):
+                raise ValueError(
+                    "final_evidence_artifact must be one portable ASCII .json filename"
                 )
             path = self.directory / "summary.json"
             payload = {
@@ -508,6 +519,8 @@ class StudentRunEvidence:
             }
             if scene_probe_status is not None:
                 payload["scene_probe_status"] = scene_probe_status
+            if final_evidence_artifact is not None:
+                payload["final_evidence_artifact"] = final_evidence_artifact
             serialized = _json_bytes(payload, indent=2)
             _atomic_write_bytes(path, serialized)
             self._finalized = True

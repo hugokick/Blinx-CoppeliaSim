@@ -5,10 +5,14 @@ import json
 import queue
 import threading
 from pathlib import Path
+from types import SimpleNamespace
 
+import numpy as np
 import pytest
 
 import vision_platform.student.evidence as evidence_module
+import vision_platform.student.experiment_gateway as gateway_module
+from vision_platform.experiments.code_routing import ApprovedCodeRoute, CodeRoutePlan
 from vision_platform.student.evidence import StudentRunEvidence
 
 
@@ -27,6 +31,83 @@ def _finalize(evidence: StudentRunEvidence):
         error=None,
         cleanup_errors=[],
     )
+
+
+def test_code_route_final_evidence_links_plan_motion_probe_and_acceptance(
+    tmp_path,
+    monkeypatch,
+):
+    entries = tuple(
+        ApprovedCodeRoute(
+            entry_id=f"entry_{suffix}",
+            part_id=f"part_{suffix}",
+            code_type="qr" if suffix in {"a", "b"} else "ean13",
+            payload=f"payload-{suffix}",
+            route_id="route_red" if suffix in {"a", "c"} else "route_blue",
+            pick_xyz_mm=(40.0 + index, -45.0, 18.0),
+            drop_xyz_mm=(116.0 + index, -60.0, 22.0),
+            confidence=0.98,
+        )
+        for index, suffix in enumerate(("a", "b", "c", "d"))
+    )
+    plan = CodeRoutePlan("a" * 64, entries, 110.0, 15.0)
+    commands = tmp_path / "commands.jsonl"
+    commands.write_text(
+        "\n".join(
+            json.dumps({"name": name, "status": "PASS"})
+            for name in ("vision2d.code_routes", "robot.move_world", "tool.on", "tool.off", "robot.home")
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    class FakeEvidence:
+        directory = tmp_path
+
+    class FakeGuard:
+        def completion(self):
+            return {"all_complete": True, "completed_entry_ids": [entry.entry_id for entry in entries]}
+
+    captured = {}
+
+    def fake_record(_evidence, bundle, *, existing_layer_records):
+        captured["bundle"] = bundle
+        captured["existing_layer_records"] = existing_layer_records
+        return "V1-07-zfinal-frame-000001.json"
+
+    monkeypatch.setattr(gateway_module, "record_vision_bundle", fake_record)
+    gateway = object.__new__(gateway_module.StudentExperimentGateway)
+    gateway.evidence = FakeEvidence()
+    gateway.context = SimpleNamespace(experiment_id="V1-07")
+    gateway.route_guard = FakeGuard()
+    gateway._route_evidence = {
+        "plan": plan,
+        "snapshot_id": "frame-000001",
+        "raw": np.zeros((8, 8, 3), dtype=np.uint8),
+        "annotated": np.ones((8, 8, 3), dtype=np.uint8),
+        "raw_record": {"snapshot_id": "frame-000001"},
+        "profile": {"profile_id": "standard", "code_route_plan_id": plan.plan_id},
+    }
+
+    artifact = gateway.record_code_route_final(
+        final_probe={
+            "status": "PASS",
+            "final_occupancy": {"route_red": ["part_a", "part_c"], "route_blue": ["part_b", "part_d"]},
+        },
+        primary_error=None,
+    )
+
+    assert artifact == "V1-07-zfinal-frame-000001.json"
+    result = captured["bundle"].result
+    assert result["status"] == "PASS"
+    assert result["snapshot_id"] == "frame-000001"
+    assert len(result["completed_entry_ids"]) == 4
+    assert tuple(result["final_occupancy"]["route_blue"]) == (
+        "part_b",
+        "part_d",
+    )
+    assert result["human_acceptance"] == "PENDING_HUMAN_ACCEPTANCE"
+    assert result["hardware_status"] == "PENDING_HARDWARE"
 
 
 def test_evidence_records_experiment_and_snapshot(tmp_path):
@@ -783,6 +864,34 @@ def test_scene_probe_status_is_authoritative_and_cannot_be_forged_by_metadata(
     assert summary["scene_probe_status"] == "ERROR"
     assert "scene_probe_status" not in manifest
     assert summary["hardware_status"] == "PENDING_HARDWARE"
+
+
+def test_final_evidence_artifact_is_recorded_only_by_finalize(tmp_path):
+    evidence = StudentRunEvidence.create(
+        output_root=tmp_path / "runs",
+        program_path=_program(tmp_path),
+        robot_backend="sim",
+        run_id="final-evidence-summary",
+        run_metadata={"final_evidence_artifact": "forged.json"},
+    )
+
+    artifact = evidence.record_json_artifact(
+        "V1-07-zfinal-frame-000001.json",
+        {"status": "REJECTED"},
+    )
+    summary = json.loads(
+        evidence.finalize(
+            status="FAILED",
+            command_count=1,
+            last_pose_mm=None,
+            safety_violation_count=0,
+            error={"code": "STUDENT_PROGRAM_FAILED", "message": "failed"},
+            cleanup_errors=[],
+            final_evidence_artifact=artifact,
+        ).read_text(encoding="utf-8")
+    )
+
+    assert summary["final_evidence_artifact"] == artifact
 
 
 def test_concurrent_duplicate_json_artifact_has_exactly_one_winner(tmp_path):

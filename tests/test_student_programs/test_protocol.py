@@ -134,6 +134,7 @@ def test_allowed_commands_are_exactly_the_public_student_api():
             "tool.on",
             "tool.off",
             "vision2d.analyze",
+            "vision2d.code_routes",
             "vision2d.template_match",
         }
     )
@@ -142,6 +143,26 @@ def test_allowed_commands_are_exactly_the_public_student_api():
 def test_v2_2_read_only_commands_are_whitelisted():
     assert "camera.capture" in ALLOWED_COMMANDS
     assert "experiment.info" in ALLOWED_COMMANDS
+
+
+def test_code_routes_is_the_only_new_allowlisted_command() -> None:
+    command = CommandMessage("route-000001", "vision2d.code_routes", {})
+    assert command.to_dict()["args"] == {}
+    assert "vision2d.code_routes" in ALLOWED_COMMANDS
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "vision2d.code_routes_file",
+        "vision2d.code_routes_configure",
+        "vision2d.decode_payload",
+        "robot.execute_payload",
+    ],
+)
+def test_code_route_command_variants_remain_forbidden(name: str) -> None:
+    with pytest.raises(ValueError, match="COMMAND_NOT_ALLOWED"):
+        CommandMessage("route-000001", name, {})
 
 
 def test_v1_01_profile_commands_are_exactly_whitelisted():

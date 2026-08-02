@@ -143,6 +143,71 @@ def _stack_definition(slots_mm):
     )
 
 
+def _code_route_definition():
+    return _definition(
+        "V1-07",
+        "code_route_occupancy",
+        {
+            "code_routing": {
+                "routes": [
+                    {"part_id": "part_a", "route_id": "route_red", "drop_xyz_mm": [116, -60, 22]},
+                    {"part_id": "part_b", "route_id": "route_blue", "drop_xyz_mm": [116, 60, 22]},
+                    {"part_id": "part_c", "route_id": "route_red", "drop_xyz_mm": [128, -60, 22]},
+                    {"part_id": "part_d", "route_id": "route_blue", "drop_xyz_mm": [128, 60, 22]},
+                ]
+            }
+        },
+    )
+
+
+def _code_route_manifest():
+    return {
+        "task_contracts": {},
+        "code_routing": {
+            "initial_positions_mm": {
+                "part_a": [40, -45, 18],
+                "part_b": [80, -45, 18],
+                "part_c": [40, 5, 18],
+                "part_d": [80, 5, 18],
+            }
+        },
+    }
+
+
+def test_code_route_occupancy_probe_reports_initial_and_final_bindings():
+    definition = _code_route_definition()
+    manifest = _code_route_manifest()
+    initial_positions = {
+        f"/VisionCodeRoutingLab/Parts/{part_id}": [x / 1000, y / 1000, z / 1000]
+        for part_id, (x, y, z) in manifest["code_routing"]["initial_positions_mm"].items()
+    }
+    initial = probe_experiment(
+        FakeSim(initial_positions), definition,
+        phase="initial", scene_manifest=manifest,
+    )
+    assert initial["experiment_id"] == "V1-07"
+    assert initial["status"] == "PASS"
+    assert initial["matched"] == initial["expected"] == 4
+    assert initial["final_occupancy"] == {}
+
+    final_positions = {
+        "/VisionCodeRoutingLab/Parts/part_a": [0.116, -0.060, 0.022],
+        "/VisionCodeRoutingLab/Parts/part_b": [0.116, 0.060, 0.022],
+        "/VisionCodeRoutingLab/Parts/part_c": [0.128, -0.060, 0.022],
+        "/VisionCodeRoutingLab/Parts/part_d": [0.128, 0.060, 0.022],
+    }
+    final = probe_experiment(
+        FakeSim(final_positions), definition,
+        phase="final", scene_manifest=manifest,
+    )
+    assert final["status"] == "PASS"
+    assert final["matched"] == final["expected"] == 4
+    assert final["final_occupancy"] == {
+        "route_blue": ["part_b", "part_d"],
+        "route_red": ["part_a", "part_c"],
+    }
+
+
 def test_stack_probe_accepts_two_columns_and_three_layers():
     slots_mm = [
         [118, -45, 20],

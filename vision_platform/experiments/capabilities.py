@@ -14,6 +14,13 @@ _VISION2D_DEPENDENCIES = frozenset(
 _TEMPLATE_MATCH_DEPENDENCIES = frozenset(
     {"camera.rgb", "camera.profile", "lighting.profile"}
 )
+_CODE_ROUTING_DEPENDENCIES = frozenset(
+    {
+        "camera.rgb", "camera.profile", "lighting.profile",
+        "robot.home", "robot.pose", "robot.move_world",
+        "tool.suction", "scene.probe",
+    }
+)
 _PROFILE_PAIR_REASON = (
     "视觉配置能力必须同时声明 camera.profile 和 lighting.profile"
 )
@@ -27,6 +34,7 @@ _KNOWN = _ROBOT | frozenset(
         "scene.probe",
         "vision2d.analysis",
         "vision2d.template_matching",
+        "vision2d.code_routing",
     }
 )
 
@@ -109,6 +117,27 @@ def check_capabilities(
             elif getattr(application, "camera", None) is None:
                 missing.append(capability)
                 reasons[capability] = "当前应用没有可用相机"
+            else:
+                available.append(capability)
+        elif capability == "vision2d.code_routing":
+            missing_dependencies = _CODE_ROUTING_DEPENDENCIES - requested_set
+            if missing_dependencies:
+                missing.append(capability)
+                reasons[capability] = (
+                    "代码路由必须同时声明：" + ", ".join(sorted(missing_dependencies))
+                )
+            elif str(getattr(application.config, "camera_backend", "")) != "sim":
+                missing.append(capability)
+                reasons[capability] = "代码路由仅支持 CoppeliaSim 相机"
+            elif str(getattr(application.config, "robot_backend", "")) != "sim":
+                missing.append(capability)
+                reasons[capability] = "代码路由仅支持 CoppeliaSim 机器人"
+            elif any(
+                getattr(application, name, None) is None
+                for name in ("sim", "camera", "robot", "tool")
+            ):
+                missing.append(capability)
+                reasons[capability] = "代码路由缺少场景、相机、机器人或吸盘"
             else:
                 available.append(capability)
         elif capability in _PROFILE_PAIR and profile_pair_incomplete:

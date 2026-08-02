@@ -39,6 +39,7 @@ _FIXED_PATHS = {
     "key_light_path": "/VisionQualityLab/Lighting/KeyLight",
     "fill_light_path": "/VisionQualityLab/Lighting/FillLight",
 }
+_APPROVED_SCENE_ROOTS = ("/VisionQualityLab", "/VisionCodeRoutingLab")
 _PROFILE_ID = re.compile(r"[a-z][a-z0-9_]{0,31}\Z")
 
 
@@ -132,9 +133,25 @@ def load_profile_catalog_bytes(content: bytes) -> VisionProfileCatalog:
     if isinstance(schema_version, bool) or not isinstance(schema_version, int) or schema_version != 1:
         raise ValueError("schema_version must equal integer 1")
     baseline_profile_id = _nonempty_text(catalog["baseline_profile_id"], "baseline_profile_id")
-    for field, expected in _FIXED_PATHS.items():
-        if catalog[field] != expected:
-            raise ValueError(f"{field} must equal fixed VisionQualityLab path")
+    expected_suffixes = {
+        "sensor_path": "/CameraRig/Camera",
+        "camera_rig_path": "/CameraRig",
+        "key_light_path": "/Lighting/KeyLight",
+        "fill_light_path": "/Lighting/FillLight",
+    }
+    roots = set()
+    for field, suffix in expected_suffixes.items():
+        value = catalog[field]
+        if not isinstance(value, str) or not value.endswith(suffix):
+            raise ValueError(f"{field} must equal fixed formal-scene path")
+        roots.add(value[: -len(suffix)])
+    if len(roots) != 1 or next(iter(roots), None) not in _APPROVED_SCENE_ROOTS:
+        raise ValueError("catalog paths must belong to an approved formal scene")
+    scene_root = next(iter(roots))
+    resolved_paths = {
+        field: f"{scene_root}{suffix}"
+        for field, suffix in expected_suffixes.items()
+    }
 
     near_clip_m = _finite_number(catalog["near_clip_m"], "near_clip_m", 0.01, 0.20)
     far_clip_m = _finite_number(catalog["far_clip_m"], "far_clip_m", 1.0, 5.0)
@@ -152,10 +169,10 @@ def load_profile_catalog_bytes(content: bytes) -> VisionProfileCatalog:
 
     return VisionProfileCatalog(
         baseline_profile_id=baseline_profile_id,
-        sensor_path=_FIXED_PATHS["sensor_path"],
-        camera_rig_path=_FIXED_PATHS["camera_rig_path"],
-        key_light_path=_FIXED_PATHS["key_light_path"],
-        fill_light_path=_FIXED_PATHS["fill_light_path"],
+        sensor_path=resolved_paths["sensor_path"],
+        camera_rig_path=resolved_paths["camera_rig_path"],
+        key_light_path=resolved_paths["key_light_path"],
+        fill_light_path=resolved_paths["fill_light_path"],
         near_clip_m=near_clip_m,
         far_clip_m=far_clip_m,
         profiles=profiles,

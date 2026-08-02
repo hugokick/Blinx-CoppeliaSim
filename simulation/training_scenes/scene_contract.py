@@ -168,12 +168,17 @@ def validate_scene_contract(
         "scene_sha256": scene_sha256,
         "required_path_count": len(spec_required_paths),
     }
-    if spec_scene_id == "vision-quality-lab":
+    if spec_scene_id in {"vision-quality-lab", "vision-code-routing-lab"}:
         profile_path = _project_relative_path(
             spec.get("profiles"),
             label="spec profiles",
         )
-        if profile_path != "simulation/vision_quality_lab/profiles.json":
+        expected_profile_path = (
+            "simulation/vision_quality_lab/profiles.json"
+            if spec_scene_id == "vision-quality-lab"
+            else "simulation/vision_code_routing_lab/profiles.json"
+        )
+        if profile_path != expected_profile_path:
             raise ValueError("spec profiles must be the canonical vision-quality catalog")
         manifest_profile_path, profile_sha256 = _manifest_file(
             manifest,
@@ -187,4 +192,19 @@ def validate_scene_contract(
         if _sha256(_inside(root, manifest_profile_path)) != profile_sha256:
             raise ValueError("profile_catalog sha256 mismatch")
         report["profile_sha256"] = profile_sha256
+    if spec_scene_id == "vision-code-routing-lab":
+        code_assets_path = _project_relative_path(
+            spec.get("code_assets_manifest"),
+            label="spec code_assets_manifest",
+        )
+        expected_code_assets = _inside(root, code_assets_path)
+        manifest_code_path, code_sha256 = _manifest_file(
+            manifest,
+            "code_assets_manifest",
+        )
+        if manifest_code_path != Path(code_assets_path).name:
+            raise ValueError("code_assets_manifest path must be the adjacent manifest name")
+        if _sha256(expected_code_assets) != code_sha256:
+            raise ValueError("code_assets_manifest sha256 mismatch")
+        report["code_assets_sha256"] = code_sha256
     return report

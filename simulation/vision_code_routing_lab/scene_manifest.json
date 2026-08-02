@@ -1,0 +1,124 @@
+{
+  "schema_version": 1,
+  "scene_id": "vision-code-routing-lab",
+  "generated_at": "2026-08-02T12:30:12.900298+00:00",
+  "generator": "simulation.training_scenes.build_scene",
+  "template": {
+    "path": "simulation/vision_lab/BL23_vision_lab.ttt",
+    "sha256": "5154dfc3132cd29aafcbe5de83c1a6b61960595681ac5c90d2d92a5b642bda55"
+  },
+  "scene": {
+    "path": "simulation/vision_code_routing_lab/BL23_vision_code_routing_lab.ttt",
+    "sha256": "90dd6e744343102a9bdbe36b497676381ca4562f3b9fc5923b59f228c45598d6",
+    "size_bytes": 12099854
+  },
+  "required_paths": [
+    "/BLX_base_link",
+    "/BLX_tool_suction",
+    "/VisionCodeRoutingLab",
+    "/VisionCodeRoutingLab/Workspace",
+    "/VisionCodeRoutingLab/CameraRig/Camera",
+    "/VisionCodeRoutingLab/Lighting",
+    "/VisionCodeRoutingLab/Lighting/KeyLight",
+    "/VisionCodeRoutingLab/Lighting/FillLight",
+    "/VisionCodeRoutingLab/Parts",
+    "/VisionCodeRoutingLab/Parts/part_a",
+    "/VisionCodeRoutingLab/Parts/part_a/CodeFace",
+    "/VisionCodeRoutingLab/Parts/part_b",
+    "/VisionCodeRoutingLab/Parts/part_b/CodeFace",
+    "/VisionCodeRoutingLab/Parts/part_c",
+    "/VisionCodeRoutingLab/Parts/part_c/CodeFace",
+    "/VisionCodeRoutingLab/Parts/part_d",
+    "/VisionCodeRoutingLab/Parts/part_d/CodeFace",
+    "/VisionCodeRoutingLab/Bins/route_red",
+    "/VisionCodeRoutingLab/Bins/route_red/red_1",
+    "/VisionCodeRoutingLab/Bins/route_red/red_2",
+    "/VisionCodeRoutingLab/Bins/route_blue",
+    "/VisionCodeRoutingLab/Bins/route_blue/blue_1",
+    "/VisionCodeRoutingLab/Bins/route_blue/blue_2"
+  ],
+  "task_contracts": {},
+  "protected_assets_unchanged": true,
+  "profile_catalog": {
+    "path": "simulation/vision_code_routing_lab/profiles.json",
+    "sha256": "1af7b5a19225020e60418a26c13f7f7493c3970758be79074e8b13f461faeb99"
+  },
+  "code_assets_manifest": {
+    "path": "code_assets_manifest.json",
+    "sha256": "0132821080a71fa5020d15e5c7fc9d388e3b73453b88228e6606eea88521b486"
+  },
+  "code_routing": {
+    "part_ids": [
+      "part_a",
+      "part_b",
+      "part_c",
+      "part_d"
+    ],
+    "initial_positions_mm": {
+      "part_a": [
+        40,
+        -45,
+        18
+      ],
+      "part_b": [
+        80,
+        -45,
+        18
+      ],
+      "part_c": [
+        40,
+        5,
+        18
+      ],
+      "part_d": [
+        80,
+        5,
+        18
+      ]
+    },
+    "calibration_plane_z_mm": 27.4,
+    "calibration_matrix": [
+      [
+        -0.1627580685211339,
+        0.0,
+        168.25075204856
+      ],
+      [
+        0.0,
+        0.1627580685211339,
+        -83.25075204855999
+      ]
+    ],
+    "route_slots_mm": {
+      "route_red": [
+        [
+          116,
+          -60,
+          22
+        ],
+        [
+          128,
+          -60,
+          22
+        ]
+      ],
+      "route_blue": [
+        [
+          116,
+          60,
+          22
+        ],
+        [
+          128,
+          60,
+          22
+        ]
+      ]
+    }
+  },
+  "reset_contract": {
+    "strategy": "scene_reload",
+    "tool_off": true,
+    "robot_home": true
+  }
+}

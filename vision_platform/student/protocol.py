@@ -22,6 +22,7 @@ ALLOWED_COMMANDS = frozenset(
         "tool.on",
         "tool.off",
         "vision2d.analyze",
+        "vision2d.code_routes",
         "vision2d.template_match",
     }
 )

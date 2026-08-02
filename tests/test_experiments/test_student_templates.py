@@ -54,6 +54,7 @@ TEMPLATES = (
     "v1_04_geometry_measurement.py",
     "v1_05_color_shape.py",
     "v1_06_template_matching.py",
+    "v1_07_code_routing.py",
 )
 
 
@@ -790,6 +791,38 @@ def test_pick_and_place_uses_feedback_xy_for_every_vertical_move():
         target[:2] == actual[:2]
         for actual, target in vertical_feedback_pairs
     )
+
+
+def test_pick_and_place_can_pin_requested_xy_for_host_route_guard():
+    robot = FeedbackRobot(
+        [
+            (100.0, 0.0, 120.0),
+            (44.9, -54.9, 101.0),
+            (44.8, -54.8, 20.0),
+            (117.9, 44.9, 101.0),
+            (117.8, 44.8, 38.0),
+        ]
+    )
+    ctx = FakeContext(robot=robot)
+
+    pick_and_place(
+        ctx,
+        pick_xy=(45.0, -55.0),
+        drop_xyz=(118.0, 45.0, 38.0),
+        pick_z_mm=20.0,
+        safe_z_mm=100.0,
+        speed=12.0,
+        use_command_xy=True,
+    )
+
+    assert robot.moves == [
+        (45.0, -55.0, 101.0, 12.0),
+        (45.0, -55.0, 20.0, 8.0),
+        (45.0, -55.0, 101.0, 12.0),
+        (118.0, 45.0, 101.0, 12.0),
+        (118.0, 45.0, 38.0, 8.0),
+        (118.0, 45.0, 101.0, 12.0),
+    ]
 
 
 def test_pick_and_place_keeps_feedback_above_safe_z_before_horizontal_moves():

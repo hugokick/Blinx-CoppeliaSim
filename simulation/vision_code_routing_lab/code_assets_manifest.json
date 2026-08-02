@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "entries": [
+    {
+      "asset_id": "qr_v1_07_a",
+      "part_id": "part_a",
+      "code_type": "qr",
+      "payload": "V1-07-A",
+      "path": "simulation/vision_code_routing_lab/code_assets/qr_v1_07_a.png",
+      "sha256": "0cce8bae92718a090ddf2a30dd84d217b864fbb5fc44218a8cada7800dabf327",
+      "size_px": [
+        198,
+        198
+      ],
+      "channels": 3,
+      "generator": "robot-sim-opencv-v1"
+    },
+    {
+      "asset_id": "qr_v1_07_b",
+      "part_id": "part_b",
+      "code_type": "qr",
+      "payload": "V1-07-B",
+      "path": "simulation/vision_code_routing_lab/code_assets/qr_v1_07_b.png",
+      "sha256": "949d456da07c6e74f3b998e0a9a51a53f4c5ffdd55ff91a5583661ff82381873",
+      "size_px": [
+        198,
+        198
+      ],
+      "channels": 3,
+      "generator": "robot-sim-opencv-v1"
+    },
+    {
+      "asset_id": "ean_6901234567892",
+      "part_id": "part_c",
+      "code_type": "ean13",
+      "payload": "6901234567892",
+      "path": "simulation/vision_code_routing_lab/code_assets/ean_6901234567892.png",
+      "sha256": "4b2ee256eb31f20c991bc9acd76fdb222be44d8086b2ebad2518b84c4a2bf5fa",
+      "size_px": [
+        345,
+        132
+      ],
+      "channels": 3,
+      "generator": "robot-sim-opencv-v1"
+    },
+    {
+      "asset_id": "ean_6901234567809",
+      "part_id": "part_d",
+      "code_type": "ean13",
+      "payload": "6901234567809",
+      "path": "simulation/vision_code_routing_lab/code_assets/ean_6901234567809.png",
+      "sha256": "7a536a8efb09f54ca023aec458791ae5564f817130aed8bdbb3b73b54e9281ba",
+      "size_px": [
+        345,
+        132
+      ],
+      "channels": 3,
+      "generator": "robot-sim-opencv-v1"
+    }
+  ]
+}

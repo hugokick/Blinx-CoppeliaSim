@@ -8,6 +8,7 @@ LOGISTICS_GROUPS = (
     "/LogisticsLab/Tasks/Digits",
     "/LogisticsLab/Tasks/Classes",
 )
+INDEPENDENT_SCENE_GROUPS = ("/VisionCodeRoutingLab",)
 
 _PARKED_Z = {
     "/LogisticsLab/Tasks/Stack": -2.0,
@@ -19,7 +20,7 @@ _PARKED_Z = {
 def validate_scene_group_path(active_path: str | None) -> str | None:
     if active_path is None:
         return None
-    if active_path not in LOGISTICS_GROUPS:
+    if active_path not in LOGISTICS_GROUPS + INDEPENDENT_SCENE_GROUPS:
         raise ValueError(f"Unknown logistics task group: {active_path}")
     return active_path
 
@@ -31,6 +32,8 @@ def activate_scene_group(
 ) -> None:
     active_path = validate_scene_group_path(active_path)
     if active_path is None:
+        return
+    if active_path in INDEPENDENT_SCENE_GROUPS:
         return
     handles = tuple(
         (path, int(sim.getObject(path))) for path in LOGISTICS_GROUPS
