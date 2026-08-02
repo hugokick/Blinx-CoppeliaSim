@@ -1,7 +1,7 @@
-"""Deterministic QR and project-original RS1D code recognition.
+"""Deterministic QR, EAN-13 and project-original RS1D code recognition.
 
 The RS1D codec is intentionally a small teaching/test symbology.  It is not a
-commercial barcode decoder and is never silently presented as Code128/EAN/etc.
+commercial barcode decoder; the standard EAN-13 path is implemented separately.
 """
 
 from __future__ import annotations
@@ -19,6 +19,24 @@ _RS_MAGIC = 0xA7
 _RS_MAX_PAYLOAD = 64
 _RS_MAX_CODES = 16
 _RS_SCAN_ANGLES = tuple(range(-30, 31, 3)) + (-90, 90)
+_EAN_SCAN_ANGLES = tuple(range(-30, 31, 3)) + (-90, 90)
+
+_EAN_L_PATTERNS = (
+    "0001101", "0011001", "0010011", "0111101", "0100011",
+    "0110001", "0101111", "0111011", "0110111", "0001011",
+)
+_EAN_G_PATTERNS = (
+    "0100111", "0110011", "0011011", "0100001", "0011101",
+    "0111001", "0000101", "0010001", "0001001", "0010111",
+)
+_EAN_R_PATTERNS = (
+    "1110010", "1100110", "1101100", "1000010", "1011100",
+    "1001110", "1010000", "1000100", "1001000", "1110100",
+)
+_EAN_PARITY = (
+    "AAAAAA", "AABABB", "AABBAB", "AABBBA", "ABAABB",
+    "ABBAAB", "ABBBAA", "ABABAB", "ABABBA", "ABBABA",
+)
 
 
 @dataclass(frozen=True)
@@ -35,7 +53,7 @@ class CodeReading:
     failure_code: str | None = None
 
     def __post_init__(self) -> None:
-        if self.code_type not in {"qr", "rs1d"}:
+        if self.code_type not in {"qr", "ean13", "rs1d"}:
             raise ValueError("unsupported code_type")
         if len(self.polygon_px) < 4:
             raise ValueError("polygon_px must contain at least four points")
@@ -210,6 +228,54 @@ def encode_rs1d_payload(
     return cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
 
 
+def _ean13_checksum(first_twelve: str) -> str:
+    total = sum((3 if index % 2 else 1) * int(value) for index, value in enumerate(first_twelve))
+    return str((-total) % 10)
+
+
+def encode_ean13_payload(
+    digits: str,
+    *,
+    module_px: int = 3,
+    bar_height_px: int = 72,
+    quiet_modules: int = 10,
+) -> np.ndarray:
+    """Encode a standards-shaped EAN-13 symbol without external dependencies."""
+    if not isinstance(digits, str) or not digits.isdigit() or len(digits) not in {12, 13}:
+        raise ValueError("EAN-13 requires 12 digits or 13 digits including checksum")
+    if len(digits) == 12:
+        digits += _ean13_checksum(digits)
+    if digits[-1] != _ean13_checksum(digits[:12]):
+        raise ValueError("EAN-13 checksum is invalid")
+    if isinstance(module_px, bool) or not isinstance(module_px, (int, np.integer)) or module_px < 2:
+        raise ValueError("module_px must be an integer >= 2")
+    if isinstance(bar_height_px, bool) or not isinstance(bar_height_px, (int, np.integer)) or bar_height_px < 20:
+        raise ValueError("bar_height_px must be an integer >= 20")
+    if isinstance(quiet_modules, bool) or not isinstance(quiet_modules, (int, np.integer)) or quiet_modules < 9:
+        raise ValueError("quiet_modules must be an integer >= 9")
+    module_px = int(module_px)
+    bar_height_px = int(bar_height_px)
+    quiet_px = int(quiet_modules) * module_px
+    bits = "101"
+    parity = _EAN_PARITY[int(digits[0])]
+    for digit, side in zip(digits[1:7], parity):
+        bits += (_EAN_L_PATTERNS if side == "A" else _EAN_G_PATTERNS)[int(digit)]
+    bits += "01010"
+    for digit in digits[7:]:
+        bits += _EAN_R_PATTERNS[int(digit)]
+    bits += "101"
+    image = np.full(
+        (bar_height_px + 2 * quiet_px, len(bits) * module_px + 2 * quiet_px),
+        255,
+        dtype=np.uint8,
+    )
+    for index, bit in enumerate(bits):
+        if bit == "1":
+            left = quiet_px + index * module_px
+            image[quiet_px : quiet_px + bar_height_px, left : left + module_px] = 0
+    return cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
+
+
 def _dark_runs(row: np.ndarray) -> list[tuple[int, int]]:
     dark = np.asarray(row < 180, dtype=np.uint8)
     if not np.any(dark):
@@ -271,6 +337,133 @@ def _decode_run_sequence(
             )
             return payload, int(runs[start_index][0]), int(runs[stop_index][0] + runs[stop_index][1]), quality
     return None
+
+
+def _decode_ean13_row(
+    row: np.ndarray,
+    runs: list[tuple[int, int]],
+) -> tuple[str, int, int, float] | None:
+    """Decode one horizontal row using the fixed 95-module EAN-13 grammar."""
+    if len(runs) < 8:
+        return None
+    widths = np.asarray([width for _start, width in runs], dtype=np.float64)
+    module_candidates = widths[widths >= 2.0]
+    if module_candidates.size == 0:
+        return None
+    module_estimate = float(np.percentile(module_candidates, 20))
+    if module_estimate < 1.5:
+        return None
+    # The smallest bars are one module; a narrow bounded band handles
+    # fractional scaling after a resize without inventing a new symbology.
+    scales = tuple(module_estimate * factor for factor in (0.78, 0.86, 0.94, 1.0, 1.08, 1.16, 1.26, 1.38, 1.5))
+    for run_index, (start_x, start_width) in enumerate(runs):
+        if start_width < 0.55 * module_estimate or start_width > 1.8 * module_estimate:
+            continue
+        for module in scales:
+            end_x = float(start_x) + 95.0 * module
+            if end_x > row.shape[0] - 1:
+                continue
+            bits = "".join(
+                "1" if row[min(row.shape[0] - 1, max(0, int(round(start_x + (index + 0.5) * module))))] < 180 else "0"
+                for index in range(95)
+            )
+            if bits[:3] != "101" or bits[45:50] != "01010" or bits[92:] != "101":
+                continue
+            parity = []
+            left_digits: list[str] = []
+            valid = True
+            for offset in range(3, 45, 7):
+                pattern = bits[offset : offset + 7]
+                if pattern in _EAN_L_PATTERNS:
+                    parity.append("A")
+                    left_digits.append(str(_EAN_L_PATTERNS.index(pattern)))
+                elif pattern in _EAN_G_PATTERNS:
+                    parity.append("B")
+                    left_digits.append(str(_EAN_G_PATTERNS.index(pattern)))
+                else:
+                    valid = False
+                    break
+            if not valid or len(parity) != 6 or "".join(parity) not in _EAN_PARITY:
+                continue
+            right_digits: list[str] = []
+            for offset in range(50, 92, 7):
+                pattern = bits[offset : offset + 7]
+                if pattern not in _EAN_R_PATTERNS:
+                    valid = False
+                    break
+                right_digits.append(str(_EAN_R_PATTERNS.index(pattern)))
+            if not valid or len(right_digits) != 6:
+                continue
+            digits = str(_EAN_PARITY.index("".join(parity))) + "".join(left_digits + right_digits)
+            if digits[-1] != _ean13_checksum(digits[:12]):
+                continue
+            # A checksum-valid symbol is sufficiently specific to reject
+            # arbitrary stripe textures; quality reflects module sampling.
+            quality = float(
+                np.clip(1.0 - abs(module - module_estimate) / max(module_estimate, 1e-6), 0.0, 1.0)
+            )
+            return digits, int(start_x), int(round(end_x)), quality
+    return None
+
+
+def _detect_ean13(gray: np.ndarray) -> list[CodeReading]:
+    found: list[CodeReading] = []
+    smoothed = cv2.medianBlur(gray, 3)
+    for angle in _EAN_SCAN_ANGLES:
+        rotated, matrix = _rotate_gray(smoothed, float(angle))
+        mask = rotated < 180
+        row_candidates = [
+            (row_index, _dark_runs(rotated[row_index]))
+            for row_index in range(0, rotated.shape[0], 2)
+        ]
+        row_candidates = [item for item in row_candidates if len(item[1]) >= 8]
+        row_candidates.sort(key=lambda item: len(item[1]), reverse=True)
+        for row_index, runs in row_candidates[:8]:
+            decoded = _decode_ean13_row(rotated[row_index], runs)
+            if decoded is None:
+                continue
+            digits, start_x, stop_x, quality = decoded
+            x0 = max(0, start_x - 2)
+            x1 = min(rotated.shape[1], stop_x + 2)
+            active_rows = np.flatnonzero(np.any(mask[:, x0:x1], axis=1))
+            if active_rows.size == 0:
+                continue
+            bands: list[tuple[int, int]] = []
+            band_start = previous = int(active_rows[0])
+            for value in active_rows[1:]:
+                current = int(value)
+                if current > previous + 1:
+                    bands.append((band_start, previous))
+                    band_start = current
+                previous = current
+            bands.append((band_start, previous))
+            y0, y1 = min(bands, key=lambda band: abs((band[0] + band[1]) / 2 - row_index))
+            polygon = _map_points(
+                ((start_x, y0), (stop_x, y0), (stop_x, y1), (start_x, y1)),
+                matrix,
+            )
+            candidate = CodeReading(
+                code_type="ean13",
+                data=digits,
+                polygon_px=polygon,
+                bbox_px=_bbox_from_polygon(polygon),
+                center_px=(
+                    float(np.mean([point[0] for point in polygon])),
+                    float(np.mean([point[1] for point in polygon])),
+                ),
+                confidence=float(np.clip(0.82 + 0.16 * quality, 0.0, 1.0)),
+                decoded=True,
+            )
+            if not any(
+                item.code_type == "ean13"
+                and item.data == candidate.data
+                and math.dist(item.center_px, candidate.center_px) < 12.0
+                for item in found
+            ):
+                found.append(candidate)
+            if len(found) >= _RS_MAX_CODES:
+                return found
+    return found
 
 
 def _rotate_gray(gray: np.ndarray, angle_deg: float) -> tuple[np.ndarray, np.ndarray]:
@@ -389,7 +582,7 @@ def recognize_codes(image_bgr: object, *, max_codes: int = 16) -> CodeRecognitio
     if isinstance(max_codes, bool) or not isinstance(max_codes, int) or not 1 <= max_codes <= _RS_MAX_CODES:
         return _invalid_result("MAX_CODES_INVALID", image_size)
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    readings = _deduplicate([*_detect_qr(gray), *_detect_rs1d(gray)], max_codes)
+    readings = _deduplicate([*_detect_qr(gray), *_detect_ean13(gray), *_detect_rs1d(gray)], max_codes)
     decoded = tuple(item for item in readings if item.decoded)
     if decoded:
         status = "PASS"
@@ -414,6 +607,7 @@ def recognize_codes(image_bgr: object, *, max_codes: int = 16) -> CodeRecognitio
 __all__ = [
     "CodeReading",
     "CodeRecognitionResult",
+    "encode_ean13_payload",
     "encode_rs1d_payload",
     "recognize_codes",
 ]

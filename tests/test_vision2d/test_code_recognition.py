@@ -122,7 +122,7 @@ def test_standard_ean13_handles_rotation_scale_and_noise() -> None:
 def test_standard_ean13_invalid_checksum_is_not_decoded() -> None:
     image = make_ean13("590123412345")
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    gray[gray.shape[0] // 2 :, gray.shape[1] // 2 : gray.shape[1] // 2 + 3] = 255
+    gray[:, 48:51] = 255
     result = recognize_codes(cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR))
 
     assert not any(item.code_type == "ean13" and item.decoded for item in result.readings)
