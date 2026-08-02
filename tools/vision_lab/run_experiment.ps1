@@ -3,7 +3,7 @@ param(
     [Parameter(Mandatory = $true)]
     [ValidateSet(
         'R1-01', 'R1-02', 'R1-05', 'R1-06', 'R1-07',
-        'V1-01', 'V1-02', 'V1-03', 'V1-04', 'V1-05'
+        'V1-01', 'V1-02', 'V1-03', 'V1-04', 'V1-05', 'V1-06'
     )]
     [string]$Experiment,
     [string]$Program,

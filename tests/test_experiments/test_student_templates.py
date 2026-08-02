@@ -53,6 +53,7 @@ TEMPLATES = (
     "v1_03_pose_measurement.py",
     "v1_04_geometry_measurement.py",
     "v1_05_color_shape.py",
+    "v1_06_template_matching.py",
 )
 
 
