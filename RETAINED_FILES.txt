@@ -373,3 +373,9 @@ simulation/vision_code_routing_lab/code_assets/ean_6901234567892.png
 simulation/vision_code_routing_lab/code_assets/ean_6901234567809.png
 simulation/vision_code_routing_lab/code_assets_manifest.json
 tests/test_simulation/test_v1_07_code_assets.py
+tools/vision_lab/build_v1_07_scene.py
+simulation/vision_code_routing_lab/scene_spec.json
+simulation/vision_code_routing_lab/BL23_vision_code_routing_lab.ttt
+simulation/vision_code_routing_lab/scene_manifest.json
+simulation/vision_code_routing_lab/profiles.json
+tests/test_simulation/test_v1_07_scene_contract.py

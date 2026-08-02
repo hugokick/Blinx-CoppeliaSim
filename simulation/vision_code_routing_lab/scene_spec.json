@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "scene_id": "vision-code-routing-lab",
+  "template": "simulation/vision_lab/BL23_vision_lab.ttt",
+  "output": "simulation/vision_code_routing_lab/BL23_vision_code_routing_lab.ttt",
+  "remove_paths": ["/VisionLab"],
+  "root_path": "/VisionCodeRoutingLab",
+  "code_assets_manifest": "simulation/vision_code_routing_lab/code_assets_manifest.json",
+  "profiles": "simulation/vision_code_routing_lab/profiles.json",
+  "workspace": {"alias": "Workspace", "center_mm": [80, 0, 5], "size_mm": [140, 190, 10]},
+  "camera": {"alias": "Camera", "rig_position_m": [0.085, 0.0, 0.5], "orientation_deg": [180, 0, 0], "code_face_plane_z_mm": 27.4},
+  "safe_z_mm": 110,
+  "parts": [
+    {"alias": "part_a", "code_asset_id": "qr_v1_07_a", "position_mm": [40, -45, 18], "size_mm": [34, 34, 16]},
+    {"alias": "part_b", "code_asset_id": "qr_v1_07_b", "position_mm": [80, -45, 18], "size_mm": [34, 34, 16]},
+    {"alias": "part_c", "code_asset_id": "ean_6901234567892", "position_mm": [40, 5, 18], "size_mm": [38, 28, 16]},
+    {"alias": "part_d", "code_asset_id": "ean_6901234567809", "position_mm": [80, 5, 18], "size_mm": [38, 28, 16]}
+  ],
+  "bins": [
+    {"alias": "route_red", "color_rgb": [0.8, 0.15, 0.15], "slots": [{"alias": "red_1", "position_mm": [116, -60, 22]}, {"alias": "red_2", "position_mm": [128, -60, 22]}]},
+    {"alias": "route_blue", "color_rgb": [0.15, 0.3, 0.85], "slots": [{"alias": "blue_1", "position_mm": [116, 60, 22]}, {"alias": "blue_2", "position_mm": [128, 60, 22]}]}
+  ],
+  "reset_contract": {"strategy": "scene_reload", "tool_off": true, "robot_home": true},
+  "required_paths": [
+    "/BLX_base_link", "/BLX_tool_suction", "/VisionCodeRoutingLab", "/VisionCodeRoutingLab/Workspace",
+    "/VisionCodeRoutingLab/CameraRig/Camera", "/VisionCodeRoutingLab/Lighting", "/VisionCodeRoutingLab/Lighting/KeyLight", "/VisionCodeRoutingLab/Lighting/FillLight", "/VisionCodeRoutingLab/Parts",
+    "/VisionCodeRoutingLab/Parts/part_a", "/VisionCodeRoutingLab/Parts/part_a/CodeFace",
+    "/VisionCodeRoutingLab/Parts/part_b", "/VisionCodeRoutingLab/Parts/part_b/CodeFace",
+    "/VisionCodeRoutingLab/Parts/part_c", "/VisionCodeRoutingLab/Parts/part_c/CodeFace",
+    "/VisionCodeRoutingLab/Parts/part_d", "/VisionCodeRoutingLab/Parts/part_d/CodeFace",
+    "/VisionCodeRoutingLab/Bins/route_red", "/VisionCodeRoutingLab/Bins/route_red/red_1", "/VisionCodeRoutingLab/Bins/route_red/red_2",
+    "/VisionCodeRoutingLab/Bins/route_blue", "/VisionCodeRoutingLab/Bins/route_blue/blue_1", "/VisionCodeRoutingLab/Bins/route_blue/blue_2"
+  ]
+}

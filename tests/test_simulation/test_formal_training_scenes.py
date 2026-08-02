@@ -20,6 +20,7 @@ SCENES = (
     ROOT / "simulation" / "robot_basics",
     ROOT / "simulation" / "logistics_lab",
     ROOT / "simulation" / "vision_quality_lab",
+    ROOT / "simulation" / "vision_code_routing_lab",
 )
 VISION_QUALITY = ROOT / "simulation" / "vision_quality_lab"
 PROFILES = VISION_QUALITY / "profiles.json"
@@ -39,6 +40,7 @@ def test_formal_training_scene_contracts_pass():
         "robot-basics",
         "logistics-lab",
         "vision-quality-lab",
+        "vision-code-routing-lab",
     ]
     assert all(item["status"] == "PASS" for item in reports)
 
