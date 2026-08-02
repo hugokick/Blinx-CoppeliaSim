@@ -144,6 +144,13 @@ vision_platform/rgbd_sim/capture.py
 vision_platform/rgbd_sim/depth_model.py
 tests/test_rgbd_sim/test_capture.py
 tests/test_rgbd_sim/test_depth_model.py
+simulation/rgbd_lab/__init__.py
+simulation/rgbd_lab/scene_spec.json
+tools/rgbd_lab/__init__.py
+tools/rgbd_lab/build_rgbd_scene.py
+tools/rgbd_lab/build_rgbd_scene.ps1
+simulation/rgbd_lab/scene_manifest.json
+simulation/rgbd_lab/BL23_rgbd_lab.ttt
 student_programs/README.md
 student_programs/templates/basic_motion.py
 student_programs/templates/pick_and_place.py

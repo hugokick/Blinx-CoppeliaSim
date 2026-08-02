@@ -1,0 +1,129 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-08-02T16:14:52.302776+00:00",
+  "generator": "tools.rgbd_lab.build_rgbd_scene",
+  "port": 23009,
+  "protected_assets_unchanged": true,
+  "template": {
+    "path": "simulation/vision_lab/BL23_vision_lab.ttt",
+    "sha256": "5154dfc3132cd29aafcbe5de83c1a6b61960595681ac5c90d2d92a5b642bda55"
+  },
+  "scene": {
+    "path": "BL23_rgbd_lab.ttt",
+    "sha256": "4ad8f920dde25d21a0973cca336e53c1f5c73a26b72292cb471ba95181cc6f40",
+    "size_bytes": 11602569
+  },
+  "sensor": {
+    "path": "/RgbdLab/CameraRig/RgbdSensor",
+    "resolution": [
+      256,
+      256
+    ],
+    "perspective_angle_deg": 60.0,
+    "near_clip_m": 0.05,
+    "far_clip_m": 5.0,
+    "explicit_handling": true,
+    "perspective": true,
+    "rgb_enabled": true,
+    "depth_enabled": true,
+    "position_m": [
+      0.0,
+      0.0,
+      2.5
+    ],
+    "orientation_quaternion": [
+      1.0,
+      0.0,
+      0.0,
+      0.0
+    ]
+  },
+  "source_depth_model": "optical_z",
+  "required_paths": [
+    "/RgbdLab",
+    "/RgbdLab/CameraRig/RgbdSensor",
+    "/RgbdLab/ReferencePlane",
+    "/RgbdLab/Targets/near_block",
+    "/RgbdLab/Targets/far_block",
+    "/RgbdLab/Targets/step_low",
+    "/RgbdLab/Targets/step_high",
+    "/RgbdLab/ProbeAnchors/center",
+    "/RgbdLab/ProbeAnchors/off_axis_left",
+    "/RgbdLab/ProbeAnchors/off_axis_right"
+  ],
+  "probe_anchors": [
+    {
+      "path": "/RgbdLab/ProbeAnchors/center",
+      "position_m": [
+        0.0,
+        -0.9,
+        0.025
+      ],
+      "pixel": [
+        128,
+        128
+      ],
+      "optical_z_m": 2.475,
+      "ray_range_m": 2.475
+    },
+    {
+      "path": "/RgbdLab/ProbeAnchors/off_axis_left",
+      "position_m": [
+        -0.65,
+        -0.9,
+        0.025
+      ],
+      "pixel": [
+        73,
+        128
+      ],
+      "optical_z_m": 2.475,
+      "ray_range_m": 2.544
+    },
+    {
+      "path": "/RgbdLab/ProbeAnchors/off_axis_right",
+      "position_m": [
+        0.65,
+        -0.9,
+        0.025
+      ],
+      "pixel": [
+        183,
+        128
+      ],
+      "optical_z_m": 2.475,
+      "ray_range_m": 2.544
+    }
+  ],
+  "validation_rois": {
+    "near_block": [
+      72,
+      88,
+      112,
+      128
+    ],
+    "far_block": [
+      144,
+      96,
+      184,
+      128
+    ],
+    "step_low": [
+      72,
+      150,
+      112,
+      184
+    ],
+    "step_high": [
+      144,
+      142,
+      184,
+      184
+    ]
+  },
+  "depth_order": {
+    "near_block_less_than_far_block": true,
+    "step_high_less_than_step_low": true,
+    "minimum_margin_m": 0.05
+  }
+}
