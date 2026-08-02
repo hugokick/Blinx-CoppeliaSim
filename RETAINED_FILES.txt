@@ -128,6 +128,8 @@ simulation/vision_quality_lab/__init__.py
 simulation/vision_quality_lab/profiles.json
 simulation/vision_quality_lab/scene_manifest.json
 simulation/vision_quality_lab/scene_spec.json
+simulation/vision_quality_lab/templates/manifest.json
+simulation/vision_quality_lab/templates/v1_06_reference.png
 student_programs/README.md
 student_programs/templates/basic_motion.py
 student_programs/templates/pick_and_place.py
@@ -210,6 +212,8 @@ tests/test_vision2d/test_preprocessing.py
 tests/test_vision2d/test_segmentation.py
 tests/test_vision2d/test_serialization.py
 tests/test_vision2d/test_synthetic_factory.py
+tests/test_vision2d/test_template_matching.py
+tests/test_simulation/test_v1_06_template_asset.py
 tests/test_vision_platform/test_affine_calibration.py
 tests/test_vision_platform/test_application_close.py
 tests/test_vision_platform/test_calibration_store.py
@@ -257,6 +261,7 @@ tools/vision_lab/run_pyqt.ps1
 tools/vision_lab/run_replay_demo.ps1
 tools/vision_lab/run_student_program.ps1
 tools/vision_lab/run_vision_quality_acceptance.ps1
+tools/vision_lab/generate_v1_06_template.py
 validation/__init__.py
 validation/sim_smoke_check.py
 vision_platform/__init__.py
@@ -331,3 +336,4 @@ vision_platform/vision2d/pipeline.py
 vision_platform/vision2d/preprocessing.py
 vision_platform/vision2d/segmentation.py
 vision_platform/vision2d/serialization.py
+vision_platform/vision2d/template_matching.py

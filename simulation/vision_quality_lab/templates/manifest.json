@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "template_id": "v1_06_red_rectangle",
+  "template_version": "1.0.0",
+  "asset_path": "simulation/vision_quality_lab/templates/v1_06_reference.png",
+  "sha256": "5f09a188e64760f3fe223e15242ca2a6788cd2e7f28e9dc4e12ba0c619b72ecc",
+  "size_px": [
+    48,
+    32
+  ],
+  "channels": 3,
+  "generator": "tools/vision_lab/generate_v1_06_template.py",
+  "source": "deterministic synthetic reference; no camera capture",
+  "method": "TM_CCOEFF_NORMED",
+  "threshold": 0.72,
+  "search_roi_px": [
+    0,
+    0,
+    256,
+    256
+  ]
+}
