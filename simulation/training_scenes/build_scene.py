@@ -500,8 +500,26 @@ def _validate_ocr_assets_manifest(path: Path) -> dict[str, Any]:
         ):
             raise ValueError("OCR label path must be a unique labels-relative path")
         seen_paths.add(raw_path)
-        asset_path = path.parent / Path(raw_path)
-        if not asset_path.is_file() or asset_path.is_symlink():
+        try:
+            manifest_root = path.parent.resolve(strict=True)
+            asset_path = manifest_root / Path(raw_path)
+            resolved_asset = asset_path.resolve(strict=True)
+        except OSError as exc:
+            raise ValueError("OCR label path must be a regular file") from exc
+        if resolved_asset != manifest_root and manifest_root not in resolved_asset.parents:
+            raise ValueError("OCR label path must stay under the manifest directory")
+        current = manifest_root
+        for component in Path(raw_path).parts:
+            current = current / component
+            if current.is_symlink():
+                raise ValueError("OCR label path must not use a symlink")
+            try:
+                attributes = getattr(current.lstat(), "st_file_attributes", 0)
+            except OSError as exc:
+                raise ValueError("OCR label path identity could not be inspected") from exc
+            if attributes & _REPARSE_POINT:
+                raise ValueError("OCR label path must not use a reparse point")
+        if not asset_path.is_file():
             raise ValueError("OCR label path must be a regular file")
         try:
             attributes = getattr(asset_path.lstat(), "st_file_attributes", 0)
