@@ -70,6 +70,18 @@ _TEMPLATE_MATCH_RESULT_FIELDS = frozenset(
         "method",
     }
 )
+_CODE_ROUTE_RESULT_FIELDS = frozenset(
+    {
+        "schema_version",
+        "snapshot_id",
+        "vision_bundle_path",
+        "plan_id",
+        "status",
+        "safe_z_mm",
+        "speed_mm_s",
+        "entries",
+    }
+)
 
 
 def _copy_json_native(value: Any, *, path: str) -> Any:
@@ -245,6 +257,30 @@ class StudentTemplateMatchResult:
     image_size: tuple[int, int]
     search_roi_px: tuple[int, int, int, int]
     method: str
+
+
+@dataclass(frozen=True)
+class StudentCodeRouteEntry:
+    entry_id: str
+    part_id: str
+    code_type: str
+    payload: str
+    route_id: str
+    pick_xyz_mm: tuple[float, float, float]
+    drop_xyz_mm: tuple[float, float, float]
+    confidence: float
+
+
+@dataclass(frozen=True)
+class CodeRoutePlanResult:
+    schema_version: int
+    snapshot_id: str
+    vision_bundle_path: str
+    plan_id: str
+    status: str
+    safe_z_mm: float
+    speed_mm_s: float
+    entries: tuple[StudentCodeRouteEntry, ...]
 
 
 def _freeze_json_native(value: Any) -> Any:
@@ -475,6 +511,100 @@ def _template_match_result(value: Any) -> StudentTemplateMatchResult:
     )
 
 
+def _route_error(field: str) -> RuntimeError:
+    return RuntimeError(f"PROTOCOL_RESPONSE_INVALID: vision2d.code_routes {field}")
+
+
+def _route_number(value: Any, field: str) -> float:
+    if type(value) not in {int, float} or not isfinite(float(value)):
+        raise _route_error(field)
+    return float(value)
+
+
+def _route_vector(value: Any, field: str) -> tuple[float, float, float]:
+    if type(value) is not list or len(value) != 3:
+        raise _route_error(field)
+    return (
+        _route_number(value[0], field),
+        _route_number(value[1], field),
+        _route_number(value[2], field),
+    )
+
+
+def _code_route_result(value: Any) -> CodeRoutePlanResult:
+    if not isinstance(value, Mapping) or set(value) != _CODE_ROUTE_RESULT_FIELDS:
+        raise _route_error("fields")
+    schema_version = value["schema_version"]
+    if type(schema_version) is not int or schema_version != 1:
+        raise _route_error("schema_version")
+    snapshot_id = value["snapshot_id"]
+    if type(snapshot_id) is not str or _SNAPSHOT_ID_PATTERN.fullmatch(snapshot_id) is None:
+        raise _route_error("snapshot_id")
+    bundle = value["vision_bundle_path"]
+    if (
+        type(bundle) is not str
+        or len(bundle) > 80
+        or _VISION_BUNDLE_NAME.fullmatch(bundle) is None
+        or "/" in bundle
+        or "\\" in bundle
+    ):
+        raise _route_error("vision_bundle_path")
+    plan_id = value["plan_id"]
+    if (
+        type(plan_id) is not str
+        or len(plan_id) != 64
+        or any(character not in "0123456789abcdef" for character in plan_id)
+    ):
+        raise _route_error("plan_id")
+    if value["status"] != "PASS":
+        raise _route_error("status")
+    entries_raw = value["entries"]
+    if type(entries_raw) is not list or len(entries_raw) != 4:
+        raise _route_error("entries")
+    entry_fields = {
+        "entry_id", "part_id", "code_type", "payload", "route_id",
+        "pick_xyz_mm", "drop_xyz_mm", "confidence",
+    }
+    identifier_pattern = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,79}\Z")
+    entries: list[StudentCodeRouteEntry] = []
+    for index, raw in enumerate(entries_raw):
+        if not isinstance(raw, Mapping) or set(raw) != entry_fields:
+            raise _route_error(f"entries[{index}].fields")
+        for name in ("entry_id", "part_id", "payload", "route_id"):
+            if type(raw[name]) is not str or identifier_pattern.fullmatch(raw[name]) is None:
+                raise _route_error(name)
+        if type(raw["code_type"]) is not str or raw["code_type"] not in {"qr", "ean13"}:
+            raise _route_error("code_type")
+        confidence = _route_number(raw["confidence"], "confidence")
+        if not 0.0 <= confidence <= 1.0:
+            raise _route_error("confidence")
+        entries.append(
+            StudentCodeRouteEntry(
+                raw["entry_id"], raw["part_id"], raw["code_type"], raw["payload"],
+                raw["route_id"], _route_vector(raw["pick_xyz_mm"], "pick_xyz_mm"),
+                _route_vector(raw["drop_xyz_mm"], "drop_xyz_mm"), confidence,
+            )
+        )
+    safe_z = _route_number(value["safe_z_mm"], "safe_z_mm")
+    speed = _route_number(value["speed_mm_s"], "speed_mm_s")
+    if (
+        len({entry.entry_id for entry in entries}) != 4
+        or len({entry.part_id for entry in entries}) != 4
+        or len({(entry.code_type, entry.payload) for entry in entries}) != 4
+        or len({entry.drop_xyz_mm for entry in entries}) != 4
+        or speed <= 0.0
+        or safe_z <= max(
+            coordinate
+            for entry in entries
+            for coordinate in (entry.pick_xyz_mm[2], entry.drop_xyz_mm[2])
+        )
+    ):
+        raise _route_error("entries")
+    return CodeRoutePlanResult(
+        1, snapshot_id, bundle, plan_id, "PASS", safe_z, speed, tuple(entries)
+    )
+
+
 def _profile_error(field: str) -> RuntimeError:
     return RuntimeError(f"PROTOCOL_RESPONSE_INVALID: camera.profile {field}")
 
@@ -695,6 +825,9 @@ class StudentVision2D:
 
     def template_match(self) -> StudentTemplateMatchResult:
         return _template_match_result(self._rpc.call("vision2d.template_match"))
+
+    def code_routes(self) -> CodeRoutePlanResult:
+        return _code_route_result(self._rpc.call("vision2d.code_routes"))
 
     def match_template(self) -> StudentTemplateMatchResult:
         return self.template_match()
