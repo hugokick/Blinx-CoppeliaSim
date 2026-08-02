@@ -393,6 +393,13 @@ def make_surface_pair(
     if kind == "same_hole":
         cv2.circle(reference, (105, 103), 18, 235, thickness=-1)
         candidate = reference.copy()
+    elif kind == "filled_hole":
+        # A legal reference hole is completely filled by candidate material.
+        # The radius is intentionally about 10 px so the extra foreground is
+        # large enough to exercise the configured foreign-area threshold.
+        cv2.circle(reference, (105, 103), 10, 235, thickness=-1)
+        candidate = reference.copy()
+        cv2.circle(candidate, (105, 103), 10, 48, thickness=-1)
     elif kind == "shifted":
         matrix = np.asarray([[1.0, 0.0, 5.0], [0.0, 1.0, 3.0]], dtype=np.float32)
         candidate = cv2.warpAffine(candidate, matrix, (width, height), borderValue=235)

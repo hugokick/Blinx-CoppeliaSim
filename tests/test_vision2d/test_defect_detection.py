@@ -76,7 +76,7 @@ def test_foreign_component_is_reported() -> None:
     result = detect_surface_defects(reference, candidate)
 
     assert result.status == "PARTIAL"
-    assert "foreign" in {item.defect_type for item in result.defects}
+    assert [item.defect_type for item in result.defects] == ["foreign"]
 
 
 def test_broken_component_is_reported() -> None:
@@ -85,7 +85,20 @@ def test_broken_component_is_reported() -> None:
     result = detect_surface_defects(reference, candidate)
 
     assert result.status == "PARTIAL"
-    assert "broken" in {item.defect_type for item in result.defects}
+    assert [item.defect_type for item in result.defects] == ["broken"]
+
+
+def test_filling_a_legal_reference_hole_reports_only_new_foreign_material() -> None:
+    reference, candidate = make_surface_pair("filled_hole")
+
+    result = detect_surface_defects(reference, candidate)
+
+    assert result.status == "PARTIAL"
+    assert [item.defect_type for item in result.defects] == ["foreign"]
+    finding = result.defects[0]
+    assert finding.area_px2 > 0
+    assert 95 <= finding.bbox_px[0] <= 100
+    assert 93 <= finding.bbox_px[1] <= 98
 
 
 def test_dimension_change_is_reported_using_configured_relative_threshold() -> None:
