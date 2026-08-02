@@ -1,0 +1,606 @@
+{
+  "schema_version": 1,
+  "generator": "tools.vision_lab.generate_ocr_assets",
+  "generator_version": "1.0.0",
+  "seed": 20260802,
+  "alphabet": [
+    "1",
+    "2",
+    "A",
+    "B"
+  ],
+  "training_parameters": {
+    "method": "knn",
+    "test_fraction": 0.25,
+    "seed": 20260802,
+    "variants_per_glyph": 12,
+    "bitmap_size_px": [
+      5,
+      7
+    ],
+    "image_size_px": [
+      64,
+      96
+    ],
+    "channels": 3
+  },
+  "allowed_scene_ids": [
+    "V1-08"
+  ],
+  "training": [
+    {
+      "glyph": "1",
+      "path": "training/1/01.png",
+      "purpose": "training",
+      "size_px": [
+        64,
+        96
+      ],
+      "channels": 3,
+      "sha256": "70e618d9d591a4380348c9c6d35d469516f148dfcd7a3e9b645a93f2188a58ef"
+    },
+    {
+      "glyph": "1",
+      "path": "training/1/02.png",
+      "purpose": "training",
+      "size_px": [
+        64,
+        96
+      ],
+      "channels": 3,
+      "sha256": "2477aa341d01747f469ec7ff0428f314f17f6963b2cd3e0204c9e4ecf97a9a87"
+    },
+    {
+      "glyph": "1",
+      "path": "training/1/03.png",
+      "purpose": "training",
+      "size_px": [
+        64,
+        96
+      ],
+      "channels": 3,
+      "sha256": "8be652f2a12ea5c84c2a27cd1dda3ad55e135f9751b314b96a48c57700e9a18a"
+    },
+    {
+      "glyph": "1",
+      "path": "training/1/04.png",
+      "purpose": "training",
+      "size_px": [
+        64,
+        96
+      ],
+      "channels": 3,
+      "sha256": "868947fab28ccabc5acbdc240267212003fa76b80a00be1cb75d41609f091c9e"
+    },
+    {
+      "glyph": "1",
+      "path": "training/1/05.png",
+      "purpose": "training",
+      "size_px": [
+        64,
+        96
+      ],
+      "channels": 3,
+      "sha256": "52146afc9a812f093ebf238707461d117bc731486b382e308de59b6d249f1f1e"
+    },
+    {
+      "glyph": "1",
+      "path": "training/1/06.png",
+      "purpose": "training",
+      "size_px": [
+        64,
+        96
+      ],
+      "channels": 3,
+      "sha256": "7da0c7cf49136b0d8b61cfcc2b23816df1d5d885a52a684587f788adefdf4c24"
+    },
+    {
+      "glyph": "1",
+      "path": "training/1/07.png",
+      "purpose": "training",
+      "size_px": [
+        64,
+        96
+      ],
+      "channels": 3,
+      "sha256": "4cf1dadb33cfed0ca2a11be215d55e7dccd59b19963e544f615ba3804314698a"
+    },
+    {
+      "glyph": "1",
+      "path": "training/1/08.png",
+      "purpose": "training",
+      "size_px": [
+        64,
+        96
+      ],
+      "channels": 3,
+      "sha256": "87fd0039257061a6fa7948ec189929f119ba6b7c709f0e839a0427475702ffbc"
+    },
+    {
+      "glyph": "1",
+      "path": "training/1/09.png",
+      "purpose": "training",
+      "size_px": [
+        64,
+        96
+      ],
+      "channels": 3,
+      "sha256": "b0c7f985eb5578042c104674e2eb9615403428d2513d0acd6921bcd86153799f"
+    },
+    {
+      "glyph": "1",
+      "path": "training/1/10.png",
+      "purpose": "training",
+      "size_px": [
+        64,
+        96
+      ],
+      "channels": 3,
+      "sha256": "cf9b1657c7f7894bcd71234ec4aa8440cc7b208f3cdf0e2951feb340a42e3726"
+    },
+    {
+      "glyph": "1",
+      "path": "training/1/11.png",
+      "purpose": "training",
+      "size_px": [
+        64,
+        96
+      ],
+      "channels": 3,
+      "sha256": "d714196aac6d68ea0b9cad22fe4e2b10498e41a456f43f25d935d6df314b35c7"
+    },
+    {
+      "glyph": "1",
+      "path": "training/1/12.png",
+      "purpose": "training",
+      "size_px": [
+        64,
+        96
+      ],
+      "channels": 3,
+      "sha256": "10a21a8c4ccacfc234c1e1dc1892f3273f9b850390814ede06d4c2681a5cd928"
+    },
+    {
+      "glyph": "2",
+      "path": "training/2/01.png",
+      "purpose": "training",
+      "size_px": [
+        64,
+        96
+      ],
+      "channels": 3,
+      "sha256": "8295bf7297da375d41436562dc0480999382560a7f9b7f5dd574e0e9e7a91ca9"
+    },
+    {
+      "glyph": "2",
+      "path": "training/2/02.png",
+      "purpose": "training",
+      "size_px": [
+        64,
+        96
+      ],
+      "channels": 3,
+      "sha256": "e23b421bff4bc71add2b192ee3ea8ff3abc05a6999cc6b4f4f16d7fd1485e288"
+    },
+    {
+      "glyph": "2",
+      "path": "training/2/03.png",
+      "purpose": "training",
+      "size_px": [
+        64,
+        96
+      ],
+      "channels": 3,
+      "sha256": "c3b80cb9adc5c807d630ce3ffcaac5514f55254a9ad3ac7ea11ed4a88d67ff7b"
+    },
+    {
+      "glyph": "2",
+      "path": "training/2/04.png",
+      "purpose": "training",
+      "size_px": [
+        64,
+        96
+      ],
+      "channels": 3,
+      "sha256": "f948371c8adfb7e0781567a4bf8240ffad598e78d9f72ca929acb3b6217eb602"
+    },
+    {
+      "glyph": "2",
+      "path": "training/2/05.png",
+      "purpose": "training",
+      "size_px": [
+        64,
+        96
+      ],
+      "channels": 3,
+      "sha256": "04f3402ad13be1ba2a3179be3bd98a991606ae678a4350e8a056f1b99395ddfb"
+    },
+    {
+      "glyph": "2",
+      "path": "training/2/06.png",
+      "purpose": "training",
+      "size_px": [
+        64,
+        96
+      ],
+      "channels": 3,
+      "sha256": "e28d62de7ddf4c78a44c966be07e35ba7dd8a31b18bf9c54a7ae4051c5747763"
+    },
+    {
+      "glyph": "2",
+      "path": "training/2/07.png",
+      "purpose": "training",
+      "size_px": [
+        64,
+        96
+      ],
+      "channels": 3,
+      "sha256": "deb42811cf5e7b8a3c7612e5c380158d5d053c625ffb9d6540776f0b1be64d55"
+    },
+    {
+      "glyph": "2",
+      "path": "training/2/08.png",
+      "purpose": "training",
+      "size_px": [
+        64,
+        96
+      ],
+      "channels": 3,
+      "sha256": "9276677669e2f4e262d87ce90f879ed26b8bb72414525c49387f72bca55b6e92"
+    },
+    {
+      "glyph": "2",
+      "path": "training/2/09.png",
+      "purpose": "training",
+      "size_px": [
+        64,
+        96
+      ],
+      "channels": 3,
+      "sha256": "727b7385c70add5d29cc6978dbec1122ebe9efe08cd5acb0821b10e38a50bff6"
+    },
+    {
+      "glyph": "2",
+      "path": "training/2/10.png",
+      "purpose": "training",
+      "size_px": [
+        64,
+        96
+      ],
+      "channels": 3,
+      "sha256": "274dea9e228fb2fb6b0809a261b4a35ab2c1b940c95b0aebd140e847a22238be"
+    },
+    {
+      "glyph": "2",
+      "path": "training/2/11.png",
+      "purpose": "training",
+      "size_px": [
+        64,
+        96
+      ],
+      "channels": 3,
+      "sha256": "c9498e6122c726818bf98d00924d5975ddff3d3effa9c228022c6aed5ef22598"
+    },
+    {
+      "glyph": "2",
+      "path": "training/2/12.png",
+      "purpose": "training",
+      "size_px": [
+        64,
+        96
+      ],
+      "channels": 3,
+      "sha256": "1a3116484207f06665968282a1f203822e8cc6a1f589a875b727303aef67a987"
+    },
+    {
+      "glyph": "A",
+      "path": "training/A/01.png",
+      "purpose": "training",
+      "size_px": [
+        64,
+        96
+      ],
+      "channels": 3,
+      "sha256": "8b93aaa2c0b8a4f902d5b31c51927595479c272c0fcc02d4ba802a7830863638"
+    },
+    {
+      "glyph": "A",
+      "path": "training/A/02.png",
+      "purpose": "training",
+      "size_px": [
+        64,
+        96
+      ],
+      "channels": 3,
+      "sha256": "1b722d3cc0ba4c489385a00e0cfe6dbe1eac2af11626a8f4023fc98f5d57c0bf"
+    },
+    {
+      "glyph": "A",
+      "path": "training/A/03.png",
+      "purpose": "training",
+      "size_px": [
+        64,
+        96
+      ],
+      "channels": 3,
+      "sha256": "2674cddd042bbd29f9ad388b318b60a737283c7e70cf32fe54c1f43d6de38119"
+    },
+    {
+      "glyph": "A",
+      "path": "training/A/04.png",
+      "purpose": "training",
+      "size_px": [
+        64,
+        96
+      ],
+      "channels": 3,
+      "sha256": "028f7bc2fb1f63e4130789e880ccaa3fb63f1b68c9051aef58e043a6e8ade235"
+    },
+    {
+      "glyph": "A",
+      "path": "training/A/05.png",
+      "purpose": "training",
+      "size_px": [
+        64,
+        96
+      ],
+      "channels": 3,
+      "sha256": "22e0ad9b8fefabd63321f73d8e1dc74ffbf04ddb2b726016ad1fa0dd9ab36d83"
+    },
+    {
+      "glyph": "A",
+      "path": "training/A/06.png",
+      "purpose": "training",
+      "size_px": [
+        64,
+        96
+      ],
+      "channels": 3,
+      "sha256": "e45a502023a18641e6043eeb13e2cba2612b6b72db6dcdb58fe7f996e84684e9"
+    },
+    {
+      "glyph": "A",
+      "path": "training/A/07.png",
+      "purpose": "training",
+      "size_px": [
+        64,
+        96
+      ],
+      "channels": 3,
+      "sha256": "d4bca53bf027052b589429439bb81d861c916b989ca88b2348215fd28921f61c"
+    },
+    {
+      "glyph": "A",
+      "path": "training/A/08.png",
+      "purpose": "training",
+      "size_px": [
+        64,
+        96
+      ],
+      "channels": 3,
+      "sha256": "e21e8dc4ee3b20b5e27faad3168e9b5d87a9ca2254d8436336b4d674f6976f40"
+    },
+    {
+      "glyph": "A",
+      "path": "training/A/09.png",
+      "purpose": "training",
+      "size_px": [
+        64,
+        96
+      ],
+      "channels": 3,
+      "sha256": "979aa5e3319429059ec32bbe06404c89bf81b57fe259232169efdad37c3fbe87"
+    },
+    {
+      "glyph": "A",
+      "path": "training/A/10.png",
+      "purpose": "training",
+      "size_px": [
+        64,
+        96
+      ],
+      "channels": 3,
+      "sha256": "76c9c04ca9ff453630907bdbbf3f681c1c2c23137df68e9b0c95c88327d3c9c9"
+    },
+    {
+      "glyph": "A",
+      "path": "training/A/11.png",
+      "purpose": "training",
+      "size_px": [
+        64,
+        96
+      ],
+      "channels": 3,
+      "sha256": "171111eedaeac4c8130fcc9281b6a1da7af25be5e625ae6ade7562c1307545f9"
+    },
+    {
+      "glyph": "A",
+      "path": "training/A/12.png",
+      "purpose": "training",
+      "size_px": [
+        64,
+        96
+      ],
+      "channels": 3,
+      "sha256": "f3cdbd403ced4de0d98a6cbb1be7d0460a7d4132ecd35712cda93c8b2fae7c8b"
+    },
+    {
+      "glyph": "B",
+      "path": "training/B/01.png",
+      "purpose": "training",
+      "size_px": [
+        64,
+        96
+      ],
+      "channels": 3,
+      "sha256": "366b98afb05d2e18033b7f6cb132128b5659301e3629eb242ed113d06c2779fa"
+    },
+    {
+      "glyph": "B",
+      "path": "training/B/02.png",
+      "purpose": "training",
+      "size_px": [
+        64,
+        96
+      ],
+      "channels": 3,
+      "sha256": "dbc014b02afd5a657d18876624dd75df286972a68bc67c0b246ce72babf5972d"
+    },
+    {
+      "glyph": "B",
+      "path": "training/B/03.png",
+      "purpose": "training",
+      "size_px": [
+        64,
+        96
+      ],
+      "channels": 3,
+      "sha256": "a2a646c9709aaa23b6a4b0d9bef52a732990f64849fd5336769c28938f6b71db"
+    },
+    {
+      "glyph": "B",
+      "path": "training/B/04.png",
+      "purpose": "training",
+      "size_px": [
+        64,
+        96
+      ],
+      "channels": 3,
+      "sha256": "c67fc473f136574180b2abd7f7eb7f9699913fdec4beb3b10cade61dcb2fd241"
+    },
+    {
+      "glyph": "B",
+      "path": "training/B/05.png",
+      "purpose": "training",
+      "size_px": [
+        64,
+        96
+      ],
+      "channels": 3,
+      "sha256": "10238f56c75e3ab34f7e4fe93aea7e940153a594ea911131c5f954e0cd7b158c"
+    },
+    {
+      "glyph": "B",
+      "path": "training/B/06.png",
+      "purpose": "training",
+      "size_px": [
+        64,
+        96
+      ],
+      "channels": 3,
+      "sha256": "48d7508e5e5358a937af3d4ff4896933f7d93fba85a94a332320c3d653b40aee"
+    },
+    {
+      "glyph": "B",
+      "path": "training/B/07.png",
+      "purpose": "training",
+      "size_px": [
+        64,
+        96
+      ],
+      "channels": 3,
+      "sha256": "135c212b55adf57d6fc12de26fbc305b17280fcf91a6d771edd842022ed8ee1d"
+    },
+    {
+      "glyph": "B",
+      "path": "training/B/08.png",
+      "purpose": "training",
+      "size_px": [
+        64,
+        96
+      ],
+      "channels": 3,
+      "sha256": "19f42119822ae7bdc32917c28210209d97c3fe18db7a123e56d5167aa2fc0ccd"
+    },
+    {
+      "glyph": "B",
+      "path": "training/B/09.png",
+      "purpose": "training",
+      "size_px": [
+        64,
+        96
+      ],
+      "channels": 3,
+      "sha256": "e42afff1fd8c59b24cce8208f48d3de2c78ab3755b28781ddb3fc4482e7673db"
+    },
+    {
+      "glyph": "B",
+      "path": "training/B/10.png",
+      "purpose": "training",
+      "size_px": [
+        64,
+        96
+      ],
+      "channels": 3,
+      "sha256": "5aa522acebc05f54713b10d92de1ac5b6581c1bac495f70189889709ee91f16a"
+    },
+    {
+      "glyph": "B",
+      "path": "training/B/11.png",
+      "purpose": "training",
+      "size_px": [
+        64,
+        96
+      ],
+      "channels": 3,
+      "sha256": "00215452fc17122e014b39f224a172434675f33b9f5fe9563dc0ad63dfc17b78"
+    },
+    {
+      "glyph": "B",
+      "path": "training/B/12.png",
+      "purpose": "training",
+      "size_px": [
+        64,
+        96
+      ],
+      "channels": 3,
+      "sha256": "f68364317488589829d638373615dd9ecb2171a22bab6cb0661212b9b9107ecf"
+    }
+  ],
+  "labels": [
+    {
+      "identifier": "A1",
+      "path": "labels/A1.png",
+      "purpose": "scene_label",
+      "size_px": [
+        64,
+        96
+      ],
+      "channels": 3,
+      "sha256": "cb0f77d3461864e853628d5d7a7f5240a889c7ac7a69eec3d8b0a7ceae8d6b97"
+    },
+    {
+      "identifier": "A2",
+      "path": "labels/A2.png",
+      "purpose": "scene_label",
+      "size_px": [
+        64,
+        96
+      ],
+      "channels": 3,
+      "sha256": "f5936395d020a780438646d511630b30b32ae0fd4b8cdddf056a45e3b7fcea3d"
+    },
+    {
+      "identifier": "B1",
+      "path": "labels/B1.png",
+      "purpose": "scene_label",
+      "size_px": [
+        64,
+        96
+      ],
+      "channels": 3,
+      "sha256": "a9293fcab35b9f104dd3e19e295a407166039b45ab9452ab3f03a56bfb76ca2a"
+    },
+    {
+      "identifier": "B2",
+      "path": "labels/B2.png",
+      "purpose": "scene_label",
+      "size_px": [
+        64,
+        96
+      ],
+      "channels": 3,
+      "sha256": "b561aa87e8566dd53254704ec925483895e88c371054e0d9fc9d10f1694ddc01"
+    }
+  ]
+}
