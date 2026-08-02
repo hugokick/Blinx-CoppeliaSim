@@ -341,6 +341,7 @@ def test_released_catalog_preserves_r1_then_appends_v1_in_order():
             "V1-04.json",
             "V1-05.json",
             "V1-06.json",
+            "V1-07.json",
         ],
     }
 

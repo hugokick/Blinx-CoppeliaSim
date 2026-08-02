@@ -211,6 +211,40 @@ V22_VISION_TEMPLATE_REQUIRED_RELEASE_PATHS = frozenset(
     }
 )
 
+V22_V1_07_REQUIRED_RELEASE_PATHS = frozenset(
+    {
+        "config/experiments/V1-07.json",
+        "docs/experiments/V1-07.md",
+        "docs/superpowers/plans/2026-08-02-v1-07-code-routing-plan.md",
+        "docs/superpowers/specs/2026-08-02-v1-07-d1-parallel-coordination-design.md",
+        "simulation/vision_code_routing_lab/BL23_vision_code_routing_lab.ttt",
+        "simulation/vision_code_routing_lab/code_assets/ean_6901234567809.png",
+        "simulation/vision_code_routing_lab/code_assets/ean_6901234567892.png",
+        "simulation/vision_code_routing_lab/code_assets/qr_v1_07_a.png",
+        "simulation/vision_code_routing_lab/code_assets/qr_v1_07_b.png",
+        "simulation/vision_code_routing_lab/code_assets_manifest.json",
+        "simulation/vision_code_routing_lab/profiles.json",
+        "simulation/vision_code_routing_lab/scene_manifest.json",
+        "simulation/vision_code_routing_lab/scene_spec.json",
+        "student_programs/templates/v1_07_code_routing.py",
+        "tests/test_acceptance/test_coppeliasim_v1_07.py",
+        "tests/test_experiments/test_code_routing.py",
+        "tests/test_experiments/test_v1_07_cli.py",
+        "tests/test_simulation/test_v1_07_code_assets.py",
+        "tests/test_simulation/test_v1_07_scene_contract.py",
+        "tests/test_student_programs/test_v1_07_gateway.py",
+        "tests/test_student_programs/test_v1_07_protocol_sdk.py",
+        "tests/test_student_programs/test_v1_07_route_guard.py",
+        "tests/test_vision_platform/test_v1_07_result_panel.py",
+        "tests/test_vision_quality/test_v1_07_materials.py",
+        "tools/vision_lab/build_v1_07_scene.py",
+        "tools/vision_lab/generate_v1_07_code_assets.py",
+        "tools/vision_lab/run_v1_07_code_routing.ps1",
+        "vision_platform/experiments/code_routing.py",
+        "vision_platform/student/code_route_guard.py",
+    }
+)
+
 
 def _retained_release_paths() -> set[str]:
     return {
@@ -902,6 +936,7 @@ def test_formal_experiment_catalog_resolves_every_delivery_path():
         "V1-04",
         "V1-05",
         "V1-06",
+        "V1-07",
     )
     for item in catalog.definitions:
         assert item.scene.is_file()
@@ -956,6 +991,13 @@ def test_retained_files_contains_complete_v1_06_template_delivery():
     )
 
 
+def test_retained_files_contains_complete_v1_07_delivery() -> None:
+    retained = _retained_release_paths()
+    missing = sorted(V22_V1_07_REQUIRED_RELEASE_PATHS - retained)
+    assert not missing, "missing V1-07 paths: " + ", ".join(missing)
+    assert all((ROOT / path).is_file() for path in V22_V1_07_REQUIRED_RELEASE_PATHS)
+
+
 def test_formal_v1_definitions_stay_hardware_pending_without_grading_fields():
     import json
 
@@ -970,7 +1012,15 @@ def test_formal_v1_definitions_stay_hardware_pending_without_grading_fields():
             for nested in value:
                 yield from collect_keys(nested)
 
-    for experiment_id in ("V1-01", "V1-02", "V1-03", "V1-04", "V1-05", "V1-06"):
+    for experiment_id in (
+        "V1-01",
+        "V1-02",
+        "V1-03",
+        "V1-04",
+        "V1-05",
+        "V1-06",
+        "V1-07",
+    ):
         payload = json.loads(
             (ROOT / "config" / "experiments" / f"{experiment_id}.json")
             .read_text(encoding="utf-8")
