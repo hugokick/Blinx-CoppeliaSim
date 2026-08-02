@@ -134,6 +134,7 @@ def test_allowed_commands_are_exactly_the_public_student_api():
             "tool.on",
             "tool.off",
             "vision2d.analyze",
+            "vision2d.template_match",
         }
     )
 

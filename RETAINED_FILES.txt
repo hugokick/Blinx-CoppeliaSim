@@ -16,6 +16,7 @@ config/experiments/V1-02.json
 config/experiments/V1-03.json
 config/experiments/V1-04.json
 config/experiments/V1-05.json
+config/experiments/V1-06.json
 config/experiments/catalog.json
 config/replay_manifest.json
 config/vision_lab.default.json
@@ -33,6 +34,7 @@ docs/experiments/V1-02.md
 docs/experiments/V1-03.md
 docs/experiments/V1-04.md
 docs/experiments/V1-05.md
+docs/experiments/V1-06.md
 docs/superpowers/plans/2026-07-30-coppeliasim-vision-sim-to-real-mvp-plan.md
 docs/superpowers/plans/2026-07-30-student-program-runner-v2-plan.md
 docs/superpowers/plans/2026-07-31-vision2d-algorithm-kernel-plan.md
@@ -44,6 +46,9 @@ docs/superpowers/plans/2026-08-01-vision-quality-platform-v1-01-plan.md
 docs/superpowers/plans/2026-08-02-vision2d-curriculum-integration-plan.md
 docs/superpowers/specs/2026-08-01-vision-quality-platform-v1-01-design.md
 docs/superpowers/specs/2026-08-02-vision2d-curriculum-integration-design.md
+docs/superpowers/plans/2026-08-02-v1-06-template-matching-plan.md
+docs/superpowers/reports/2026-08-02-v1-06-validation-report.md
+docs/superpowers/specs/2026-08-02-v1-06-template-matching-design.md
 docs/superpowers/specs/2026-07-31-vision2d-algorithm-kernel-design.md
 docs/学生自编程实验说明.md
 docs/仿真转真机验证清单.md
@@ -126,6 +131,8 @@ simulation/vision_quality_lab/__init__.py
 simulation/vision_quality_lab/profiles.json
 simulation/vision_quality_lab/scene_manifest.json
 simulation/vision_quality_lab/scene_spec.json
+simulation/vision_quality_lab/templates/manifest.json
+simulation/vision_quality_lab/templates/v1_06_reference.png
 student_programs/README.md
 student_programs/templates/basic_motion.py
 student_programs/templates/pick_and_place.py
@@ -143,6 +150,7 @@ student_programs/templates/v1_02_size_measurement.py
 student_programs/templates/v1_03_pose_measurement.py
 student_programs/templates/v1_04_geometry_measurement.py
 student_programs/templates/v1_05_color_shape.py
+student_programs/templates/v1_06_template_matching.py
 tests/test_acceptance/__init__.py
 tests/test_acceptance/conftest.py
 tests/test_acceptance/test_coppeliasim_calibration.py
@@ -155,6 +163,7 @@ tests/test_acceptance/test_coppeliasim_training_scenes.py
 tests/test_acceptance/test_coppeliasim_v1_01.py
 tests/test_acceptance/test_coppeliasim_v1_02.py
 tests/test_acceptance/test_coppeliasim_v1_03_to_v1_05.py
+tests/test_acceptance/test_coppeliasim_v1_06.py
 tests/test_acceptance/test_coppeliasim_vision_quality_scene.py
 tests/test_acceptance/test_delivery_contract.py
 tests/test_acceptance/test_experiment_guides.py
@@ -208,6 +217,11 @@ tests/test_vision2d/test_preprocessing.py
 tests/test_vision2d/test_segmentation.py
 tests/test_vision2d/test_serialization.py
 tests/test_vision2d/test_synthetic_factory.py
+tests/test_vision2d/test_template_matching.py
+tests/test_simulation/test_v1_06_template_asset.py
+tests/test_simulation/test_v1_06_scene_binding.py
+tests/test_student_programs/test_v1_06_protocol_sdk.py
+tests/test_student_programs/test_v1_06_gateway.py
 tests/test_vision_platform/test_affine_calibration.py
 tests/test_vision_platform/test_application_close.py
 tests/test_vision_platform/test_calibration_store.py
@@ -234,6 +248,7 @@ tests/test_vision_platform/test_session.py
 tests/test_vision_platform/test_student_program_panel.py
 tests/test_vision_platform/test_view_model.py
 tests/test_vision_platform/test_vision_result_panel.py
+tests/test_vision_platform/test_v1_06_result_panel.py
 tests/test_vision_quality/__init__.py
 tests/test_vision_quality/test_catalog.py
 tests/test_vision_quality/test_controller.py
@@ -245,6 +260,7 @@ tests/test_vision_quality/test_v1_02_materials.py
 tests/test_vision_quality/test_v1_03_materials.py
 tests/test_vision_quality/test_v1_04_materials.py
 tests/test_vision_quality/test_v1_05_materials.py
+tests/test_vision_quality/test_v1_06_materials.py
 tools/vision_lab/bootstrap.ps1
 tools/vision_lab/launch_coppeliasim.ps1
 tools/vision_lab/process_ownership.ps1
@@ -255,6 +271,8 @@ tools/vision_lab/run_pyqt.ps1
 tools/vision_lab/run_replay_demo.ps1
 tools/vision_lab/run_student_program.ps1
 tools/vision_lab/run_vision_quality_acceptance.ps1
+tools/vision_lab/generate_v1_06_template.py
+tools/vision_lab/run_v1_06_template_matching.ps1
 validation/__init__.py
 validation/sim_smoke_check.py
 vision_platform/__init__.py
@@ -329,3 +347,4 @@ vision_platform/vision2d/pipeline.py
 vision_platform/vision2d/preprocessing.py
 vision_platform/vision2d/segmentation.py
 vision_platform/vision2d/serialization.py
+vision_platform/vision2d/template_matching.py

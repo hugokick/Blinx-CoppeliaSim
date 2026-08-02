@@ -25,6 +25,13 @@ from vision_platform.vision2d import (
     parse_curriculum_config,
     result_to_dict,
 )
+from vision_platform.vision2d.template_matching import (
+    TemplateMatchConfig,
+    TemplateMatchError,
+    annotate_template_match,
+    match_template,
+    template_match_result_to_dict,
+)
 from vision_platform.vision_quality.controller import controller_for_experiment
 from vision_platform.vision_quality.evidence import record_vision_bundle
 from vision_platform.vision_quality.models import (
@@ -43,6 +50,14 @@ _VISION2D_CAPABILITIES = frozenset(
         "camera.profile",
         "lighting.profile",
         "vision2d.analysis",
+    }
+)
+_TEMPLATE_MATCH_CAPABILITIES = frozenset(
+    {
+        "camera.rgb",
+        "camera.profile",
+        "lighting.profile",
+        "vision2d.template_matching",
     }
 )
 
@@ -132,6 +147,60 @@ def _sha256(path: Path) -> str:
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _template_root(scene_manifest_path: Path) -> Path:
+    """Return the bounded root from which fixed template files may load."""
+
+    resolved = scene_manifest_path.expanduser().resolve()
+    for parent in (resolved.parent, *resolved.parents):
+        if parent.name.casefold() == "simulation":
+            return parent.parent.resolve()
+    return resolved.parent
+
+
+def _path_is_under(path: Path, root: Path) -> bool:
+    try:
+        path.relative_to(root)
+    except ValueError:
+        return False
+    return True
+
+
+def _safe_template_file(path: Path, root: Path) -> Path:
+    candidate = path.expanduser()
+    if not candidate.is_absolute():
+        candidate = candidate.absolute()
+    bounded_root = root.expanduser().resolve()
+    if not _path_is_under(candidate, bounded_root):
+        raise ValueError("template path is outside the allowed template root")
+
+    current = candidate
+    while True:
+        if current.is_symlink():
+            raise ValueError("template path cannot use a symlink")
+        if current == bounded_root or current.parent == current:
+            break
+        current = current.parent
+
+    resolved = candidate.resolve(strict=True)
+    if not resolved.is_file() or not _path_is_under(resolved, bounded_root):
+        raise ValueError("template path is outside the allowed template root")
+    if resolved != candidate:
+        raise ValueError("template path cannot resolve through a link")
+    return resolved
+
+
+def _find_template_file(base_dir: Path, relative_path: Path, root: Path) -> Path:
+    bounded_root = root.expanduser().resolve()
+    for parent in (base_dir.expanduser().resolve(), *base_dir.expanduser().resolve().parents):
+        candidate = parent / relative_path
+        if not candidate.exists() and not candidate.is_symlink():
+            continue
+        if not _path_is_under(parent, bounded_root):
+            return _safe_template_file(candidate, bounded_root)
+        return _safe_template_file(candidate, bounded_root)
+    raise FileNotFoundError(f"template file was not found: {relative_path}")
 
 
 def _invalid_binding(reason: str) -> VisionPlatformError:
@@ -419,6 +488,9 @@ class StudentExperimentGateway:
         if name == "vision2d.analyze":
             self._require_exact_args(name, args, ())
             return self._analyze_vision2d()
+        if name == "vision2d.template_match":
+            self._require_exact_args(name, args, ())
+            return self._template_match()
         raise ValueError(f"COMMAND_NOT_ALLOWED: {name}")
 
     @staticmethod
@@ -698,6 +770,187 @@ class StudentExperimentGateway:
             "rejected_targets": result["rejected_targets"],
         }
         public = _copy_json_native(response, path="vision2d.analyze")
+        assert isinstance(public, dict)
+        return public
+
+    def _template_profiles_required(self) -> Any:
+        if not _TEMPLATE_MATCH_CAPABILITIES <= set(self._definition.capabilities):
+            raise VisionPlatformError(
+                "VISION_TEMPLATE_CONTEXT_REQUIRED",
+                "当前实验没有受控模板匹配能力",
+            )
+        return self._profiles_required()
+
+    def _resolve_catalog_path(self, relative_path: str) -> Path:
+        selected = Path(relative_path)
+        if selected.is_absolute() or any(part in {".", ".."} for part in selected.parts):
+            raise ValueError("template catalog path must be a safe relative path")
+        manifest_path = self._definition.scene_manifest.expanduser().resolve()
+        return _find_template_file(
+            manifest_path.parent,
+            selected,
+            _template_root(manifest_path),
+        )
+
+    def _template_asset(self) -> tuple[np.ndarray, TemplateMatchConfig, dict[str, Any]]:
+        binding = self._scene_manifest.get("template_catalog")
+        if not isinstance(binding, Mapping) or set(binding) != {"path", "sha256"}:
+            raise VisionPlatformError(
+                "VISION_TEMPLATE_ASSET_INVALID",
+                "场景清单没有完整模板清单绑定",
+            )
+        catalog_path_value = binding.get("path")
+        catalog_hash = binding.get("sha256")
+        if (
+            type(catalog_path_value) is not str
+            or not catalog_path_value
+            or type(catalog_hash) is not str
+            or len(catalog_hash) != 64
+            or any(character not in "0123456789abcdef" for character in catalog_hash)
+        ):
+            raise VisionPlatformError(
+                "VISION_TEMPLATE_ASSET_INVALID",
+                "模板清单绑定格式无效",
+            )
+        try:
+            catalog_path = self._resolve_catalog_path(catalog_path_value)
+            catalog_bytes = catalog_path.read_bytes()
+            if _sha256(catalog_path) != catalog_hash:
+                raise ValueError("template catalog hash mismatch")
+            catalog = json.loads(catalog_bytes.decode("utf-8"))
+            if not isinstance(catalog, Mapping):
+                raise ValueError("template catalog must be a mapping")
+            required = {
+                "schema_version",
+                "template_id",
+                "template_version",
+                "asset_path",
+                "sha256",
+                "size_px",
+                "channels",
+                "method",
+                "threshold",
+                "search_roi_px",
+            }
+            if not required <= set(catalog):
+                raise ValueError("template catalog fields are incomplete")
+            asset_path_value = catalog["asset_path"]
+            if type(asset_path_value) is not str or not asset_path_value:
+                raise ValueError("template asset path is invalid")
+            asset_relative = Path(asset_path_value)
+            if asset_relative.is_absolute() or any(
+                part in {".", ".."} for part in asset_relative.parts
+            ):
+                raise ValueError("template asset path is unsafe")
+            asset_path = _find_template_file(
+                catalog_path.parent,
+                asset_relative,
+                _template_root(self._definition.scene_manifest),
+            )
+            if _sha256(asset_path) != catalog["sha256"]:
+                raise ValueError("template asset hash mismatch")
+            image = cv2.imread(str(asset_path), cv2.IMREAD_COLOR)
+            if image is None or image.dtype != np.uint8 or image.ndim != 3 or image.shape[2] != 3:
+                raise ValueError("template asset is not an 8-bit BGR image")
+            size_px = catalog["size_px"]
+            if (
+                type(size_px) is not list
+                or len(size_px) != 2
+                or any(type(value) is not int for value in size_px)
+                or [image.shape[1], image.shape[0]] != size_px
+                or catalog["channels"] != 3
+            ):
+                raise ValueError("template asset dimensions do not match catalog")
+            config = TemplateMatchConfig(
+                template_id=catalog["template_id"],
+                template_version=catalog["template_version"],
+                threshold=catalog["threshold"],
+                search_roi_px=tuple(catalog["search_roi_px"]),
+                method=catalog["method"],
+            )
+            return image, config, {
+                "template_id": config.template_id,
+                "template_version": config.template_version,
+                "method": config.method,
+                "threshold": config.threshold,
+                "search_roi_px": list(config.search_roi_px),
+                "sha256": catalog["sha256"],
+            }
+        except VisionPlatformError:
+            raise
+        except Exception as error:
+            raise VisionPlatformError(
+                "VISION_TEMPLATE_ASSET_INVALID",
+                "固定模板资产校验失败",
+                details={"error_type": type(error).__name__},
+            ) from error
+
+    def _template_match(self) -> dict[str, Any]:
+        profile = self._profile_public(
+            self._template_profiles_required().current(),
+            path="vision2d.template_match.profile",
+        )
+        resolution = profile.get("resolution")
+        if (
+            type(resolution) is not list
+            or len(resolution) != 2
+            or any(type(component) is not int for component in resolution)
+        ):
+            raise VisionPlatformError(
+                "VISION_TEMPLATE_PROFILE_MISMATCH",
+                "当前视觉配置没有有效分辨率",
+            )
+        template, config, template_public = self._template_asset()
+        recorded = self._capture_raw(profile)
+        try:
+            result = match_template(recorded.image_bgr, template, config)
+            annotated = annotate_template_match(recorded.image_bgr, result)
+        except TemplateMatchError as error:
+            raise VisionPlatformError(
+                error.code,
+                "模板匹配执行失败",
+                details={"error_type": type(error).__name__},
+            ) from error
+        result_dict = template_match_result_to_dict(result)
+        snapshot_id = recorded.value["snapshot_id"]
+        result_dict["snapshot_id"] = snapshot_id
+        bundle = VisionResultBundle(
+            schema_version=1,
+            bundle_id=f"{self.context.experiment_id}-{snapshot_id}",
+            experiment_id=self.context.experiment_id,
+            source_snapshot_id=snapshot_id,
+            status="PASS" if result.matched else "PARTIAL",
+            layers=(
+                VisionImageLayer("raw", "原图", recorded.image_bgr),
+                VisionImageLayer("template", "固定模板", template),
+                VisionImageLayer("annotated", "模板匹配标注", annotated),
+            ),
+            result=result_dict,
+            profile={**profile, "template": template_public},
+            hardware_status="PENDING_HARDWARE",
+        )
+        bundle_path = record_vision_bundle(
+            self.evidence,
+            bundle,
+            existing_layer_records={"raw": recorded.record},
+        )
+        response = {
+            "schema_version": result.schema_version,
+            "snapshot_id": snapshot_id,
+            "vision_bundle_path": bundle_path,
+            "template_id": result.template_id,
+            "template_version": result.template_version,
+            "matched": result.matched,
+            "status": result.status,
+            "score": result.score,
+            "threshold": result.threshold,
+            "bbox_px": list(result.bbox_px) if result.bbox_px is not None else None,
+            "center_px": list(result.center_px) if result.center_px is not None else None,
+            "image_size": list(result.image_size),
+            "search_roi_px": list(result.search_roi_px),
+            "method": result.method,
+        }
+        public = _copy_json_native(response, path="vision2d.template_match")
         assert isinstance(public, dict)
         return public
 

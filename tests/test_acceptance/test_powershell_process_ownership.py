@@ -693,7 +693,7 @@ def test_experiment_launcher_publishes_all_formal_v1_ids_and_rejects_unknown():
     source = EXPERIMENT_LAUNCHER.read_text(encoding="utf-8")
 
     validate_set = source.split("[ValidateSet(", 1)[1].split(")]", 1)[0]
-    for experiment_id in ("V1-01", "V1-02", "V1-03", "V1-04", "V1-05"):
+    for experiment_id in ("V1-01", "V1-02", "V1-03", "V1-04", "V1-05", "V1-06"):
         assert f"'{experiment_id}'" in validate_set
 
     completed = subprocess.run(
@@ -729,6 +729,7 @@ def test_vision_quality_acceptance_wrapper_is_fail_closed_and_owned():
     assert "test_coppeliasim_v1_01.py" in source
     assert "test_coppeliasim_v1_02.py" in source
     assert "test_coppeliasim_v1_03_to_v1_05.py" in source
+    assert "test_coppeliasim_v1_06.py" in source
     assert '"--junitxml"' in source
     assert "Assert-JUnitNoSkips" in source
     assert "$Skipped -ne 0" in source
@@ -740,7 +741,8 @@ def test_vision_quality_acceptance_wrapper_is_fail_closed_and_owned():
     assert '"V1-03"' in source
     assert '"V1-04"' in source
     assert '"V1-05"' in source
-    assert "-ExpectedTests 6" in source
+    assert '"V1-06"' in source
+    assert "-ExpectedTests 7" in source
     assert "Wait-Process" in source
     assert "-Timeout $TimeoutSeconds" in source
     assert "Stop-StartedProcessObject" in source

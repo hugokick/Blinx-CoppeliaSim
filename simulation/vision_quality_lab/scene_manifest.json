@@ -31,5 +31,9 @@
   "profile_catalog": {
     "path": "simulation/vision_quality_lab/profiles.json",
     "sha256": "795190fa66e96d11005c1c5977804b80f7e862b304cf2014e366212ff0b92efe"
+  },
+  "template_catalog": {
+    "path": "simulation/vision_quality_lab/templates/manifest.json",
+    "sha256": "2ea98d8b3842d39b3be2e891da9ed54d7154e66c3661b991033d2e467b177f8f"
   }
 }

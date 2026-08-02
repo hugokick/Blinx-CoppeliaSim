@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string]$OutputDir = "artifacts\vision_lab\v2-2-c1-v1-02-to-v1-05",
+    [string]$OutputDir = "artifacts\vision_lab\v2-2-v1-06",
     [string]$CoppeliaRoot = $(if ($env:COPPELIASIM_ROOT) {
         $env:COPPELIASIM_ROOT
     } else {
@@ -747,6 +747,7 @@ try {
             "tests/test_acceptance/test_coppeliasim_v1_01.py",
             "tests/test_acceptance/test_coppeliasim_v1_02.py",
             "tests/test_acceptance/test_coppeliasim_v1_03_to_v1_05.py",
+            "tests/test_acceptance/test_coppeliasim_v1_06.py",
             "-m", "coppeliasim",
             "--coppelia-host", $HostAddress,
             "--coppelia-port", [string]$Port,
@@ -756,7 +757,7 @@ try {
     Assert-JUnitNoSkips `
         -Name "vision_quality_online" `
         -Path $JUnitPath `
-        -ExpectedTests 6
+        -ExpectedTests 7
 
     $ExperimentOutput = Join-Path $OutputDir "experiment-runs"
     $ExperimentPayloads["V1-01"] = Invoke-CheckedExperiment `
@@ -778,6 +779,10 @@ try {
     $ExperimentPayloads["V1-05"] = Invoke-CheckedExperiment `
         -ExperimentId "V1-05" `
         -StepName "v1_05_experiment_run" `
+        -ExperimentOutput $ExperimentOutput
+    $ExperimentPayloads["V1-06"] = Invoke-CheckedExperiment `
+        -ExperimentId "V1-06" `
+        -StepName "v1_06_experiment_run" `
         -ExperimentOutput $ExperimentOutput
 } catch {
     $FailureMessage = $_.Exception.Message
@@ -895,6 +900,13 @@ try {
                     $null
                 }
             )
+            "V1-06" = $(
+                if ($ExperimentPayloads["V1-06"]) {
+                    $ExperimentPayloads["V1-06"].summary
+                } else {
+                    $null
+                }
+            )
         }
         experiment_evidence_by_id = [ordered]@{
             "V1-01" = $(
@@ -928,6 +940,13 @@ try {
             "V1-05" = $(
                 if ($ExperimentPayloads["V1-05"]) {
                     $ExperimentPayloads["V1-05"].evidence
+                } else {
+                    $null
+                }
+            )
+            "V1-06" = $(
+                if ($ExperimentPayloads["V1-06"]) {
+                    $ExperimentPayloads["V1-06"].evidence
                 } else {
                     $null
                 }

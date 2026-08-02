@@ -88,6 +88,7 @@ class VisionResultPanel(QWidget):
         self.profile_label = QLabel("配置档：—")
         self.metrics_label = QLabel("结果状态：—　图层：0")
         self.profile_label.setWordWrap(True)
+        self.metrics_label.setWordWrap(True)
         self.profile_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.metrics_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
         metadata_layout.addWidget(self.profile_label, 0, 0, 1, 2)
@@ -310,9 +311,20 @@ class VisionResultPanel(QWidget):
             f"视场角：{angle_text}　相机高度：{height_text}　"
             f"主光 RGB：{key_light_text}　补光 RGB：{fill_light_text}"
         )
-        self.metrics_label.setText(
-            f"结果状态：{bundle['status']}　图层：{len(layers)}"
-        )
+        metrics = f"结果状态：{bundle['status']}　图层：{len(layers)}"
+        result = bundle.get("result")
+        if isinstance(result, dict) and result.get("template_id"):
+            template_id = result["template_id"]
+            score = self._format_number(result.get("score"), digits=3, suffix="")
+            bbox = result.get("bbox_px")
+            center = result.get("center_px")
+            bbox_text = self._format_sequence(bbox, digits=0)
+            center_text = self._format_sequence(center, digits=1)
+            metrics += (
+                f"　模板：{template_id}　分数：{score}"
+                f"　框：{bbox_text}　中心：{center_text}"
+            )
+        self.metrics_label.setText(metrics)
         public_bundle = {
             key: value
             for key, value in bundle.items()
@@ -349,6 +361,15 @@ class VisionResultPanel(QWidget):
         if not isinstance(value, list) or len(value) != 3:
             return "—"
         parts = [cls._format_number(item, digits=2, suffix="") for item in value]
+        if "—" in parts:
+            return "—"
+        return ", ".join(parts)
+
+    @classmethod
+    def _format_sequence(cls, value: Any, *, digits: int) -> str:
+        if not isinstance(value, list) or not value:
+            return "—"
+        parts = [cls._format_number(item, digits=digits, suffix="") for item in value]
         if "—" in parts:
             return "—"
         return ", ".join(parts)
