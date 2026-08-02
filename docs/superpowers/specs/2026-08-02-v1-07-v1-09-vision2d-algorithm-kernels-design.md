@@ -52,7 +52,7 @@ recognize_codes(image_bgr, *, max_codes=16) -> CodeRecognitionResult
 `CodeReading` 为不可变对象，字段为：
 
 ```text
-code_type: "qr" | "rs1d"
+code_type: "qr" | "ean13" | "rs1d"
 data: str | None
 polygon_px: tuple[tuple[float, float], ...]  # 原图坐标，顺时针
 bbox_px: (x, y, width, height)
@@ -73,7 +73,15 @@ failure_code: str | None
 `QRCodeEncoder_create` 在进程内生成并添加白色静区、旋转、缩放、亮度变化和高斯
 噪声。调用者只能得到检测器给出的四边形原图坐标；空字符串不能伪装为成功解码。
 
-### 2.3 原创一维 RS1D 路径
+### 2.3 标准 EAN-13 路径
+
+使用项目内实现的 EAN-13 编码表、起始/中间/结束 guard、左右侧 L/G/R
+patterns 和标准校验位。`encode_ean13_payload` 只生成 12 位加校验位或校验
+正确的 13 位十进制 payload，测试夹具在内存中生成原创条码并覆盖缩放、旋转、
+亮度、噪声和错误校验位。解码器先恢复 95 个 module，再验证 guard、左右编码、
+首位 parity 和 EAN-13 checksum；通过校验的结果才返回 `code_type="ean13"`。
+
+### 2.4 原创一维 RS1D 路径
 
 项目定义一个明确标注为教学/测试用途的 `RS1D` 码制，不声称兼容 Code128、EAN
 或任何商业条码。编码器 `encode_rs1d_payload` 只用于可复现测试夹具和算法回归：
@@ -90,8 +98,8 @@ quiet zone | 4-module start guard | bit bars | 4-module stop guard | quiet zone
 只保留一次。模块、最大 payload 和扫描角度都有常量上限，防止异常输入导致无限
 搜索。
 
-若某一真实商业一维码不能被该自有格式表示，结果文档必须把原因写成
-`RS1D_FORMAT_ONLY`，而不是声称完成商业条码兼容。
+RS1D 只作为项目原创教学格式，不替代标准 EAN-13；若输入是其它真实商业一维码，
+结果文档必须明确说明不在支持范围，而不是声称完成商业条码兼容。
 
 ## 3. V1-08 OCR
 

@@ -7,7 +7,7 @@
 
 **Goal:** Starting from `origin/main` at
 `9af91087d29cf3186ef84f3528c5f4c495b1ff71`, deliver isolated, deterministic,
-pure二维 V1-07 QR/RS1D code recognition, V1-08 OCR, and V1-09 surface-defect
+pure二维 V1-07 QR/EAN-13/RS1D code recognition, V1-08 OCR, and V1-09 surface-defect
 detection kernels with original synthetic tests. Do not perform formal course
 integration.
 
@@ -69,9 +69,10 @@ git commit -m "docs(vision2d): design v1-07 to v1-09 kernels"
 - Create `tests/test_vision2d/synthetic_v107_v109.py`.
 - Create `tests/test_vision2d/test_code_recognition.py`.
 
-The test fixture must generate QR images with OpenCV's in-process encoder and
-RS1D images with a documented original bit-bar encoder. It must support scale,
-rotation, brightness and seeded noise without writing files.
+The test fixture must generate QR images with OpenCV's in-process encoder,
+standards-shaped EAN-13 images with the project-owned encoding tables, and RS1D
+images with a documented original bit-bar encoder. It must support scale,
+rotation, brightness, checksum failure and seeded noise without writing files.
 
 RED steps:
 
@@ -80,8 +81,9 @@ RED steps:
 2. Add multi-QR, rotated/scaled/noisy QR, blank, damaged and invalid-input tests.
    A damaged code must produce `PARTIAL`/`NO_TARGETS` with a non-success failure
    signal; it may not be silently skipped.
-3. Add RS1D round-trip, rotated/scaled/noisy, multiple-code, checksum failure,
-   unsupported-commercial-format boundary, blank and invalid-input tests.
+3. Add standard EAN-13 round-trip, rotated/scaled/noisy, checksum validation,
+   RS1D round-trip, rotated/scaled/noisy, multiple-code, unsupported-format
+   boundary, blank and invalid-input tests. RS1D must not stand in for EAN-13.
 4. Add deterministic duplicate suppression, finite confidence/bbox assertions,
    maximum-code bound and a performance smoke assertion that only checks finite
    elapsed time.
@@ -107,9 +109,10 @@ Implementation steps:
 2. Implement QR single/multi detection using OpenCV 4.14, preserving detector
    polygons in original coordinates and returning `PARTIAL` for located-but-
    undecoded points.
-3. Implement `encode_rs1d_payload` and bounded RS1D decoding: quiet zone,
-   start/stop guards, magic/length/checksum validation, fixed angle search,
-   row run-length parsing, inverse coordinate mapping, duplicate suppression.
+3. Implement standard `encode_ean13_payload`/EAN-13 decoding with 95-module
+   guard/parity/checksum validation, then bounded `encode_rs1d_payload` decoding
+   with magic/length/checksum validation, fixed angle search, row run-length
+   parsing, inverse coordinate mapping and duplicate suppression.
 4. Ensure all outputs are JSON-like/finitely bounded except immutable tuples,
    and no code path reads a path, imports a network dependency, or silently
    falls back to a different barcode standard.
