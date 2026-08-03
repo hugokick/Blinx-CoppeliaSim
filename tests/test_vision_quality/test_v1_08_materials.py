@@ -125,6 +125,58 @@ def test_v1_08_template_calls_host_commands_only_in_safe_order() -> None:
     assert "docs/experiments/V1-08.md" in source or "V1-08.md" in source
 
 
+def test_v1_08_template_executes_against_typed_sdk_results() -> None:
+    payload = _definition()
+    source = (ROOT / payload["student_template"]).read_text(encoding="utf-8")
+    namespace: dict[str, object] = {}
+    exec(compile(source, str(ROOT / payload["student_template"]), "exec"), namespace)
+
+    class Vision:
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        def ocr_sorting(self):
+            self.calls.append("ocr_sorting")
+            return type(
+                "TypedRecognition",
+                (),
+                {
+                    "status": "PASS",
+                    "entries": tuple(
+                        type(
+                            "TypedEntry",
+                            (),
+                            {
+                                "entry_id": entry_id,
+                                "status": "APPROVED",
+                            },
+                        )()
+                        for entry_id in EXPECTED_ENTRIES
+                    ),
+                },
+            )()
+
+        def sort_ocr_entry(self, entry_id: str):
+            self.calls.append(entry_id)
+            return type("TypedReceipt", (), {"status": "COMPLETED"})()
+
+    class Context:
+        def __init__(self) -> None:
+            self.vision2d = Vision()
+            self.messages: list[str] = []
+
+        def log(self, message: str) -> None:
+            self.messages.append(message)
+
+        def checkpoint(self, message: str) -> None:
+            self.messages.append(message)
+
+    context = Context()
+    namespace["main"](context)
+    assert context.vision2d.calls == ["ocr_sorting", *EXPECTED_ENTRIES]
+    assert ".get(" not in source
+
+
 def test_v1_08_guide_is_chinese_and_preserves_pending_acceptance_boundaries() -> None:
     guide = (ROOT / "docs" / "experiments" / "V1-08.md").read_text(
         encoding="utf-8"
