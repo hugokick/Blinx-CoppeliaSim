@@ -1,0 +1,101 @@
+{
+  "assets": [
+    {
+      "asset_id": "reference",
+      "generator": "tools.vision_lab.generate_v1_09_defect_assets",
+      "generator_version": "1.0.0",
+      "path": "assets/reference.png",
+      "purpose": "fixed reference surface",
+      "sha256": "5ea646d8660d6180b4b2a24515edb40031085b0387d169abef4afe29c1c0a4c0",
+      "size_px": [
+        256,
+        256
+      ],
+      "source": "project-original-generated"
+    },
+    {
+      "asset_id": "entry_a",
+      "generator": "tools.vision_lab.generate_v1_09_defect_assets",
+      "generator_version": "1.0.0",
+      "path": "assets/candidate_a.png",
+      "purpose": "qualified candidate surface",
+      "sha256": "5ea646d8660d6180b4b2a24515edb40031085b0387d169abef4afe29c1c0a4c0",
+      "size_px": [
+        256,
+        256
+      ],
+      "source": "project-original-generated"
+    },
+    {
+      "asset_id": "entry_b",
+      "generator": "tools.vision_lab.generate_v1_09_defect_assets",
+      "generator_version": "1.0.0",
+      "path": "assets/candidate_b.png",
+      "purpose": "edge-removal candidate surface",
+      "sha256": "b87d90a2e98896b9640260729094dac5277b94ea26f27d3fc62295c22fc10262",
+      "size_px": [
+        256,
+        256
+      ],
+      "source": "project-original-generated"
+    },
+    {
+      "asset_id": "entry_c",
+      "generator": "tools.vision_lab.generate_v1_09_defect_assets",
+      "generator_version": "1.0.0",
+      "path": "assets/candidate_c.png",
+      "purpose": "enclosed-void candidate surface",
+      "sha256": "d2966a3a2723fc60e142847652d201248190a70a7f12c8cb826c89fef8aab77c",
+      "size_px": [
+        256,
+        256
+      ],
+      "source": "project-original-generated"
+    },
+    {
+      "asset_id": "entry_d",
+      "generator": "tools.vision_lab.generate_v1_09_defect_assets",
+      "generator_version": "1.0.0",
+      "path": "assets/candidate_d.png",
+      "purpose": "separated-component candidate surface",
+      "sha256": "d9de3378fcacef4af3cc33e0dc14d62f088c0a812fda3a9a15ca0a800fa45417",
+      "size_px": [
+        256,
+        256
+      ],
+      "source": "project-original-generated"
+    },
+    {
+      "asset_id": "entry_e",
+      "generator": "tools.vision_lab.generate_v1_09_defect_assets",
+      "generator_version": "1.0.0",
+      "path": "assets/candidate_e.png",
+      "purpose": "split-subject candidate surface",
+      "sha256": "6fb04c607dd9903f0a3c315b01a2f033ba8948a604ffe9c1a53dee4ddccb5bb4",
+      "size_px": [
+        256,
+        256
+      ],
+      "source": "project-original-generated"
+    },
+    {
+      "asset_id": "entry_f",
+      "generator": "tools.vision_lab.generate_v1_09_defect_assets",
+      "generator_version": "1.0.0",
+      "path": "assets/candidate_f.png",
+      "purpose": "principal-dimension candidate surface",
+      "sha256": "e369b3c526d3c0ca7598bde09d4066282d419ca7471b8b04101114a286e57773",
+      "size_px": [
+        256,
+        256
+      ],
+      "source": "project-original-generated"
+    }
+  ],
+  "generator": "tools.vision_lab.generate_v1_09_defect_assets",
+  "generator_version": "1.0.0",
+  "scene_id": "V1-09",
+  "schema_version": 1,
+  "seed": 20260803,
+  "source": "project-original-generated"
+}
