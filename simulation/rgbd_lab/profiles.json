@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "baseline_profile_id": "standard",
+  "sensor_path": "/RgbdLab/CameraRig/RgbdSensor",
+  "profiles": [
+    {
+      "profile_id": "standard",
+      "label": "RGB-D 仿真标准视图",
+      "resolution": [256, 256],
+      "perspective_angle_deg": 60.0,
+      "near_clip_m": 0.05,
+      "far_clip_m": 5.0,
+      "explicit_handling": true,
+      "perspective": true,
+      "rgb_enabled": true,
+      "depth_enabled": true,
+      "expected_source_depth_model": "optical_z",
+      "depth_unit": "metre",
+      "pixel_center_convention": "integer_center_top_left_zero"
+    }
+  ]
+}

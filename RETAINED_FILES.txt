@@ -165,6 +165,7 @@ tools/rgbd_lab/build_rgbd_scene.py
 tools/rgbd_lab/build_rgbd_scene.ps1
 tools/rgbd_lab/listener_identity.ps1
 simulation/rgbd_lab/scene_manifest.json
+simulation/rgbd_lab/profiles.json
 simulation/rgbd_lab/BL23_rgbd_lab.ttt
 student_programs/README.md
 student_programs/templates/basic_motion.py
