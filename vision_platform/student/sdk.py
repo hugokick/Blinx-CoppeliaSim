@@ -82,6 +82,34 @@ _CODE_ROUTE_RESULT_FIELDS = frozenset(
         "entries",
     }
 )
+_OCR_SORTING_RESULT_FIELDS = frozenset(
+    {
+        "schema_version",
+        "snapshot_id",
+        "vision_bundle_path",
+        "manifest_sha256",
+        "scene_id",
+        "status",
+        "training",
+        "entries",
+        "plan_id",
+        "safe_z_mm",
+        "speed_mm_s",
+        "evidence",
+        "hardware_status",
+    }
+)
+_OCR_TRAINING_FIELDS = frozenset(
+    {"train_count", "test_count", "held_out_accuracy", "seed"}
+)
+_OCR_ENTRY_FIELDS = frozenset(
+    {"entry_id", "part_id", "identifier", "route_id", "roi_px", "confidence", "status"}
+)
+_OCR_EVIDENCE_FIELDS = frozenset({"raw_path", "annotated_path", "bundle_path"})
+_OCR_RECEIPT_FIELDS = frozenset(
+    {"schema_version", "entry_id", "status", "plan_id", "run_id", "evidence_id", "hardware_status"}
+)
+_ENTRY_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,79}\Z")
 
 
 def _copy_json_native(value: Any, *, path: str) -> Any:
@@ -281,6 +309,101 @@ class CodeRoutePlanResult:
     safe_z_mm: float
     speed_mm_s: float
     entries: tuple[StudentCodeRouteEntry, ...]
+
+
+@dataclass(frozen=True)
+class StudentOcrTrainingReport:
+    train_count: int
+    test_count: int
+    held_out_accuracy: float
+    seed: int
+
+
+@dataclass(frozen=True)
+class StudentOcrEntry:
+    entry_id: str
+    part_id: str
+    identifier: str
+    route_id: str
+    roi_px: tuple[int, int, int, int]
+    confidence: float
+    status: str
+
+
+@dataclass(frozen=True)
+class StudentOcrSortingResult:
+    schema_version: int
+    snapshot_id: str
+    vision_bundle_path: str
+    manifest_sha256: str
+    scene_id: str
+    status: str
+    training: StudentOcrTrainingReport
+    entries: tuple[StudentOcrEntry, ...]
+    plan_id: str
+    safe_z_mm: float
+    speed_mm_s: float
+    evidence: Mapping[str, Any]
+    hardware_status: str
+
+    @property
+    def training_report(self) -> StudentOcrTrainingReport:
+        return self.training
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "schema_version": self.schema_version,
+            "snapshot_id": self.snapshot_id,
+            "vision_bundle_path": self.vision_bundle_path,
+            "manifest_sha256": self.manifest_sha256,
+            "scene_id": self.scene_id,
+            "status": self.status,
+            "training": {
+                "train_count": self.training.train_count,
+                "test_count": self.training.test_count,
+                "held_out_accuracy": self.training.held_out_accuracy,
+                "seed": self.training.seed,
+            },
+            "entries": [
+                {
+                    "entry_id": entry.entry_id,
+                    "part_id": entry.part_id,
+                    "identifier": entry.identifier,
+                    "route_id": entry.route_id,
+                    "roi_px": list(entry.roi_px),
+                    "confidence": entry.confidence,
+                    "status": entry.status,
+                }
+                for entry in self.entries
+            ],
+            "plan_id": self.plan_id,
+            "safe_z_mm": self.safe_z_mm,
+            "speed_mm_s": self.speed_mm_s,
+            "evidence": _copy_json_native(dict(self.evidence), path="ocr.evidence"),
+            "hardware_status": self.hardware_status,
+        }
+
+
+@dataclass(frozen=True)
+class StudentOcrSortReceipt:
+    schema_version: int
+    entry_id: str
+    status: str
+    plan_id: str
+    run_id: str
+    evidence_id: str
+    hardware_status: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "schema_version": self.schema_version,
+            "entry_id": self.entry_id,
+            "status": self.status,
+            "plan_id": self.plan_id,
+            "run_id": self.run_id,
+            "evidence_id": self.evidence_id,
+            "hardware_status": self.hardware_status,
+        }
 
 
 def _freeze_json_native(value: Any) -> Any:
@@ -605,6 +728,180 @@ def _code_route_result(value: Any) -> CodeRoutePlanResult:
     )
 
 
+def _ocr_error(field: str) -> RuntimeError:
+    return RuntimeError(f"PROTOCOL_RESPONSE_INVALID: vision2d.ocr_sorting {field}")
+
+
+def _ocr_identifier(value: Any, field: str) -> str:
+    if type(value) is not str or _ENTRY_ID_PATTERN.fullmatch(value) is None:
+        raise _ocr_error(field)
+    return value
+
+
+def _ocr_sha(value: Any, field: str) -> str:
+    if (
+        type(value) is not str
+        or len(value) != 64
+        or any(character not in "0123456789abcdef" for character in value)
+    ):
+        raise _ocr_error(field)
+    return value
+
+
+def _ocr_finite(value: Any, field: str) -> float:
+    if type(value) not in {int, float}:
+        raise _ocr_error(field)
+    try:
+        normalized = float(value)
+    except (OverflowError, ValueError):
+        raise _ocr_error(field) from None
+    if not isfinite(normalized):
+        raise _ocr_error(field)
+    return normalized
+
+
+def _ocr_roi(value: Any, field: str) -> tuple[int, int, int, int]:
+    if (
+        type(value) is not list
+        or len(value) != 4
+        or any(type(item) is not int for item in value)
+    ):
+        raise _ocr_error(field)
+    x, y, width, height = value
+    if (
+        x < 0
+        or y < 0
+        or width <= 0
+        or height <= 0
+        or x + width > 4096
+        or y + height > 4096
+    ):
+        raise _ocr_error(field)
+    return x, y, width, height
+
+
+def _ocr_relative_path(value: Any, field: str) -> str:
+    if (
+        type(value) is not str
+        or not value
+        or len(value) > 240
+        or value.startswith("/")
+        or "\\" in value
+        or any(part in {"", ".", ".."} for part in value.split("/"))
+    ):
+        raise _ocr_error(field)
+    return value
+
+
+def _ocr_sorting_result(value: Any) -> StudentOcrSortingResult:
+    if not isinstance(value, Mapping) or set(value) != _OCR_SORTING_RESULT_FIELDS:
+        raise _ocr_error("fields")
+    if type(value["schema_version"]) is not int or value["schema_version"] != 1:
+        raise _ocr_error("schema_version")
+    snapshot_id = value["snapshot_id"]
+    if type(snapshot_id) is not str or _SNAPSHOT_ID_PATTERN.fullmatch(snapshot_id) is None:
+        raise _ocr_error("snapshot_id")
+    bundle_path = value["vision_bundle_path"]
+    if (
+        type(bundle_path) is not str
+        or len(bundle_path) > 80
+        or _VISION_BUNDLE_NAME.fullmatch(bundle_path) is None
+        or "/" in bundle_path
+        or "\\" in bundle_path
+    ):
+        raise _ocr_error("vision_bundle_path")
+    manifest_sha = _ocr_sha(value["manifest_sha256"], "manifest_sha256")
+    scene_id = value["scene_id"]
+    if type(scene_id) is not str or scene_id != "V1-08":
+        raise _ocr_error("scene_id")
+    if value["status"] != "PASS":
+        raise _ocr_error("status")
+    training = value["training"]
+    if not isinstance(training, Mapping) or set(training) != _OCR_TRAINING_FIELDS:
+        raise _ocr_error("training.fields")
+    for field in ("train_count", "test_count", "seed"):
+        if type(training[field]) is not int or training[field] <= 0:
+            raise _ocr_error(f"training.{field}")
+    accuracy = _ocr_finite(training["held_out_accuracy"], "training.held_out_accuracy")
+    if not 0.0 <= accuracy <= 1.0:
+        raise _ocr_error("training.held_out_accuracy")
+    entries_raw = value["entries"]
+    if type(entries_raw) is not list or len(entries_raw) != 4:
+        raise _ocr_error("entries")
+    entries: list[StudentOcrEntry] = []
+    for index, raw in enumerate(entries_raw):
+        if not isinstance(raw, Mapping) or set(raw) != _OCR_ENTRY_FIELDS:
+            raise _ocr_error(f"entries[{index}].fields")
+        entry_id = _ocr_identifier(raw["entry_id"], f"entries[{index}].entry_id")
+        part_id = _ocr_identifier(raw["part_id"], f"entries[{index}].part_id")
+        identifier = _ocr_identifier(raw["identifier"], f"entries[{index}].identifier")
+        route_id = _ocr_identifier(raw["route_id"], f"entries[{index}].route_id")
+        roi = _ocr_roi(raw["roi_px"], f"entries[{index}].roi_px")
+        confidence = _ocr_finite(raw["confidence"], f"entries[{index}].confidence")
+        if not 0.40 <= confidence <= 1.0 or raw["status"] != "APPROVED":
+            raise _ocr_error(f"entries[{index}]")
+        entries.append(StudentOcrEntry(entry_id, part_id, identifier, route_id, roi, confidence, "APPROVED"))
+    if (
+        tuple(entry.entry_id for entry in entries) != ("entry_a", "entry_b", "entry_c", "entry_d")
+        or tuple(entry.part_id for entry in entries) != ("part_a", "part_b", "part_c", "part_d")
+        or tuple(entry.identifier for entry in entries) != ("A1", "A2", "B1", "B2")
+        or tuple(entry.route_id for entry in entries) != ("route_alpha", "route_alpha", "route_beta", "route_beta")
+    ):
+        raise _ocr_error("entries.whitelist")
+    plan_id = _ocr_sha(value["plan_id"], "plan_id")
+    safe_z = _ocr_finite(value["safe_z_mm"], "safe_z_mm")
+    speed = _ocr_finite(value["speed_mm_s"], "speed_mm_s")
+    if safe_z <= 0.0 or speed <= 0.0:
+        raise _ocr_error("plan")
+    evidence = value["evidence"]
+    if not isinstance(evidence, Mapping) or set(evidence) != _OCR_EVIDENCE_FIELDS:
+        raise _ocr_error("evidence.fields")
+    copied_evidence: dict[str, Any] = {}
+    for field in _OCR_EVIDENCE_FIELDS:
+        copied_evidence[field] = _ocr_relative_path(evidence[field], f"evidence.{field}")
+    hardware_status = value["hardware_status"]
+    if hardware_status != "PENDING_HARDWARE":
+        raise _ocr_error("hardware_status")
+    return StudentOcrSortingResult(
+        schema_version=1,
+        snapshot_id=snapshot_id,
+        vision_bundle_path=bundle_path,
+        manifest_sha256=manifest_sha,
+        scene_id=scene_id,
+        status="PASS",
+        training=StudentOcrTrainingReport(
+            training["train_count"], training["test_count"], accuracy, training["seed"]
+        ),
+        entries=tuple(entries),
+        plan_id=plan_id,
+        safe_z_mm=safe_z,
+        speed_mm_s=speed,
+        evidence=_freeze_json_native(copied_evidence),
+        hardware_status=hardware_status,
+    )
+
+
+def _ocr_sort_receipt(value: Any) -> StudentOcrSortReceipt:
+    if not isinstance(value, Mapping) or set(value) != _OCR_RECEIPT_FIELDS:
+        raise RuntimeError("PROTOCOL_RESPONSE_INVALID: vision2d.ocr_sort_entry fields")
+    if type(value["schema_version"]) is not int or value["schema_version"] != 1:
+        raise RuntimeError("PROTOCOL_RESPONSE_INVALID: vision2d.ocr_sort_entry schema_version")
+    entry_id = _ocr_identifier(value["entry_id"], "ocr_sort_entry.entry_id")
+    if value["status"] != "COMPLETED":
+        raise RuntimeError("PROTOCOL_RESPONSE_INVALID: vision2d.ocr_sort_entry status")
+    plan_id = _ocr_sha(value["plan_id"], "ocr_sort_entry.plan_id")
+    run_id = value["run_id"]
+    evidence_id = value["evidence_id"]
+    if (
+        type(run_id) is not str or _SNAPSHOT_ID_PATTERN.fullmatch(run_id) is None
+        or type(evidence_id) is not str or _SNAPSHOT_ID_PATTERN.fullmatch(evidence_id) is None
+    ):
+        raise RuntimeError("PROTOCOL_RESPONSE_INVALID: vision2d.ocr_sort_entry evidence")
+    if value["hardware_status"] != "PENDING_HARDWARE":
+        raise RuntimeError("PROTOCOL_RESPONSE_INVALID: vision2d.ocr_sort_entry hardware_status")
+    return StudentOcrSortReceipt(1, entry_id, "COMPLETED", plan_id, run_id, evidence_id, "PENDING_HARDWARE")
+
+
 def _profile_error(field: str) -> RuntimeError:
     return RuntimeError(f"PROTOCOL_RESPONSE_INVALID: camera.profile {field}")
 
@@ -828,6 +1125,16 @@ class StudentVision2D:
 
     def code_routes(self) -> CodeRoutePlanResult:
         return _code_route_result(self._rpc.call("vision2d.code_routes"))
+
+    def ocr_sorting(self) -> StudentOcrSortingResult:
+        return _ocr_sorting_result(self._rpc.call("vision2d.ocr_sorting"))
+
+    def sort_ocr_entry(self, entry_id: str) -> StudentOcrSortReceipt:
+        if type(entry_id) is not str or _ENTRY_ID_PATTERN.fullmatch(entry_id) is None:
+            raise ValueError("entry_id must be a published ASCII identifier")
+        return _ocr_sort_receipt(
+            self._rpc.call("vision2d.ocr_sort_entry", entry_id=entry_id)
+        )
 
     def match_template(self) -> StudentTemplateMatchResult:
         return self.template_match()

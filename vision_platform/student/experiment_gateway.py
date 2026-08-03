@@ -9,7 +9,7 @@ from itertools import count
 from math import isfinite
 from pathlib import Path
 from threading import RLock
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 import cv2
 import numpy as np
@@ -23,6 +23,18 @@ from vision_platform.experiments.code_routing import (
     CodeRouteError,
     build_code_route_plan,
     code_route_plan_to_dict,
+)
+from vision_platform.experiments.ocr_assets import (
+    IDENTIFIERS,
+    load_ocr_assets,
+)
+from vision_platform.experiments.ocr_service import (
+    OcrServiceError,
+    OcrSortingService,
+)
+from vision_platform.experiments.ocr_sorting import (
+    OcrSortPlan,
+    ocr_sort_plan_to_dict,
 )
 from vision_platform.experiments.probes import probe_experiment
 from vision_platform.vision2d import (
@@ -74,6 +86,9 @@ _CODE_ROUTE_CAPABILITIES = frozenset(
         "vision2d.code_routing", "robot.home", "robot.pose",
         "robot.move_world", "tool.suction", "scene.probe",
     }
+)
+_OCR_SORTING_CAPABILITIES = frozenset(
+    {"camera.rgb", "camera.profile", "lighting.profile", "vision2d.ocr_sorting"}
 )
 
 
@@ -479,6 +494,7 @@ class StudentExperimentGateway:
         scene_manifest: Mapping[str, Any],
         capture_timeout_s: float = 2.0,
         profile_controller: Any = _PROFILE_CONTROLLER_UNSET,
+        ocr_guard_activator: Callable[[OcrSortPlan], Any] | None = None,
     ) -> None:
         copied_manifest = validate_experiment_binding(
             context,
@@ -504,6 +520,8 @@ class StudentExperimentGateway:
         self._snapshot_ids = count(1)
         self._probe_lock = RLock()
         self.route_guard = CodeRouteGuard()
+        self._ocr_guard_activator = ocr_guard_activator
+        self._ocr_evidence: dict[str, Any] | None = None
         self._route_evidence: dict[str, Any] | None = None
         self._route_completion_before_reset: dict[str, Any] | None = None
 
@@ -541,6 +559,18 @@ class StudentExperimentGateway:
         if name == "vision2d.code_routes":
             self._require_exact_args(name, args, ())
             return self._code_routes()
+        if name == "vision2d.ocr_sorting":
+            self._require_exact_args(name, args, ())
+            return self._ocr_sorting()
+        if name == "vision2d.ocr_sort_entry":
+            self._require_exact_args(name, args, ("entry_id",))
+            # The runner owns the private action executor.  This branch is
+            # intentionally never used for motion; it exists only to make a
+            # direct gateway misuse fail closed with a stable code.
+            raise VisionPlatformError(
+                "OCR_SORT_ENTRY_RUNNER_ONLY",
+                "OCR 分拣动作必须由运行器的私有安全执行器调用",
+            )
         raise ValueError(f"COMMAND_NOT_ALLOWED: {name}")
 
     @staticmethod
@@ -1004,6 +1034,228 @@ class StudentExperimentGateway:
         assert isinstance(public, dict)
         return public
 
+    def _ocr_assets_path(self) -> Path:
+        binding = self._scene_manifest.get("ocr_assets_manifest")
+        if (
+            not isinstance(binding, Mapping)
+            or set(binding) != {"path", "sha256"}
+            or type(binding.get("path")) is not str
+            or type(binding.get("sha256")) is not str
+            or len(binding["sha256"]) != 64
+            or any(character not in "0123456789abcdef" for character in binding["sha256"])
+        ):
+            raise VisionPlatformError(
+                "OCR_SORT_ASSET_INVALID", "OCR 资产清单绑定缺失或格式无效"
+            )
+        try:
+            manifest_path = self._resolve_catalog_path(binding["path"])
+            if _sha256(manifest_path) != binding["sha256"]:
+                raise ValueError("OCR asset manifest hash mismatch")
+            if manifest_path.name != "ocr_assets_manifest.json":
+                raise ValueError("OCR asset manifest has an invalid name")
+            return manifest_path
+        except VisionPlatformError:
+            raise
+        except Exception as error:
+            raise VisionPlatformError(
+                "OCR_SORT_ASSET_INVALID", "OCR 资产清单校验失败",
+                details={"error_type": type(error).__name__},
+            ) from error
+
+    def _ocr_fixed_rois(self, image_size: tuple[int, int]) -> dict[str, tuple[int, int, int, int]]:
+        binding = self._scene_manifest.get("ocr_sorting")
+        parameters = self._definition.public_parameters.get("ocr_sorting")
+        candidates: Any = None
+        for source in (parameters, binding):
+            if isinstance(source, Mapping) and "fixed_rois_px" in source:
+                candidates = source["fixed_rois_px"]
+                break
+        if not isinstance(candidates, Mapping) or set(candidates) != set(IDENTIFIERS):
+            raise VisionPlatformError(
+                "OCR_SORT_ROI_INVALID", "OCR 固定 ROI 必须完整绑定 A1、A2、B1、B2"
+            )
+        width, height = image_size
+        result: dict[str, tuple[int, int, int, int]] = {}
+        for identifier in IDENTIFIERS:
+            value = candidates[identifier]
+            if (
+                type(value) not in {list, tuple}
+                or len(value) != 4
+                or any(type(item) is not int for item in value)
+            ):
+                raise VisionPlatformError(
+                    "OCR_SORT_ROI_INVALID", f"{identifier} 的固定 ROI 格式无效"
+                )
+            x, y, roi_width, roi_height = value
+            if (
+                x < 0 or y < 0 or roi_width <= 0 or roi_height <= 0
+                or x + roi_width > width or y + roi_height > height
+            ):
+                raise VisionPlatformError(
+                    "OCR_SORT_ROI_INVALID", f"{identifier} 的固定 ROI 越出图像"
+                )
+            result[identifier] = (x, y, roi_width, roi_height)
+        return result
+
+    def _ocr_sort_config(self) -> Mapping[str, object] | None:
+        parameters = self._definition.public_parameters.get("ocr_sorting")
+        if not isinstance(parameters, Mapping):
+            return None
+        selected = parameters.get("sort_config")
+        if selected is None:
+            required = {
+                "schema_version", "expected_count", "training_accuracy_min",
+                "confidence_min", "safe_z_mm", "speed_mm_s", "workspace", "routes",
+            }
+            if required <= set(parameters):
+                selected = parameters
+        return selected if isinstance(selected, Mapping) else None
+
+    def _ocr_scene_part_ids(self) -> tuple[str, ...]:
+        binding = self._scene_manifest.get("ocr_sorting")
+        if not isinstance(binding, Mapping):
+            raise VisionPlatformError("OCR_SORT_CONFIG_INVALID", "场景缺少 OCR 分拣绑定")
+        values = binding.get("part_ids")
+        if type(values) is not list or tuple(values) != ("part_a", "part_b", "part_c", "part_d"):
+            raise VisionPlatformError("OCR_SORT_CONFIG_INVALID", "场景构件集合不是固定四件")
+        return tuple(values)
+
+    def _ocr_sorting(self) -> dict[str, Any]:
+        if not _OCR_SORTING_CAPABILITIES <= set(self._definition.capabilities):
+            raise VisionPlatformError(
+                "OCR_SORT_CONTEXT_REQUIRED", "当前实验没有受控 OCR 分拣能力"
+            )
+        if self._ocr_evidence is not None:
+            raise VisionPlatformError(
+                "OCR_SORT_PLAN_ALREADY_ACTIVE", "本次运行已有 OCR 分拣计划"
+            )
+        if not callable(self._ocr_guard_activator):
+            raise VisionPlatformError(
+                "OCR_SORT_EXECUTOR_REQUIRED", "OCR 分拣需要运行器安全守卫"
+            )
+        try:
+            manifest_path = self._ocr_assets_path()
+            profile = self._profile_public(
+                self._profiles_required().current(),
+                path="vision2d.ocr_sorting.profile",
+            )
+            if profile.get("profile_id") != "standard" or profile.get("resolution") != [1024, 1024]:
+                raise VisionPlatformError(
+                    "OCR_SORT_PROFILE_MISMATCH", "OCR 分拣必须使用 standard 1024x1024"
+                )
+            recorded = self._capture_raw(profile)
+            fixed_rois = self._ocr_fixed_rois(
+                (int(recorded.image_bgr.shape[1]), int(recorded.image_bgr.shape[0]))
+            )
+            service = OcrSortingService.from_manifest(
+                manifest_path,
+                minimum_accuracy=float(
+                    (self._ocr_sort_config() or {}).get("training_accuracy_min", 0.95)
+                ),
+                sort_config=self._ocr_sort_config(),
+                scene_part_ids=self._ocr_scene_part_ids(),
+            )
+            output = service.analyze(recorded.image_bgr, fixed_rois)
+            plan = output.plan
+            plan_public = ocr_sort_plan_to_dict(plan)
+            report = output.training_report
+            training_public = {
+                "train_count": int(report.train_count),
+                "test_count": int(report.test_count),
+                "held_out_accuracy": float(report.held_out_accuracy),
+                "seed": int(report.seed),
+            }
+            annotated = np.ascontiguousarray(output.annotated_frame).copy()
+            bundle_profile = {
+                **profile,
+                "ocr": {
+                    "scene_id": output.scene_id,
+                    "manifest_sha256": output.manifest_sha256,
+                    "plan_id": plan.plan_id,
+                },
+            }
+            bundle_result = {
+                "plan": plan_public,
+                "training": training_public,
+            }
+            bundle = VisionResultBundle(
+                schema_version=1,
+                bundle_id=f"{self.context.experiment_id}-{recorded.value['snapshot_id']}",
+                experiment_id=self.context.experiment_id,
+                source_snapshot_id=recorded.value["snapshot_id"],
+                status="PASS",
+                layers=(
+                    VisionImageLayer("raw", "原图", recorded.image_bgr),
+                    VisionImageLayer("annotated", "OCR 编号标注", annotated),
+                ),
+                result=bundle_result,
+                profile=bundle_profile,
+                hardware_status="PENDING_HARDWARE",
+            )
+            bundle_path = record_vision_bundle(
+                self.evidence,
+                bundle,
+                existing_layer_records={"raw": recorded.record},
+            )
+            self._ocr_guard_activator(plan)
+        except VisionPlatformError:
+            raise
+        except OcrServiceError as error:
+            raise VisionPlatformError(error.code, "OCR 识别或分拣计划校验失败") from error
+        except Exception as error:
+            raise VisionPlatformError(
+                getattr(error, "code", "OCR_SORT_RECOGNITION_FAILED"),
+                "OCR 识别或分拣计划生成失败",
+                details={"error_type": type(error).__name__},
+            ) from error
+
+        bundle_id = f"{self.context.experiment_id}-{recorded.value['snapshot_id']}"
+        evidence_public = {
+            "raw_path": recorded.record["path"],
+            "annotated_path": f"frames/{bundle_id}-annotated.png",
+            "bundle_path": bundle_path,
+        }
+        response = {
+            "schema_version": 1,
+            "snapshot_id": recorded.value["snapshot_id"],
+            "vision_bundle_path": bundle_path,
+            "manifest_sha256": output.manifest_sha256,
+            "scene_id": output.scene_id,
+            "status": "PASS",
+            "training": training_public,
+            "entries": [
+                {
+                    "entry_id": entry.entry_id,
+                    "part_id": entry.part_id,
+                    "identifier": entry.identifier,
+                    "route_id": entry.route_id,
+                    "roi_px": list(entry.roi_px),
+                    "confidence": float(entry.confidence),
+                    "status": "APPROVED",
+                }
+                for entry in plan.entries
+            ],
+            "plan_id": plan.plan_id,
+            "safe_z_mm": float(plan.safe_z_mm),
+            "speed_mm_s": float(plan.speed_mm_s),
+            "evidence": evidence_public,
+            "hardware_status": "PENDING_HARDWARE",
+        }
+        copied = _copy_json_native(response, path="vision2d.ocr_sorting")
+        assert isinstance(copied, dict)
+        json.dumps(copied, ensure_ascii=False, allow_nan=False)
+        self._ocr_evidence = {
+            "plan": plan,
+            "snapshot_id": recorded.value["snapshot_id"],
+            "raw": recorded.image_bgr.copy(),
+            "annotated": annotated.copy(),
+            "raw_record": dict(recorded.record),
+            "profile": bundle_profile,
+            "manifest_sha256": output.manifest_sha256,
+            "scene_id": output.scene_id,
+        }
+        return copied
+
     def _validated_code_asset_binding(self) -> dict[str, tuple[float, float, float]]:
         binding = self._scene_manifest.get("code_assets_manifest")
         route_binding = self._scene_manifest.get("code_routing")
@@ -1310,8 +1562,97 @@ class StudentExperimentGateway:
             )
         if self._route_evidence is not None:
             self._route_completion_before_reset = self.route_guard.completion()
+        self._ocr_evidence = None
         self.route_guard.reset()
         return result
+
+    def collect_ocr_entry_probe(
+        self,
+        entry_id: str,
+        *,
+        run_id: str,
+        tolerance_mm: float = 6.0,
+    ) -> dict[str, Any]:
+        """Read one bound scene part and return the guard's six-field proof."""
+
+        context = self._ocr_evidence
+        if not isinstance(context, Mapping):
+            raise VisionPlatformError(
+                "OCR_SORT_PLAN_NOT_ACTIVE", "OCR 分拣计划尚未激活"
+            )
+        plan = context.get("plan")
+        entries = getattr(plan, "entries", ())
+        entry = next((item for item in entries if getattr(item, "entry_id", None) == entry_id), None)
+        if entry is None:
+            raise VisionPlatformError(
+                "OCR_SORT_ENTRY_INVALID", "entry_id 不在当前 OCR 分拣计划中"
+            )
+        if type(run_id) is not str or not run_id:
+            raise VisionPlatformError("OCR_SORT_PROBE_INVALID", "run_id 无效")
+        try:
+            tolerance = float(tolerance_mm)
+        except (TypeError, ValueError, OverflowError):
+            raise VisionPlatformError("OCR_SORT_PROBE_INVALID", "探针容差无效") from None
+        if not math.isfinite(tolerance) or tolerance <= 0.0:
+            raise VisionPlatformError("OCR_SORT_PROBE_INVALID", "探针容差无效")
+
+        route_entries = [item for item in entries if getattr(item, "route_id", None) == entry.route_id]
+        ordered = sorted(
+            route_entries,
+            key=lambda item: tuple(float(value) for value in item.drop_xyz_mm),
+        )
+        slot_id = f"slot_{ordered.index(entry) + 1}"
+        expected = tuple(float(value) for value in entry.drop_xyz_mm)
+        sim = self.application.sim
+        get_object = getattr(sim, "getObject", None)
+        get_position = getattr(sim, "getObjectPosition", None)
+        if not callable(get_object) or not callable(get_position):
+            raise VisionPlatformError(
+                "OCR_SORT_PROBE_FAILED", "CoppeliaSim 不支持只读条目探针"
+            )
+        path = f"/VisionOcrSortingLab/Parts/{entry.part_id}"
+        try:
+            handle = get_object(path)
+            raw = get_position(handle, getattr(sim, "handle_world", -1))
+            actual = tuple(float(value) * 1000.0 for value in raw)
+            if len(actual) != 3 or not all(math.isfinite(value) for value in actual):
+                raise ValueError("scene position is invalid")
+            distance = math.dist(actual, expected)
+        except VisionPlatformError:
+            raise
+        except Exception as error:
+            raise VisionPlatformError(
+                "OCR_SORT_PROBE_FAILED", "读取 OCR 条目场景位置失败",
+                details={"error_type": type(error).__name__},
+            ) from error
+        if distance > tolerance:
+            raise VisionPlatformError(
+                "OCR_SORT_PROBE_FAILED", "OCR 条目未进入绑定仓位",
+                details={"distance_mm": distance, "tolerance_mm": tolerance},
+            )
+
+        evidence_id = f"ocr-entry-{entry_id}-{len(getattr(self, '_ocr_probe_ids', [])) + 1:03d}"
+        self._ocr_probe_ids = [*getattr(self, "_ocr_probe_ids", []), evidence_id]
+        reference = {
+            "run_id": run_id,
+            "scene_hash": self.context.scene_sha256,
+            "part_id": entry.part_id,
+            "route_id": entry.route_id,
+            "slot_id": slot_id,
+            "evidence_id": evidence_id,
+        }
+        self.evidence.record_json_artifact(
+            f"{evidence_id}.json",
+            {
+                **reference,
+                "status": "PASS",
+                "expected_xyz_mm": list(expected),
+                "actual_xyz_mm": list(actual),
+                "distance_mm": distance,
+                "hardware_status": "PENDING_HARDWARE",
+            },
+        )
+        return _copy_json_native(reference, path="ocr-sort-entry.probe")
 
     def record_probe(self, phase: str) -> dict[str, Any]:
         report = self.collect_probe(phase)

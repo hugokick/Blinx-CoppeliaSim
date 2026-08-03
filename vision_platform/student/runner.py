@@ -26,6 +26,11 @@ from vision_platform.student.experiment_gateway import (
     validate_experiment_binding,
     validate_scene_manifest_file_bytes,
 )
+from vision_platform.student.ocr_sort_guard import (
+    OcrSortAction,
+    OcrSortGuard,
+    OcrSortGuardError,
+)
 from vision_platform.student.protocol import (
     CommandMessage,
     ResponseMessage,
@@ -562,6 +567,7 @@ class StudentProgramController:
         self._validation: ValidationResult | None = None
         self._application = session.application
         self._guard = self._new_guard(self._application)
+        self._ocr_guard = OcrSortGuard()
 
         self._evidence: StudentRunEvidence | None = None
         self._experiment_gateway: StudentExperimentGateway | None = None
@@ -687,6 +693,7 @@ class StudentProgramController:
             self._validation = None
             self._evidence = None
             self._experiment_gateway = None
+            self._ocr_guard.reset()
             self._result = None
             self._error = None
             self._cleanup_errors = []
@@ -772,6 +779,7 @@ class StudentProgramController:
             self._scene_manifest = manifest
             self._application = application
             self._guard = guard
+            self._ocr_guard.reset()
             self._program_path = snapshot.program_path
             self._validation = snapshot.validation
             self._evidence = snapshot.evidence
@@ -836,6 +844,7 @@ class StudentProgramController:
             self._scene_manifest = manifest
             self._application = application
             self._guard = guard
+            self._ocr_guard.reset()
             self._program_path = selected_program
             self._validation = None
             self._evidence = None
@@ -928,6 +937,7 @@ class StudentProgramController:
             if backend != "sim":
                 raise RuntimeError("REAL_BACKEND_NOT_AUTHORIZED")
             self._guard = self._new_guard(self._application)
+            self._ocr_guard.reset()
             selected = self._program_path
             self._starting = True
         assert selected is not None
@@ -1016,6 +1026,7 @@ class StudentProgramController:
                         context=self._experiment_context,
                         definition=self._experiment_definition,
                         scene_manifest=validated_scene_manifest,
+                        ocr_guard_activator=self._ocr_guard.activate,
                     ),
                     thread_name="StudentVisionProfileController",
                     action_name="vision.profile.controller",
@@ -1488,6 +1499,7 @@ class StudentProgramController:
         with self._condition:
             self._application = application
             self._guard = guard
+            self._ocr_guard.reset()
             self._evidence = None
             self._experiment_gateway = None
             self._result = None
@@ -1802,6 +1814,7 @@ class StudentProgramController:
         )
 
     def _prepare_run_locked(self, evidence: StudentRunEvidence) -> None:
+        self._ocr_guard.reset()
         self._evidence = evidence
         self._result = None
         self._error = None
@@ -2580,6 +2593,17 @@ class StudentProgramController:
         return recorded_report
 
     def _dispatch(self, command: CommandMessage) -> Any:
+        if self._is_v1_08_experiment() and command.name in {
+            "robot.home",
+            "robot.move_world",
+            "robot.pose",
+            "tool.on",
+            "tool.off",
+        }:
+            raise VisionPlatformError(
+                "COMMAND_NOT_ALLOWED",
+                "V1-08 不公开机器人或吸盘原始命令",
+            )
         if command.name in {
             "camera.capture",
             "camera.profile.apply",
@@ -2589,6 +2613,7 @@ class StudentProgramController:
             "vision2d.analyze",
             "vision2d.template_match",
             "vision2d.code_routes",
+            "vision2d.ocr_sorting",
         }:
             gateway = self._experiment_gateway
             if gateway is None:
@@ -2597,6 +2622,8 @@ class StudentProgramController:
                     "当前运行没有选择 V2.2 实验",
                 )
             return gateway.dispatch(command.name, command.args)
+        if command.name == "vision2d.ocr_sort_entry":
+            return self._command_ocr_sort_entry(command.args)
         dispatch: dict[str, Callable[[Mapping[str, Any]], Any]] = {
             "context.log": self._command_log,
             "context.sleep": self._command_sleep,
@@ -2608,6 +2635,11 @@ class StudentProgramController:
             "tool.off": self._command_tool_off,
         }
         return dispatch[command.name](command.args)
+
+    def _is_v1_08_experiment(self) -> bool:
+        definition = self._experiment_definition
+        capabilities = getattr(definition, "capabilities", ())
+        return "vision2d.ocr_sorting" in capabilities
 
     @staticmethod
     def _require_args(
@@ -2735,6 +2767,151 @@ class StudentProgramController:
                 "CODE_ROUTE_SEQUENCE_INVALID",
                 "吸盘已安全关闭，但路线顺序已中止",
             )
+
+    def _command_ocr_sort_entry(self, args: Mapping[str, Any]) -> dict[str, Any]:
+        """Execute one guard-approved OCR entry without public redispatch."""
+
+        self._require_args(args, ("entry_id",))
+        entry_id = args["entry_id"]
+        if type(entry_id) is not str:
+            raise VisionPlatformError(
+                "OCR_SORT_ENTRY_INVALID", "entry_id 必须是 ASCII 字符串"
+            )
+        gateway = self._experiment_gateway
+        if gateway is None or not self._is_v1_08_experiment():
+            raise VisionPlatformError(
+                "OCR_SORT_PLAN_NOT_ACTIVE", "当前运行没有激活 V1-08 OCR 分拣计划"
+            )
+        try:
+            actions = self._ocr_guard.begin_entry(entry_id)
+            for action in actions:
+                self._ocr_action_permission()
+                self._execute_ocr_action(action)
+                evidence = self._evidence
+                if evidence is not None:
+                    evidence.record_event(
+                        "OCR_SORT_ACTION",
+                        "V1-08 OCR 分拣动作完成",
+                        entry_id=action.entry_id,
+                        action_id=action.action_id,
+                        action_kind=action.kind,
+                        target_xyz_mm=list(action.target_xyz_mm),
+                    )
+                self._ocr_guard.confirm_action(action.action_id)
+
+            evidence = self._evidence
+            if evidence is None:
+                raise VisionPlatformError(
+                    "OCR_SORT_EVIDENCE_INVALID", "OCR 分拣证据上下文不可用"
+                )
+            probe = gateway.collect_ocr_entry_probe(
+                entry_id,
+                run_id=evidence.run_id,
+            )
+            self._ocr_guard.confirm_entry_probe(entry_id, probe)
+            evidence_id = str(probe["evidence_id"])
+            return {
+                "schema_version": 1,
+                "entry_id": entry_id,
+                "status": "COMPLETED",
+                "plan_id": str(self._ocr_guard.plan_id or ""),
+                "run_id": evidence.run_id,
+                "evidence_id": evidence_id,
+                "hardware_status": "PENDING_HARDWARE",
+            }
+        except OcrSortGuardError as guard_error:
+            error = _error(guard_error.code, _safe_text(guard_error))
+            self._ocr_fail_cleanup(error)
+            raise VisionPlatformError(guard_error.code, _safe_text(guard_error)) from None
+        except VisionPlatformError as command_error:
+            error = _error(command_error.code, _safe_text(command_error), details=command_error.details)
+            self._ocr_fail_cleanup(error)
+            raise
+        except BaseException as command_error:
+            error = _error(
+                "OCR_SORT_EXECUTION_FAILED",
+                _safe_text(command_error),
+                type=_safe_type_name(command_error),
+            )
+            self._ocr_fail_cleanup(error)
+            raise VisionPlatformError("OCR_SORT_EXECUTION_FAILED", _safe_text(command_error)) from None
+
+    def _ocr_action_permission(self) -> None:
+        self._raise_if_stopping()
+        with self._condition:
+            paused = self._state is RunState.PAUSED
+        if paused:
+            self._await_command_permission()
+        self._raise_if_stopping()
+
+    def _execute_ocr_action(self, action: OcrSortAction) -> None:
+        if not isinstance(action, OcrSortAction):
+            raise VisionPlatformError(
+                "OCR_SORT_ACTION_INVALID", "OCR 守卫返回了无效动作"
+            )
+        if action.kind in {"move_safe_pick", "move_pick", "move_safe_drop", "move_drop"}:
+            current = self._read_pose()
+            plan = getattr(self._experiment_gateway, "_ocr_evidence", None)
+            plan_value = plan.get("plan") if isinstance(plan, Mapping) else None
+            speed = getattr(plan_value, "speed_mm_s", self._policy.min_speed)
+            target = self._guard.validate_move(
+                current,
+                action.target_xyz_mm,
+                speed=speed,
+            )
+            self._raise_if_stopping()
+            self._application.robot.move_world(
+                target[0], target[1], target[2], speed=float(speed)
+            )
+            self._last_pose = target
+            return
+        if action.kind == "tool_on":
+            pose = self._read_pose()
+            self._guard.validate_tool_on(pose)
+            self._raise_if_stopping()
+            self._application.tool.on()
+            return
+        if action.kind == "tool_off":
+            self._raise_if_stopping()
+            self._application.tool.off()
+            return
+        raise VisionPlatformError(
+            "OCR_SORT_ACTION_INVALID", "OCR 守卫返回了未知动作类型"
+        )
+
+    def _ocr_fail_cleanup(self, primary_error: Mapping[str, Any]) -> None:
+        try:
+            self._ocr_guard.fail_entry(primary_error)
+        except BaseException:
+            pass
+        evidence = self._evidence
+        if evidence is not None:
+            try:
+                evidence.record_event(
+                    "OCR_SORT_FAILED",
+                    "V1-08 OCR 分拣失败，开始受控清理",
+                    error=_json_safe(primary_error),
+                )
+            except BaseException:
+                pass
+        try:
+            self._application.tool.off()
+        except BaseException:
+            pass
+        try:
+            pose = self._read_pose()
+            if pose[2] < float(self._application.workspace.safe_z_mm):
+                target = self._guard.validate_move(
+                    pose,
+                    (pose[0], pose[1], float(self._application.workspace.safe_z_mm)),
+                    speed=self._policy.min_speed,
+                )
+                self._application.robot.move_world(
+                    target[0], target[1], target[2], speed=self._policy.min_speed
+                )
+            self._application.robot.move_home()
+        except BaseException:
+            pass
 
     def _raise_if_stopping(self) -> None:
         with self._condition:

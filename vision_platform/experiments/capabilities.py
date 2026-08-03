@@ -21,6 +21,9 @@ _CODE_ROUTING_DEPENDENCIES = frozenset(
         "tool.suction", "scene.probe",
     }
 )
+_OCR_SORTING_DEPENDENCIES = frozenset(
+    {"camera.rgb", "camera.profile", "lighting.profile"}
+)
 _PROFILE_PAIR_REASON = (
     "视觉配置能力必须同时声明 camera.profile 和 lighting.profile"
 )
@@ -35,6 +38,7 @@ _KNOWN = _ROBOT | frozenset(
         "vision2d.analysis",
         "vision2d.template_matching",
         "vision2d.code_routing",
+        "vision2d.ocr_sorting",
     }
 )
 
@@ -138,6 +142,28 @@ def check_capabilities(
             ):
                 missing.append(capability)
                 reasons[capability] = "代码路由缺少场景、相机、机器人或吸盘"
+            else:
+                available.append(capability)
+        elif capability == "vision2d.ocr_sorting":
+            missing_dependencies = _OCR_SORTING_DEPENDENCIES - requested_set
+            if missing_dependencies:
+                missing.append(capability)
+                reasons[capability] = (
+                    "OCR 分拣必须同时声明："
+                    + ", ".join(sorted(missing_dependencies))
+                )
+            elif str(getattr(application.config, "camera_backend", "")) != "sim":
+                missing.append(capability)
+                reasons[capability] = "OCR 分拣仅支持 CoppeliaSim 相机"
+            elif str(getattr(application.config, "robot_backend", "")) != "sim":
+                missing.append(capability)
+                reasons[capability] = "OCR 分拣仅支持 CoppeliaSim 机器人"
+            elif any(
+                getattr(application, name, None) is None
+                for name in ("sim", "camera", "robot", "tool")
+            ):
+                missing.append(capability)
+                reasons[capability] = "OCR 分拣缺少场景、相机、机器人或吸盘"
             else:
                 available.append(capability)
         elif capability in _PROFILE_PAIR and profile_pair_incomplete:
