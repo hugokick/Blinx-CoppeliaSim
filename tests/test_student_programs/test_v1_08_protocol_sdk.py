@@ -51,6 +51,37 @@ def _value() -> dict[str, object]:
             "held_out_accuracy": 1.0,
             "seed": 20260802,
         },
+        "results": [
+            {
+                "identifier": identifier,
+                "status": "PASS",
+                "text": identifier,
+                "characters": [
+                    {
+                        "character": identifier[0],
+                        "bbox_px": [5, 5, 20, 60],
+                        "confidence": 0.98,
+                        "failure_code": None,
+                        "confidence_method": "knn_neighbor_distance",
+                    },
+                    {
+                        "character": identifier[1],
+                        "bbox_px": [30, 5, 20, 60],
+                        "confidence": 0.98,
+                        "failure_code": None,
+                        "confidence_method": "knn_neighbor_distance",
+                    },
+                ],
+                "image_size": [96, 128],
+                "threshold_method": "otsu",
+                "character_count": 2,
+                "failure_code": None,
+                "processing_ms": 1.0,
+                "schema_version": 1,
+                "confidence_method": "knn_neighbor_distance",
+            }
+            for identifier in ("A1", "A2", "B1", "B2")
+        ],
         "entries": [
             {
                 "entry_id": entry_id,
@@ -126,6 +157,12 @@ def test_ocr_commands_are_published_without_raw_device_capabilities() -> None:
         lambda value: value["entries"].__setitem__(0, {"entry_id": "entry_a"}),
         lambda value: value.update({"status": "REJECTED"}),
         lambda value: value["entries"][0].update({"confidence": float("nan")}),
+        lambda value: value["results"][0]["characters"][0].update(
+            {"bbox_px": [90, 5, 20, 60]}
+        ),
+        lambda value: value["evidence"].update(
+            {"raw_path": "frames/ocr:raw.png"}
+        ),
         lambda value: value.update({"hardware_status": "PASS"}),
     ],
 )

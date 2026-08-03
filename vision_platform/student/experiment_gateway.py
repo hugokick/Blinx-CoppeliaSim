@@ -43,6 +43,7 @@ from vision_platform.vision2d import (
     parse_curriculum_config,
     result_to_dict,
 )
+from vision_platform.vision2d.ocr import OCRCharacter, OCRResult
 from vision_platform.vision2d.template_matching import (
     TemplateMatchConfig,
     TemplateMatchError,
@@ -90,6 +91,149 @@ _CODE_ROUTE_CAPABILITIES = frozenset(
 _OCR_SORTING_CAPABILITIES = frozenset(
     {"camera.rgb", "camera.profile", "lighting.profile", "vision2d.ocr_sorting"}
 )
+
+
+def _ocr_results_public(
+    results: object,
+    *,
+    frame_size: tuple[int, int],
+    confidence_min: float,
+) -> list[dict[str, Any]]:
+    """Validate and copy the four host-owned OCR results for the student API."""
+
+    if type(results) is not tuple or len(results) != len(IDENTIFIERS):
+        raise VisionPlatformError(
+            "OCR_SORT_RESULT_INVALID", "OCR 必须返回固定四条识别结果"
+        )
+    if type(confidence_min) not in {int, float} or not math.isfinite(float(confidence_min)):
+        raise VisionPlatformError(
+            "OCR_SORT_RESULT_INVALID", "OCR 置信度门槛无效"
+        )
+    minimum = float(confidence_min)
+    if not 0.0 <= minimum <= 1.0:
+        raise VisionPlatformError(
+            "OCR_SORT_RESULT_INVALID", "OCR 置信度门槛超出范围"
+        )
+    frame_width, frame_height = frame_size
+    if (
+        type(frame_width) is not int
+        or type(frame_height) is not int
+        or frame_width <= 0
+        or frame_height <= 0
+    ):
+        raise VisionPlatformError(
+            "OCR_SORT_RESULT_INVALID", "OCR 图像尺寸无效"
+        )
+    public: list[dict[str, Any]] = []
+    for index, (identifier, result) in enumerate(zip(IDENTIFIERS, results)):
+        if not isinstance(result, OCRResult):
+            raise VisionPlatformError(
+                "OCR_SORT_RESULT_INVALID", f"OCR 结果 {identifier} 类型无效"
+            )
+        if (
+            result.status != "PASS"
+            or result.text != identifier
+            or result.failure_code is not None
+            or type(result.schema_version) is not int
+            or result.schema_version != 1
+            or type(result.character_count) is not int
+            or result.character_count != 2
+            or type(result.characters) is not tuple
+            or len(result.characters) != 2
+            or type(result.threshold_method) is not str
+            or not result.threshold_method
+            or type(result.confidence_method) is not str
+            or not result.confidence_method
+        ):
+            raise VisionPlatformError(
+                "OCR_SORT_RESULT_INVALID", f"OCR 结果 {identifier} 不完整"
+            )
+        image_size = result.image_size
+        if (
+            type(image_size) is not tuple
+            or len(image_size) != 2
+            or any(type(value) is not int or value <= 0 for value in image_size)
+            or image_size[0] > frame_width
+            or image_size[1] > frame_height
+        ):
+            raise VisionPlatformError(
+                "OCR_SORT_RESULT_INVALID", f"OCR 结果 {identifier} 图像尺寸无效"
+            )
+        processing_ms = result.processing_ms
+        if (
+            type(processing_ms) not in {int, float}
+            or not math.isfinite(float(processing_ms))
+            or float(processing_ms) < 0.0
+        ):
+            raise VisionPlatformError(
+                "OCR_SORT_RESULT_INVALID", f"OCR 结果 {identifier} 处理时长无效"
+            )
+        characters: list[dict[str, Any]] = []
+        for char_index, character in enumerate(result.characters):
+            if not isinstance(character, OCRCharacter):
+                raise VisionPlatformError(
+                    "OCR_SORT_RESULT_INVALID",
+                    f"OCR 结果 {identifier} 字符类型无效",
+                )
+            if character.character != identifier[char_index]:
+                raise VisionPlatformError(
+                    "OCR_SORT_RESULT_INVALID",
+                    f"OCR 结果 {identifier} 字符序列无效",
+                )
+            bbox = character.bbox_px
+            if (
+                type(bbox) is not tuple
+                or len(bbox) != 4
+                or any(type(value) is not int for value in bbox)
+                or bbox[0] < 0
+                or bbox[1] < 0
+                or bbox[2] <= 0
+                or bbox[3] <= 0
+                or bbox[0] + bbox[2] > image_size[0]
+                or bbox[1] + bbox[3] > image_size[1]
+            ):
+                raise VisionPlatformError(
+                    "OCR_SORT_RESULT_INVALID",
+                    f"OCR 结果 {identifier} 字符框越出图像",
+                )
+            confidence = character.confidence
+            if (
+                type(confidence) not in {int, float}
+                or not math.isfinite(float(confidence))
+                or not minimum <= float(confidence) <= 1.0
+                or character.failure_code is not None
+                or type(character.confidence_method) is not str
+                or not character.confidence_method
+            ):
+                raise VisionPlatformError(
+                    "OCR_SORT_RESULT_INVALID",
+                    f"OCR 结果 {identifier} 字符置信度无效",
+                )
+            characters.append(
+                {
+                    "character": character.character,
+                    "bbox_px": list(bbox),
+                    "confidence": float(confidence),
+                    "failure_code": None,
+                    "confidence_method": character.confidence_method,
+                }
+            )
+        public.append(
+            {
+                "identifier": identifier,
+                "status": "PASS",
+                "text": identifier,
+                "characters": characters,
+                "image_size": list(image_size),
+                "threshold_method": result.threshold_method,
+                "character_count": 2,
+                "failure_code": None,
+                "processing_ms": float(processing_ms),
+                "schema_version": 1,
+                "confidence_method": result.confidence_method,
+            }
+        )
+    return public
 
 
 @dataclass(frozen=True)
@@ -1147,15 +1291,24 @@ class StudentExperimentGateway:
             fixed_rois = self._ocr_fixed_rois(
                 (int(recorded.image_bgr.shape[1]), int(recorded.image_bgr.shape[0]))
             )
+            sort_config = self._ocr_sort_config()
             service = OcrSortingService.from_manifest(
                 manifest_path,
                 minimum_accuracy=float(
-                    (self._ocr_sort_config() or {}).get("training_accuracy_min", 0.95)
+                    (sort_config or {}).get("training_accuracy_min", 0.95)
                 ),
-                sort_config=self._ocr_sort_config(),
+                sort_config=sort_config,
                 scene_part_ids=self._ocr_scene_part_ids(),
             )
             output = service.analyze(recorded.image_bgr, fixed_rois)
+            results_public = _ocr_results_public(
+                output.results,
+                frame_size=(
+                    int(recorded.image_bgr.shape[1]),
+                    int(recorded.image_bgr.shape[0]),
+                ),
+                confidence_min=(sort_config or {}).get("confidence_min", 0.40),
+            )
             plan = output.plan
             plan_public = ocr_sort_plan_to_dict(plan)
             report = output.training_report
@@ -1177,6 +1330,7 @@ class StudentExperimentGateway:
             bundle_result = {
                 "plan": plan_public,
                 "training": training_public,
+                "results": results_public,
             }
             bundle = VisionResultBundle(
                 schema_version=1,
@@ -1223,6 +1377,7 @@ class StudentExperimentGateway:
             "scene_id": output.scene_id,
             "status": "PASS",
             "training": training_public,
+            "results": results_public,
             "entries": [
                 {
                     "entry_id": entry.entry_id,

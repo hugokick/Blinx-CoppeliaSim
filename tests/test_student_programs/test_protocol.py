@@ -135,6 +135,8 @@ def test_allowed_commands_are_exactly_the_public_student_api():
             "tool.off",
             "vision2d.analyze",
             "vision2d.code_routes",
+            "vision2d.ocr_sorting",
+            "vision2d.ocr_sort_entry",
             "vision2d.template_match",
         }
     )
@@ -145,10 +147,12 @@ def test_v2_2_read_only_commands_are_whitelisted():
     assert "experiment.info" in ALLOWED_COMMANDS
 
 
-def test_code_routes_is_the_only_new_allowlisted_command() -> None:
+def test_v2_2_vision_commands_are_allowlisted_without_raw_ocr_devices() -> None:
     command = CommandMessage("route-000001", "vision2d.code_routes", {})
     assert command.to_dict()["args"] == {}
     assert "vision2d.code_routes" in ALLOWED_COMMANDS
+    assert "vision2d.ocr_sorting" in ALLOWED_COMMANDS
+    assert "vision2d.ocr_sort_entry" in ALLOWED_COMMANDS
 
 
 @pytest.mark.parametrize(

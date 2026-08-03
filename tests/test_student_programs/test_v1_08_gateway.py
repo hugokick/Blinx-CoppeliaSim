@@ -208,6 +208,10 @@ def test_gateway_builds_complete_ocr_plan_before_motion(tmp_path, monkeypatch) -
     value = gateway.dispatch("vision2d.ocr_sorting", {})
 
     assert value["status"] == "PASS"
+    assert tuple(item["identifier"] for item in value["results"]) == (
+        "A1", "A2", "B1", "B2"
+    )
+    assert value["results"][0]["characters"][0]["bbox_px"] == [5, 5, 20, 60]
     assert tuple(item["entry_id"] for item in value["entries"]) == (
         "entry_a", "entry_b", "entry_c", "entry_d"
     )
@@ -216,6 +220,44 @@ def test_gateway_builds_complete_ocr_plan_before_motion(tmp_path, monkeypatch) -
     assert application.robot.calls == []
     assert application.tool.calls == []
     assert evidence.json_calls
+
+
+def test_gateway_rejects_result_geometry_before_guard_activation(tmp_path, monkeypatch) -> None:
+    activated: list[OcrSortPlan] = []
+    gateway, camera, application, _ = _gateway(tmp_path, activate=activated.append)
+
+    def malformed_result() -> SimpleNamespace:
+        output = _service_result()
+        result = output.results[0]
+        bad_character = OCRCharacter("A", (90, 5, 20, 60), 0.98)
+        output.results = (
+            OCRResult(
+                status=result.status,
+                text=result.text,
+                characters=(bad_character, result.characters[1]),
+                image_size=result.image_size,
+                threshold_method=result.threshold_method,
+                character_count=result.character_count,
+                failure_code=result.failure_code,
+                processing_ms=result.processing_ms,
+            ),
+            *output.results[1:],
+        )
+        return output
+
+    monkeypatch.setattr(
+        "vision_platform.student.experiment_gateway.OcrSortingService.from_manifest",
+        lambda *args, **kwargs: SimpleNamespace(
+            analyze=lambda frame, rois: malformed_result(),
+        ),
+    )
+    with pytest.raises(VisionPlatformError) as captured:
+        gateway.dispatch("vision2d.ocr_sorting", {})
+    assert captured.value.code == "OCR_SORT_RESULT_INVALID"
+    assert activated == []
+    assert camera.read_calls == 1
+    assert application.robot.calls == []
+    assert application.tool.calls == []
 
 
 @pytest.mark.parametrize("args", [{"roi": [0, 0, 10, 10]}, {"path": "x.png"}, {"entry_id": "entry_a"}])
@@ -348,6 +390,40 @@ def test_unknown_or_duplicate_entry_fails_before_any_cleanup_device_call(tmp_pat
     assert captured.value.code == "OCR_SORT_ENTRY_INVALID"
     assert robot.moves == []
     assert tool.events == []
+
+
+def test_stop_invalidates_ocr_guard_before_later_entry_can_move(tmp_path: Path) -> None:
+    controller, robot, tool, _ = _controller_for_private_ocr(tmp_path)
+    controller._request_stop("CANCELLED", {"code": "CANCELLED", "message": "stop"})
+
+    assert controller._ocr_guard.state == "INVALIDATED"
+    assert controller._ocr_guard.plan_id is None
+    with pytest.raises(VisionPlatformError) as captured:
+        controller._command_ocr_sort_entry({"entry_id": "entry_a"})
+    assert captured.value.code in {"OCR_SORT_PLAN_INVALIDATED", "STUDENT_STOPPED"}
+    assert robot.moves == []
+    assert tool.events == []
+
+
+def test_successful_terminalization_preserves_completed_ocr_guard(tmp_path: Path) -> None:
+    controller, robot, tool, evidence = _controller_for_private_ocr(tmp_path)
+    for entry_id in ("entry_a", "entry_b", "entry_c", "entry_d"):
+        controller._command_ocr_sort_entry({"entry_id": entry_id})
+    assert controller._ocr_guard.state == "COMPLETED"
+
+    # Isolate terminal-state bookkeeping from the device/evidence adapters;
+    # the guard state must remain available for final evidence after PASS.
+    controller._experiment_gateway = None
+    controller._evidence = None
+    controller._reap_child = lambda *, force: True
+    controller._close_ipc = lambda: None
+    controller._emit_snapshot = lambda: None
+    controller._complete_run("PASS", None)
+
+    assert controller._ocr_guard.state == "COMPLETED"
+    assert controller._ocr_guard.consumed_entry_ids == (
+        "entry_a", "entry_b", "entry_c", "entry_d"
+    )
 
 
 @pytest.mark.parametrize("state", [RunState.EMPTY, RunState.RUNNING, RunState.PAUSED, RunState.PASSED, RunState.FAILED])

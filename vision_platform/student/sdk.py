@@ -91,6 +91,7 @@ _OCR_SORTING_RESULT_FIELDS = frozenset(
         "scene_id",
         "status",
         "training",
+        "results",
         "entries",
         "plan_id",
         "safe_z_mm",
@@ -104,6 +105,24 @@ _OCR_TRAINING_FIELDS = frozenset(
 )
 _OCR_ENTRY_FIELDS = frozenset(
     {"entry_id", "part_id", "identifier", "route_id", "roi_px", "confidence", "status"}
+)
+_OCR_RESULT_FIELDS = frozenset(
+    {
+        "identifier",
+        "status",
+        "text",
+        "characters",
+        "image_size",
+        "threshold_method",
+        "character_count",
+        "failure_code",
+        "processing_ms",
+        "schema_version",
+        "confidence_method",
+    }
+)
+_OCR_CHARACTER_FIELDS = frozenset(
+    {"character", "bbox_px", "confidence", "failure_code", "confidence_method"}
 )
 _OCR_EVIDENCE_FIELDS = frozenset({"raw_path", "annotated_path", "bundle_path"})
 _OCR_RECEIPT_FIELDS = frozenset(
@@ -331,6 +350,30 @@ class StudentOcrEntry:
 
 
 @dataclass(frozen=True)
+class StudentOcrCharacter:
+    character: str
+    bbox_px: tuple[int, int, int, int]
+    confidence: float
+    failure_code: str | None
+    confidence_method: str
+
+
+@dataclass(frozen=True)
+class StudentOcrRecognition:
+    identifier: str
+    status: str
+    text: str
+    characters: tuple[StudentOcrCharacter, ...]
+    image_size: tuple[int, int]
+    threshold_method: str
+    character_count: int
+    failure_code: str | None
+    processing_ms: float
+    schema_version: int
+    confidence_method: str
+
+
+@dataclass(frozen=True)
 class StudentOcrSortingResult:
     schema_version: int
     snapshot_id: str
@@ -339,6 +382,7 @@ class StudentOcrSortingResult:
     scene_id: str
     status: str
     training: StudentOcrTrainingReport
+    results: tuple[StudentOcrRecognition, ...]
     entries: tuple[StudentOcrEntry, ...]
     plan_id: str
     safe_z_mm: float
@@ -364,6 +408,31 @@ class StudentOcrSortingResult:
                 "held_out_accuracy": self.training.held_out_accuracy,
                 "seed": self.training.seed,
             },
+            "results": [
+                {
+                    "identifier": result.identifier,
+                    "status": result.status,
+                    "text": result.text,
+                    "characters": [
+                        {
+                            "character": character.character,
+                            "bbox_px": list(character.bbox_px),
+                            "confidence": character.confidence,
+                            "failure_code": character.failure_code,
+                            "confidence_method": character.confidence_method,
+                        }
+                        for character in result.characters
+                    ],
+                    "image_size": list(result.image_size),
+                    "threshold_method": result.threshold_method,
+                    "character_count": result.character_count,
+                    "failure_code": result.failure_code,
+                    "processing_ms": result.processing_ms,
+                    "schema_version": result.schema_version,
+                    "confidence_method": result.confidence_method,
+                }
+                for result in self.results
+            ],
             "entries": [
                 {
                     "entry_id": entry.entry_id,
@@ -785,6 +854,11 @@ def _ocr_relative_path(value: Any, field: str) -> str:
         type(value) is not str
         or not value
         or len(value) > 240
+        or not value.isascii()
+        or any(
+            character not in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._/-"
+            for character in value
+        )
         or value.startswith("/")
         or "\\" in value
         or any(part in {"", ".", ".."} for part in value.split("/"))
@@ -825,6 +899,81 @@ def _ocr_sorting_result(value: Any) -> StudentOcrSortingResult:
     accuracy = _ocr_finite(training["held_out_accuracy"], "training.held_out_accuracy")
     if not 0.0 <= accuracy <= 1.0:
         raise _ocr_error("training.held_out_accuracy")
+    results_raw = value["results"]
+    if type(results_raw) is not list or len(results_raw) != 4:
+        raise _ocr_error("results")
+    expected_identifiers = ("A1", "A2", "B1", "B2")
+    results: list[StudentOcrRecognition] = []
+    for index, raw in enumerate(results_raw):
+        if not isinstance(raw, Mapping) or set(raw) != _OCR_RESULT_FIELDS:
+            raise _ocr_error(f"results[{index}].fields")
+        identifier = raw["identifier"]
+        if identifier != expected_identifiers[index]:
+            raise _ocr_error(f"results[{index}].identifier")
+        if raw["status"] != "PASS" or raw["text"] != identifier:
+            raise _ocr_error(f"results[{index}].status")
+        if type(raw["schema_version"]) is not int or raw["schema_version"] != 1:
+            raise _ocr_error(f"results[{index}].schema_version")
+        if type(raw["character_count"]) is not int or raw["character_count"] != 2:
+            raise _ocr_error(f"results[{index}].character_count")
+        image_size = raw["image_size"]
+        if (
+            type(image_size) is not list
+            or len(image_size) != 2
+            or any(type(item) is not int or item <= 0 or item > 4096 for item in image_size)
+        ):
+            raise _ocr_error(f"results[{index}].image_size")
+        if (
+            type(raw["threshold_method"]) is not str
+            or not raw["threshold_method"]
+            or type(raw["confidence_method"]) is not str
+            or not raw["confidence_method"]
+            or raw["failure_code"] is not None
+        ):
+            raise _ocr_error(f"results[{index}].methods")
+        processing_ms = _ocr_finite(raw["processing_ms"], f"results[{index}].processing_ms")
+        if processing_ms < 0.0:
+            raise _ocr_error(f"results[{index}].processing_ms")
+        characters_raw = raw["characters"]
+        if type(characters_raw) is not list or len(characters_raw) != 2:
+            raise _ocr_error(f"results[{index}].characters")
+        characters: list[StudentOcrCharacter] = []
+        for char_index, character_raw in enumerate(characters_raw):
+            if not isinstance(character_raw, Mapping) or set(character_raw) != _OCR_CHARACTER_FIELDS:
+                raise _ocr_error(f"results[{index}].characters[{char_index}].fields")
+            character = character_raw["character"]
+            if type(character) is not str or character != identifier[char_index]:
+                raise _ocr_error(f"results[{index}].characters[{char_index}].character")
+            bbox = _ocr_roi(character_raw["bbox_px"], f"results[{index}].characters[{char_index}].bbox_px")
+            if (
+                bbox[0] + bbox[2] > image_size[0]
+                or bbox[1] + bbox[3] > image_size[1]
+            ):
+                raise _ocr_error(
+                    f"results[{index}].characters[{char_index}].bbox_px"
+                )
+            confidence = _ocr_finite(character_raw["confidence"], f"results[{index}].characters[{char_index}].confidence")
+            if not 0.0 <= confidence <= 1.0 or character_raw["failure_code"] is not None:
+                raise _ocr_error(f"results[{index}].characters[{char_index}]")
+            method = character_raw["confidence_method"]
+            if type(method) is not str or not method:
+                raise _ocr_error(f"results[{index}].characters[{char_index}].confidence_method")
+            characters.append(StudentOcrCharacter(character, bbox, confidence, None, method))
+        results.append(
+            StudentOcrRecognition(
+                identifier=identifier,
+                status="PASS",
+                text=identifier,
+                characters=tuple(characters),
+                image_size=(image_size[0], image_size[1]),
+                threshold_method=raw["threshold_method"],
+                character_count=2,
+                failure_code=None,
+                processing_ms=processing_ms,
+                schema_version=1,
+                confidence_method=raw["confidence_method"],
+            )
+        )
     entries_raw = value["entries"]
     if type(entries_raw) is not list or len(entries_raw) != 4:
         raise _ocr_error("entries")
@@ -872,6 +1021,7 @@ def _ocr_sorting_result(value: Any) -> StudentOcrSortingResult:
         training=StudentOcrTrainingReport(
             training["train_count"], training["test_count"], accuracy, training["seed"]
         ),
+        results=tuple(results),
         entries=tuple(entries),
         plan_id=plan_id,
         safe_z_mm=safe_z,
