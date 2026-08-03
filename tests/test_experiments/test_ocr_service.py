@@ -31,8 +31,8 @@ def test_service_uses_scene_bound_roi_geometry_correction_without_score_remappin
     # pixels before the existing KNN kernel, never the returned confidence or
     # confidence_method semantics.
     assert matrix.shape == (2, 3)
-    assert matrix[0, 0] == pytest.approx(1.40, abs=0.02)
-    assert matrix[1, 1] == pytest.approx(1.45, abs=0.02)
+    assert matrix[0, 0] == pytest.approx(1.70, abs=0.02)
+    assert matrix[1, 1] == pytest.approx(1.70, abs=0.02)
 
 
 def _frame_and_rois() -> tuple[np.ndarray, dict[str, tuple[int, int, int, int]]]:

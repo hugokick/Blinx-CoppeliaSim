@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "scene_id": "vision-ocr-sorting-lab",
-  "generated_at": "2026-08-03T03:40:47.627277+00:00",
+  "generated_at": "2026-08-03T04:07:26.744169+00:00",
   "generator": "simulation.training_scenes.build_scene",
   "template": {
     "path": "simulation/vision_lab/BL23_vision_lab.ttt",
@@ -9,8 +9,8 @@
   },
   "scene": {
     "path": "simulation/vision_ocr_sorting_lab/BL23_vision_ocr_sorting_lab.ttt",
-    "sha256": "ed1bbb58b7f42d1149412cb97bbd6441eea9844953c2386d842afae22caae98f",
-    "size_bytes": 11748349
+    "sha256": "3bd1cb20d78be81f5f1358d8601e384a5cd07ab346062d55e120e031c3b993c1",
+    "size_bytes": 11748319
   },
   "required_paths": [
     "/BLX_base_link",
@@ -70,23 +70,23 @@
     },
     "initial_positions_mm": {
       "part_a": [
-        40,
-        -45,
+        35,
+        -55,
         18
       ],
       "part_b": [
-        80,
-        -45,
+        75,
+        -55,
         18
       ],
       "part_c": [
-        40,
-        5,
+        35,
+        25,
         18
       ],
       "part_d": [
-        80,
-        5,
+        75,
+        25,
         18
       ]
     },
@@ -107,24 +107,24 @@
       "route_alpha": [
         [
           116,
-          -60,
+          -75,
           22
         ],
         [
           128,
-          -60,
+          -75,
           22
         ]
       ],
       "route_beta": [
         [
           116,
-          60,
+          75,
           22
         ],
         [
           128,
-          60,
+          75,
           22
         ]
       ]

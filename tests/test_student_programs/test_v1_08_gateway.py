@@ -102,10 +102,10 @@ def _plan() -> OcrSortPlan:
         )
         for index, (entry_id, part_id, identifier, route_id, pick, drop) in enumerate(
             (
-                ("entry_a", "part_a", "A1", "route_alpha", (40.0, -45.0, 18.0), (116.0, -60.0, 22.0)),
-                ("entry_b", "part_b", "A2", "route_alpha", (80.0, -45.0, 18.0), (128.0, -60.0, 22.0)),
-                ("entry_c", "part_c", "B1", "route_beta", (40.0, 5.0, 18.0), (116.0, 60.0, 22.0)),
-                ("entry_d", "part_d", "B2", "route_beta", (80.0, 5.0, 18.0), (128.0, 60.0, 22.0)),
+                ("entry_a", "part_a", "A1", "route_alpha", (35.0, -55.0, 18.0), (116.0, -75.0, 22.0)),
+                ("entry_b", "part_b", "A2", "route_alpha", (75.0, -55.0, 18.0), (128.0, -75.0, 22.0)),
+                ("entry_c", "part_c", "B1", "route_beta", (35.0, 25.0, 18.0), (116.0, 75.0, 22.0)),
+                ("entry_d", "part_d", "B2", "route_beta", (75.0, 25.0, 18.0), (128.0, 75.0, 22.0)),
             )
         )
     )
@@ -279,10 +279,10 @@ def test_gateway_entry_probe_artifact_binds_snapshot_id(tmp_path: Path) -> None:
         def getObjectPosition(self, handle, relative_to):
             assert relative_to == self.handle_world
             expected = {
-                "/VisionOcrSortingLab/Parts/part_a": (0.116, -0.060, 0.022),
-                "/VisionOcrSortingLab/Parts/part_b": (0.128, -0.060, 0.022),
-                "/VisionOcrSortingLab/Parts/part_c": (0.116, 0.060, 0.022),
-                "/VisionOcrSortingLab/Parts/part_d": (0.128, 0.060, 0.022),
+                "/VisionOcrSortingLab/Parts/part_a": (0.116, -0.075, 0.022),
+                "/VisionOcrSortingLab/Parts/part_b": (0.128, -0.075, 0.022),
+                "/VisionOcrSortingLab/Parts/part_c": (0.116, 0.075, 0.022),
+                "/VisionOcrSortingLab/Parts/part_d": (0.128, 0.075, 0.022),
             }
             return expected[handle]
 
@@ -561,7 +561,7 @@ def test_private_ocr_runner_lifts_before_first_horizontal_move(tmp_path: Path) -
 
     assert receipt["status"] == "COMPLETED"
     assert robot.moves[0][:3] == (100.0, 0.0, 110.0)
-    assert robot.moves[1][:3] == (40.0, -45.0, 110.0)
+    assert robot.moves[1][:3] == (35.0, -55.0, 110.0)
     assert len(robot.moves) == 7
     assert tool.events == ["on", "off"]
     assert controller._ocr_guard.consumed_entry_ids == ("entry_a",)

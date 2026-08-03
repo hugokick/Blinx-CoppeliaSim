@@ -143,7 +143,6 @@ def test_v1_08_online_ocr_sorting_is_complete(tmp_path: Path, request) -> None:
     summary = json.loads(Path(payload["summary"]).read_text(encoding="utf-8"))
     assert summary["scene_probe_status"] == "PASS"
     assert summary["hardware_status"] == "PENDING_HARDWARE"
-
     commands = [
         json.loads(line)
         for line in (evidence_dir / "commands.jsonl").read_text(encoding="utf-8").splitlines()
@@ -173,4 +172,3 @@ def test_v1_08_online_ocr_sorting_is_complete(tmp_path: Path, request) -> None:
     assert len(bundle["result"]["results"]) == 4
     assert bundle["result"]["training"]["held_out_accuracy"] >= 0.95
     assert bundle["hardware_status"] == "PENDING_HARDWARE"
-

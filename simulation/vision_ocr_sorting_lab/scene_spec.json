@@ -37,7 +37,7 @@
       "identifier": "A1",
       "label_asset_id": "A1",
       "route": "route_alpha",
-      "position_mm": [40, -45, 18],
+      "position_mm": [35, -55, 18],
       "size_mm": [34, 34, 16]
     },
     {
@@ -45,7 +45,7 @@
       "identifier": "A2",
       "label_asset_id": "A2",
       "route": "route_alpha",
-      "position_mm": [80, -45, 18],
+      "position_mm": [75, -55, 18],
       "size_mm": [34, 34, 16]
     },
     {
@@ -53,7 +53,7 @@
       "identifier": "B1",
       "label_asset_id": "B1",
       "route": "route_beta",
-      "position_mm": [40, 5, 18],
+      "position_mm": [35, 25, 18],
       "size_mm": [34, 34, 16]
     },
     {
@@ -61,7 +61,7 @@
       "identifier": "B2",
       "label_asset_id": "B2",
       "route": "route_beta",
-      "position_mm": [80, 5, 18],
+      "position_mm": [75, 25, 18],
       "size_mm": [34, 34, 16]
     }
   ],
@@ -72,11 +72,11 @@
       "slots": [
         {
           "alias": "slot_1",
-          "position_mm": [116, -60, 22]
+          "position_mm": [116, -75, 22]
         },
         {
           "alias": "slot_2",
-          "position_mm": [128, -60, 22]
+          "position_mm": [128, -75, 22]
         }
       ]
     },
@@ -86,11 +86,11 @@
       "slots": [
         {
           "alias": "slot_1",
-          "position_mm": [116, 60, 22]
+          "position_mm": [116, 75, 22]
         },
         {
           "alias": "slot_2",
-          "position_mm": [128, 60, 22]
+          "position_mm": [128, 75, 22]
         }
       ]
     }

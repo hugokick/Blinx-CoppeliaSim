@@ -2082,7 +2082,7 @@ def _ocr_label_bitmap(label: np.ndarray) -> np.ndarray:
 def _ocr_bitmap_geometry(*, face_width: float, face_height: float) -> dict[str, float]:
     """Return a gap-free pitch and cell size for the rendered 10x7 bitmap."""
 
-    # Keep the complete 10x7 label inside the fixed 96x128 pixel ROIs while
+    # Keep the complete 10x7 label inside the published inner ROIs while
     # leaving enough white border for the host-side segmentation contract.
     pitch_width = float(face_width) / 28.0
     # The OCR training generator renders square bitmap pixels.  Keep the

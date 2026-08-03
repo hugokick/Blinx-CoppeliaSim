@@ -33,10 +33,10 @@
       "training_manifest_sha256": "ddd986169b72363a2f619e57da668546f4f8c778011b125aa6c23d960b4f2444",
       "expected_identifiers": ["A1", "A2", "B1", "B2"],
       "fixed_rois_px": {
-        "A1": [740, 170, 96, 128],
-        "A2": [494, 170, 96, 128],
-        "B1": [740, 478, 96, 128],
-        "B2": [494, 478, 96, 128]
+        "A1": [760, 120, 110, 120],
+        "A2": [515, 120, 110, 120],
+        "B1": [760, 610, 110, 120],
+        "B2": [515, 610, 110, 120]
       },
       "sort_config": {
         "schema_version": 1,
@@ -57,32 +57,32 @@
             "part_id": "part_a",
             "identifier": "A1",
             "route_id": "route_alpha",
-            "pick_xyz_mm": [40.0, -45.0, 18.0],
-            "drop_xyz_mm": [116.0, -60.0, 22.0]
+            "pick_xyz_mm": [35.0, -55.0, 18.0],
+            "drop_xyz_mm": [116.0, -75.0, 22.0]
           },
           {
             "entry_id": "entry_b",
             "part_id": "part_b",
             "identifier": "A2",
             "route_id": "route_alpha",
-            "pick_xyz_mm": [80.0, -45.0, 18.0],
-            "drop_xyz_mm": [128.0, -60.0, 22.0]
+            "pick_xyz_mm": [75.0, -55.0, 18.0],
+            "drop_xyz_mm": [128.0, -75.0, 22.0]
           },
           {
             "entry_id": "entry_c",
             "part_id": "part_c",
             "identifier": "B1",
             "route_id": "route_beta",
-            "pick_xyz_mm": [40.0, 5.0, 18.0],
-            "drop_xyz_mm": [116.0, 60.0, 22.0]
+            "pick_xyz_mm": [35.0, 25.0, 18.0],
+            "drop_xyz_mm": [116.0, 75.0, 22.0]
           },
           {
             "entry_id": "entry_d",
             "part_id": "part_d",
             "identifier": "B2",
             "route_id": "route_beta",
-            "pick_xyz_mm": [80.0, 5.0, 18.0],
-            "drop_xyz_mm": [128.0, 60.0, 22.0]
+            "pick_xyz_mm": [75.0, 25.0, 18.0],
+            "drop_xyz_mm": [128.0, 75.0, 22.0]
           }
         ]
       }

@@ -60,10 +60,10 @@ def _scene_hash():
 
 def _positions():
     return {
-        "/VisionOcrSortingLab/Parts/part_a": [116.0, -60.0, 22.0],
-        "/VisionOcrSortingLab/Parts/part_b": [128.0, -60.0, 22.0],
-        "/VisionOcrSortingLab/Parts/part_c": [116.0, 60.0, 22.0],
-        "/VisionOcrSortingLab/Parts/part_d": [128.0, 60.0, 22.0],
+        "/VisionOcrSortingLab/Parts/part_a": [116.0, -75.0, 22.0],
+        "/VisionOcrSortingLab/Parts/part_b": [128.0, -75.0, 22.0],
+        "/VisionOcrSortingLab/Parts/part_c": [116.0, 75.0, 22.0],
+        "/VisionOcrSortingLab/Parts/part_d": [128.0, 75.0, 22.0],
     }
 
 
@@ -203,8 +203,8 @@ def test_final_probe_rejects_a_reference_that_rebinds_an_entry_to_other_slot():
     refs[0] = {**refs[0], "slot_id": "slot_2"}
     refs[1] = {**refs[1], "slot_id": "slot_1"}
     positions = _positions()
-    positions["/VisionOcrSortingLab/Parts/part_a"] = [128.0, -60.0, 22.0]
-    positions["/VisionOcrSortingLab/Parts/part_b"] = [116.0, -60.0, 22.0]
+    positions["/VisionOcrSortingLab/Parts/part_a"] = [128.0, -75.0, 22.0]
+    positions["/VisionOcrSortingLab/Parts/part_b"] = [116.0, -75.0, 22.0]
     report = probe_ocr_final(
         FakeOcrSim(positions, robot_pose=(0.0, 0.0, 0.0), tool_on=False),
         _definition(),

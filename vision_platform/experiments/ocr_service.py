@@ -46,10 +46,10 @@ def _fail(code: str, message: str) -> OcrServiceError:
 # confidence value or its method.
 _OCR_ROI_AFFINE_CORRECTION: Mapping[str, tuple[float, float, float]] = MappingProxyType(
     {
-        "A1": (5.0, 1.20, 1.20),
-        "A2": (2.5, 1.40, 1.45),
-        "B1": (2.5, 1.10, 1.10),
-        "B2": (0.5, 1.25, 1.25),
+        "A1": (4.0, 0.90, 0.90),
+        "A2": (2.0, 1.70, 1.70),
+        "B1": (3.0, 1.80, 1.90),
+        "B2": (0.0, 1.05, 1.05),
     }
 )
 
@@ -132,10 +132,10 @@ def _default_sort_config() -> dict[str, object]:
             "safe_z_mm": 110.0,
         },
         "routes": [
-            {"entry_id": "entry_a", "part_id": "part_a", "identifier": "A1", "route_id": "route_alpha", "pick_xyz_mm": [40.0, -45.0, 18.0], "drop_xyz_mm": [116.0, -60.0, 22.0]},
-            {"entry_id": "entry_b", "part_id": "part_b", "identifier": "A2", "route_id": "route_alpha", "pick_xyz_mm": [80.0, -45.0, 18.0], "drop_xyz_mm": [128.0, -60.0, 22.0]},
-            {"entry_id": "entry_c", "part_id": "part_c", "identifier": "B1", "route_id": "route_beta", "pick_xyz_mm": [40.0, 5.0, 18.0], "drop_xyz_mm": [116.0, 60.0, 22.0]},
-            {"entry_id": "entry_d", "part_id": "part_d", "identifier": "B2", "route_id": "route_beta", "pick_xyz_mm": [80.0, 5.0, 18.0], "drop_xyz_mm": [128.0, 60.0, 22.0]},
+            {"entry_id": "entry_a", "part_id": "part_a", "identifier": "A1", "route_id": "route_alpha", "pick_xyz_mm": [35.0, -55.0, 18.0], "drop_xyz_mm": [116.0, -75.0, 22.0]},
+            {"entry_id": "entry_b", "part_id": "part_b", "identifier": "A2", "route_id": "route_alpha", "pick_xyz_mm": [75.0, -55.0, 18.0], "drop_xyz_mm": [128.0, -75.0, 22.0]},
+            {"entry_id": "entry_c", "part_id": "part_c", "identifier": "B1", "route_id": "route_beta", "pick_xyz_mm": [35.0, 25.0, 18.0], "drop_xyz_mm": [116.0, 75.0, 22.0]},
+            {"entry_id": "entry_d", "part_id": "part_d", "identifier": "B2", "route_id": "route_beta", "pick_xyz_mm": [75.0, 25.0, 18.0], "drop_xyz_mm": [128.0, 75.0, 22.0]},
         ],
     }
 

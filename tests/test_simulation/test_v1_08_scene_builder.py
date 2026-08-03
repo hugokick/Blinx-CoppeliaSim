@@ -12,6 +12,7 @@ from tools.vision_lab import build_v1_08_scene
 
 ROOT = Path(__file__).resolve().parents[2]
 SPEC = ROOT / "simulation" / "vision_ocr_sorting_lab" / "scene_spec.json"
+CONFIG = ROOT / "config" / "experiments" / "V1-08.json"
 
 
 def test_python_wrapper_passes_only_canonical_v1_08_spec_and_port(monkeypatch):
@@ -135,6 +136,70 @@ def test_v1_08_bitmap_keeps_a_gap_between_identifier_glyphs():
     geometry = scene_builder._ocr_bitmap_geometry(face_width=30.0, face_height=30.0)
 
     assert geometry["glyph_gap_pitch_mm"] >= geometry["pitch_width_mm"]
+
+
+def test_v1_08_layout_is_expanded_away_from_robot_base():
+    spec = json.loads(SPEC.read_text(encoding="utf-8"))
+    positions = [tuple(part["position_mm"]) for part in spec["parts"]]
+    slots = [
+        tuple(slot["position_mm"])
+        for route in spec["routes"]
+        for slot in route["slots"]
+    ]
+
+    assert positions == [
+        (35, -55, 18),
+        (75, -55, 18),
+        (35, 25, 18),
+        (75, 25, 18),
+    ]
+    assert slots == [
+        (116, -75, 22),
+        (128, -75, 22),
+        (116, 75, 22),
+        (128, 75, 22),
+    ]
+    assert min(abs(y) for _, y, _ in positions) >= 25
+    assert min(abs(y) for _, y, _ in slots) >= 70
+
+
+def test_v1_08_expanded_layout_keeps_geometry_and_rois_inside_contract():
+    spec = json.loads(SPEC.read_text(encoding="utf-8"))
+    config = json.loads(CONFIG.read_text(encoding="utf-8"))
+    workspace = spec["workspace"]
+    workspace_x = (
+        float(workspace["center_mm"][0]) - float(workspace["size_mm"][0]) / 2.0,
+        float(workspace["center_mm"][0]) + float(workspace["size_mm"][0]) / 2.0,
+    )
+    workspace_y = (
+        float(workspace["center_mm"][1]) - float(workspace["size_mm"][1]) / 2.0,
+        float(workspace["center_mm"][1]) + float(workspace["size_mm"][1]) / 2.0,
+    )
+    for part in spec["parts"]:
+        x, y, _z = (float(value) for value in part["position_mm"])
+        width, height, _depth = (float(value) for value in part["size_mm"])
+        assert workspace_x[0] <= x - width / 2.0
+        assert x + width / 2.0 <= workspace_x[1]
+        assert workspace_y[0] <= y - height / 2.0
+        assert y + height / 2.0 <= workspace_y[1]
+    for route in spec["routes"]:
+        for slot in route["slots"]:
+            x, y, z = (float(value) for value in slot["position_mm"])
+            assert workspace_x[0] <= x <= workspace_x[1]
+            assert workspace_y[0] <= y <= workspace_y[1]
+            assert 10.0 <= z <= 140.0
+
+    rois = config["public_parameters"]["ocr_sorting"]["fixed_rois_px"]
+    assert rois == {
+        "A1": [760, 120, 110, 120],
+        "A2": [515, 120, 110, 120],
+        "B1": [760, 610, 110, 120],
+        "B2": [515, 610, 110, 120],
+    }
+    for x, y, width, height in rois.values():
+        assert x >= 24 and y >= 24
+        assert x + width + 24 <= 1024
+        assert y + height + 24 <= 1024
 
 
 def test_v1_08_ocr_part_uses_contiguous_cell_size(monkeypatch):

@@ -33,10 +33,10 @@ def plan() -> OcrSortPlan:
         )
         for index, (entry_id, part_id, identifier, route_id, pick, drop) in enumerate(
             (
-                ("entry_a", "part_a", "A1", "route_alpha", (40.0, -45.0, 18.0), (116.0, -60.0, 22.0)),
-                ("entry_b", "part_b", "A2", "route_alpha", (80.0, -45.0, 18.0), (128.0, -60.0, 22.0)),
-                ("entry_c", "part_c", "B1", "route_beta", (40.0, 5.0, 18.0), (116.0, 60.0, 22.0)),
-                ("entry_d", "part_d", "B2", "route_beta", (80.0, 5.0, 18.0), (128.0, 60.0, 22.0)),
+                ("entry_a", "part_a", "A1", "route_alpha", (35.0, -55.0, 18.0), (116.0, -75.0, 22.0)),
+                ("entry_b", "part_b", "A2", "route_alpha", (75.0, -55.0, 18.0), (128.0, -75.0, 22.0)),
+                ("entry_c", "part_c", "B1", "route_beta", (35.0, 25.0, 18.0), (116.0, 75.0, 22.0)),
+                ("entry_d", "part_d", "B2", "route_beta", (75.0, 25.0, 18.0), (128.0, 75.0, 22.0)),
             )
         )
     )
@@ -109,9 +109,9 @@ def test_guard_returns_frozen_actions_without_device_access(plan: OcrSortPlan) -
         "move_safe_drop",
     ]
     assert all(type(action) is OcrSortAction for action in actions)
-    assert actions[0].target_xyz_mm == (40.0, -45.0, 110.0)
-    assert actions[1].target_xyz_mm == (40.0, -45.0, 18.0)
-    assert actions[5].target_xyz_mm == (116.0, -60.0, 22.0)
+    assert actions[0].target_xyz_mm == (35.0, -55.0, 110.0)
+    assert actions[1].target_xyz_mm == (35.0, -55.0, 18.0)
+    assert actions[5].target_xyz_mm == (116.0, -75.0, 22.0)
     with pytest.raises(FrozenInstanceError):
         actions[0].kind = "move_drop"  # type: ignore[misc]
     with pytest.raises(TypeError):
