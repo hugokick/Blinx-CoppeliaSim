@@ -77,6 +77,23 @@
 - ownership/dependency diff 审计通过：相对精确基线的修改均落在 D1-01 owned 路径；无 `vision_platform/rgbd`、`vision_platform/cameras/coppeliasim.py`、V1-07/V1-08、正式机器人资产、student/experiments/UI/SDK 或依赖文件改动。
 - 未注册 `config/experiments/D1-01.json`，未接入正式课程、SDK/UI 或机器人动作。
 
+## 新主线受控集成验证
+
+本节记录 V1-08 已进入新主线后的 D1-01 受控集成，不替代上文原 D1-01 独立开发基线证据。
+
+- 新主线基线：`origin/main = 1c11302811a070d62c4d440a012a0399027a1683`。
+- 原 D1-01 输入：`origin/codex/v2-2-d1-01-rgbd-sim-foundation = dd17f74a6bc34bc4a90dc9202692a5ba69f239d2`；共同基线仍为 `5c09695b764fa35915dd5ae486b5f13f9a4d8631`。
+- 集成分支/worktree：`codex/v2-2-d1-01-main-integration` / `C:\Users\yqzhe\.config\superpowers\worktrees\robot-vision-lab\v2-2-d1-01-main-integration`。
+- 报告提交前集成 tip：`cddf8b320125abe55b4b7b9519d58142ca222eee`。
+- 可复制重放命令：`git fetch origin --prune`；`git worktree add C:\Users\yqzhe\.config\superpowers\worktrees\robot-vision-lab\v2-2-d1-01-main-integration -b codex/v2-2-d1-01-main-integration origin/main`；按 `git rev-list --reverse 5c09695b764fa35915dd5ae486b5f13f9a4d8631..dd17f74a6bc34bc4a90dc9202692a5ba69f239d2` 输出的顺序逐个 `git cherry-pick`，共 17 个提交。
+- 冲突记录：仅 `.gitattributes` 发生内容冲突；已并集保留 V1-08 的 4 条 OCR 规则与 D1-01 的 `simulation/rgbd_lab/*.json` 规则。`RETAINED_FILES.txt` 无冲突，未删除、重排或覆盖任一端条目。
+- 保护范围审计：相对新 `origin/main` 的差异仅为 D1-01 owned 路径、`.gitattributes`、`RETAINED_FILES.txt` 和本报告；V1-08、student/experiments/UI/SDK、正式 `.ttt`、URDF/STL/网格/机器人资产及 `vision_platform/rgbd/**`、`vision_platform/cameras/coppeliasim.py` 均无差异。
+- 集成专项：`pytest -q tests/test_rgbd_sim` → `87 passed, 4 skipped`；`pytest -q tests/test_rgbd tests/test_vision_platform/test_coppeliasim_camera.py` → `108 passed`；`pytest -q tests/test_acceptance/test_delivery_contract.py` → `47 passed`。
+- 全仓静态：`pytest -q` → `2307 passed, 25 skipped`。其中主线基线 21 个 skip 保持不变，D1-01 新增 3 个未启用在线 marker skip 与 1 个 Windows symlink 权限 skip；skip 均未计作 PASS。
+- 显式在线：`pytest -q -s -m coppeliasim tests/test_rgbd_sim/test_coppeliasim_rgbd_online.py` → `3 passed, 0 skipped`；固定端口 `23009`，进程精确归属并清理，结束后 `23009` 无监听且 `23008` 无监听。在线合同验证 source model=`optical_z`、显式处理和 optical-Z 输出。
+- 集成清单审计原始输出：`RETAINED_FILES.txt` 共 `530` 条记录、`530` 唯一、文件缺失 `0`；新主线原有 497 条记录全部保留。`git diff --check` 通过。
+- 独立只读复审：P0=`0`、P1=`0`、阻断性 P2=`0`；本次没有新增集成修复或越界修改。教学继续 `PENDING_HUMAN_ACCEPTANCE`，真实硬件继续 `PENDING_HARDWARE`。
+
 ## Review conclusion and remaining PENDING items
 
 本轮独立复审提出的 P1-1 source-depth 观测门、P1-2 listener 归属、P1-3 retained 清单和 P2 manifest 严格绑定均已按 RED→GREEN 修复并回归。修复后的底座已验证“仿真 RGB-D source capture → source model 观测 → optical-Z frame → ROI/JSON evidence”这一范围；真实在线结果不能外推为真实深度相机精度、课程教学效果、机器人闭环或硬件验收。
