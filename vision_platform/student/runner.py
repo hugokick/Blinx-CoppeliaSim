@@ -1976,6 +1976,17 @@ class StudentProgramController:
                 self._requested_error = safe_error
             self._stop_requested = True
             self._condition.notify_all()
+        self._invalidate_ocr_guard()
+
+    def _invalidate_ocr_guard(self) -> None:
+        """Make an OCR plan non-executable at every controller stop boundary."""
+
+        try:
+            self._ocr_guard.stop()
+        except BaseException:
+            # The runner's stop/error state is authoritative; a guard cleanup
+            # failure must never replace the first stop or execution error.
+            pass
 
     def _requested_outcome(self) -> tuple[str, dict[str, Any] | None] | None:
         with self._condition:
@@ -3081,12 +3092,15 @@ class StudentProgramController:
             with self._condition:
                 if self._result is not None:
                     return
+                prior_stop_requested = self._stop_requested
                 if self._stop_requested:
                     status = self._requested_status or "FAILED"
                     error = self._requested_error
                 self._terminalizing = True
                 self._stop_requested = True
                 self._condition.notify_all()
+            if prior_stop_requested or status != "PASS":
+                self._invalidate_ocr_guard()
 
             # A worker may return a final result while leaving a non-daemon
             # student thread behind. Once the result is received, no more
