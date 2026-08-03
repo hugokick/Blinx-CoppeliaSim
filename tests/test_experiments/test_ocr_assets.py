@@ -130,6 +130,26 @@ def test_loader_rejects_bool_or_float_schema_and_seed_before_asset_reads(
     assert exc.value.code == "OCR_ASSET_CONFIG_INVALID"
 
 
+@pytest.mark.parametrize("value", [True, 3.0])
+def test_loader_rejects_non_integer_training_channels_before_asset_reads(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, value: object
+) -> None:
+    import vision_platform.experiments.ocr_assets as module
+
+    manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
+    manifest["training_parameters"]["channels"] = value
+    path = tmp_path / "ocr_assets_manifest.json"
+    path.write_text(json.dumps(manifest), encoding="utf-8")
+    monkeypatch.setattr(
+        module,
+        "_require_regular_file",
+        lambda *_args, **_kwargs: pytest.fail("invalid channel metadata must fail before asset reads"),
+    )
+    with pytest.raises(OcrAssetError) as exc:
+        load_ocr_assets(path)
+    assert exc.value.code == "OCR_ASSET_CONFIG_INVALID"
+
+
 def test_loader_rejects_symlink_assets(tmp_path: Path) -> None:
     manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
     copied_root = tmp_path / "assets"

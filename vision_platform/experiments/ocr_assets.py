@@ -337,6 +337,7 @@ def load_ocr_assets(
         or parameters["variants_per_glyph"] < 8
         or _size(parameters["bitmap_size_px"], "bitmap_size_px") != (5, 7)
         or _size(parameters["image_size_px"], "image_size_px") != EXPECTED_SIZE_PX
+        or not _is_builtin_int(parameters["channels"], positive=True)
         or parameters["channels"] != EXPECTED_CHANNELS
     ):
         raise _fail("OCR_ASSET_CONFIG_INVALID", "training parameters are not fixed V1-08 values")
