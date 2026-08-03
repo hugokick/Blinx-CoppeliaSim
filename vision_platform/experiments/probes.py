@@ -693,7 +693,6 @@ def probe_ocr_entry(
     actual = _ocr_actual_position(sim, str(entry["part_id"]))
     distance_mm = _distance_mm(actual, expected)
     passed = distance_mm <= tolerance
-    evidence_id = _ocr_evidence_id(entry_id, run_id, scene_hash, snapshot_id)
     result: dict[str, Any] = {
         "schema_version": 1,
         "status": "PASS" if passed else "FAIL",
@@ -704,24 +703,26 @@ def probe_ocr_entry(
         "run_id": run_id,
         "scene_hash": scene_hash,
         "snapshot_id": snapshot_id,
-        "evidence_id": evidence_id,
-        # This exact six-field object is the only value that a pure guard
-        # needs to consume.  The surrounding report is intentionally richer
-        # and remains read-only evidence for the host/UI.
-        "evidence_ref": {
-            "run_id": run_id,
-            "scene_hash": scene_hash,
-            "part_id": entry["part_id"],
-            "route_id": route_id,
-            "slot_id": slot_id,
-            "evidence_id": evidence_id,
-        },
         "position_mm": actual,
         "expected_mm": expected,
         "distance_mm": distance_mm,
         "tolerance_mm": tolerance,
         "hardware_status": "PENDING_HARDWARE",
     }
+    if passed:
+        evidence_id = _ocr_evidence_id(entry_id, run_id, scene_hash, snapshot_id)
+        result["evidence_id"] = evidence_id
+        # This exact six-field object is the only value that a pure guard
+        # needs to consume.  The surrounding report is intentionally richer
+        # and remains read-only evidence for the host/UI.
+        result["evidence_ref"] = {
+            "run_id": run_id,
+            "scene_hash": scene_hash,
+            "part_id": entry["part_id"],
+            "route_id": route_id,
+            "slot_id": slot_id,
+            "evidence_id": evidence_id,
+        }
     return result
 
 

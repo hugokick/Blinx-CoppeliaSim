@@ -110,6 +110,22 @@ def test_entry_probe_returns_bounded_same_run_reference_for_configured_slot():
     assert json.loads(json.dumps(report, allow_nan=False)) == report
 
 
+def test_entry_probe_failure_does_not_issue_a_consumable_evidence_reference():
+    positions = _positions()
+    positions["/VisionOcrSortingLab/Parts/part_a"] = [40.0, -45.0, 18.0]
+    report = probe_ocr_entry(
+        FakeOcrSim(positions),
+        _definition(),
+        entry_id="entry_a",
+        run_id="run-v1-08",
+        scene_hash=_scene_hash(),
+        snapshot_id="frame-000001",
+    )
+    assert report["status"] == "FAIL"
+    assert "evidence_ref" not in report
+    assert "evidence_id" not in report
+
+
 @pytest.mark.parametrize(
     "kwargs",
     [
