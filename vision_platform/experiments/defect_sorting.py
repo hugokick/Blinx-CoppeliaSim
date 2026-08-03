@@ -245,6 +245,14 @@ class DefectSortPlan:
         if {item.decision for item in self.entries} != {item[2] for item in EXPECTED_ENTRIES}:
             raise _error(code, "decision set must contain one qualified and five defect classes")
         for entry in self.entries:
+            expected = _EXPECTED_BY_ENTRY[entry.entry_id]
+            if (entry.part_id, entry.decision, entry.route_id, entry.slot_id) != (
+                expected[1],
+                expected[2],
+                expected[3],
+                expected[4],
+            ):
+                raise _error(code, "entry decision and route whitelist do not match")
             if (entry.run_id, entry.frame_id, entry.scene_sha256, entry.config_sha256, entry.asset_manifest_sha256) != (
                 self.run_id,
                 self.frame_id,
@@ -366,12 +374,13 @@ def _validate_observation(observation: DefectObservation, expected: tuple[str, s
     if x + width > image_size[0] or y + height > image_size[1]:
         raise _error(code, "observation ROI is outside the frame")
     result = observation.result
-    if result.image_size != image_size:
-        raise _error(code, "kernel image_size does not match the fixed frame")
+    crop_size = (width, height)
+    if result.image_size != crop_size:
+        raise _error(code, "kernel image_size does not match the observation crop")
     for finding in result.defects:
         bx, by, bw, bh = finding.bbox_px
-        if type(bx) is not int or type(by) is not int or type(bw) is not int or type(bh) is not int or bx < 0 or by < 0 or bw <= 0 or bh <= 0 or bx + bw > image_size[0] or by + bh > image_size[1]:
-            raise _error(code, "finding bbox is outside the fixed frame")
+        if type(bx) is not int or type(by) is not int or type(bw) is not int or type(bh) is not int or bx < 0 or by < 0 or bw <= 0 or bh <= 0 or bx + bw > crop_size[0] or by + bh > crop_size[1]:
+            raise _error(code, "finding bbox is outside the observation crop")
     return classify_defect_result(result)
 
 
@@ -414,6 +423,8 @@ def build_defect_sort_plan(
         decision = _validate_observation(observation, expected, image_size)
         candidate_digests.add(observation.candidate_crop_sha256)
         route = routes[index]
+        if (decision, route["route_id"], route["slot_id"]) != (expected[2], expected[3], expected[4]):
+            raise _error("DEFECT_SORT_PLAN_INCOMPLETE", "decision does not match the fixed route whitelist")
         entry = ApprovedDefectSortEntry(
             entry_id=expected[0],
             part_id=expected[1],

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 import json
-from dataclasses import FrozenInstanceError
+from dataclasses import FrozenInstanceError, replace
 
 import pytest
 
@@ -62,7 +62,7 @@ def _config() -> dict[str, object]:
     }
 
 
-def _result(decision: str) -> DefectResult:
+def _result(decision: str, *, image_size: tuple[int, int] = (192, 192)) -> DefectResult:
     if decision == "qualified":
         return DefectResult(
             status="PASS",
@@ -73,7 +73,7 @@ def _result(decision: str) -> DefectResult:
             thresholds={"missing_ratio": 0.01},
             failure_code=None,
             processing_ms=1.0,
-            image_size=IMAGE_SIZE,
+            image_size=image_size,
         )
     finding = DefectFinding(
         defect_type=decision,
@@ -93,7 +93,7 @@ def _result(decision: str) -> DefectResult:
         thresholds={"missing_ratio": 0.01},
         failure_code="DEFECTS_FOUND",
         processing_ms=1.0,
-        image_size=IMAGE_SIZE,
+        image_size=image_size,
     )
 
 
@@ -248,6 +248,47 @@ def test_invalid_observation_roi_and_digest_fail_closed() -> None:
         candidate_crop_sha256="b" * 64,
     )
     with pytest.raises(DefectSortError):
+        _build(observations=tuple(observations))
+
+
+def test_kernel_result_size_must_match_observation_crop() -> None:
+    observations = list(_observations())
+    observations[0] = replace(observations[0], result=_result("qualified", image_size=IMAGE_SIZE))
+    with pytest.raises(DefectSortError, match="DEFECT_SORT_OBSERVATION_INVALID"):
+        _build(observations=tuple(observations))
+
+
+@pytest.mark.parametrize("bbox", [(180, 20, 30, 30)])
+def test_finding_bbox_must_be_positive_and_inside_observation_crop(bbox: tuple[int, int, int, int]) -> None:
+    observations = list(_observations())
+    result = _result("missing")
+    observations[1] = replace(
+        observations[1],
+        result=replace(
+            result,
+            defects=(DefectFinding("missing", bbox, 900.0, 0.02, 0.02, 0.01, 0.95),),
+        ),
+    )
+    with pytest.raises(DefectSortError, match="DEFECT_SORT_OBSERVATION_INVALID"):
+        _build(observations=tuple(observations))
+
+
+def test_kernel_result_size_can_follow_a_different_crop() -> None:
+    observations = list(_observations())
+    observations[0] = replace(
+        observations[0],
+        roi_px=(80, 56, 256, 256),
+        result=_result("qualified", image_size=(256, 256)),
+    )
+    plan = _build(observations=tuple(observations))
+    assert plan.entries[0].roi_px == (80, 56, 256, 256)
+
+
+def test_swapped_entry_decisions_fail_before_a_plan_is_returned() -> None:
+    observations = list(_observations())
+    observations[1] = replace(observations[1], result=_result("hole"))
+    observations[2] = replace(observations[2], result=_result("missing"))
+    with pytest.raises(DefectSortError, match="DEFECT_SORT_PLAN_INCOMPLETE"):
         _build(observations=tuple(observations))
 
 
