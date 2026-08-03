@@ -953,7 +953,7 @@ def _ocr_sorting_result(value: Any) -> StudentOcrSortingResult:
                     f"results[{index}].characters[{char_index}].bbox_px"
                 )
             confidence = _ocr_finite(character_raw["confidence"], f"results[{index}].characters[{char_index}].confidence")
-            if not 0.0 <= confidence <= 1.0 or character_raw["failure_code"] is not None:
+            if not 0.90 <= confidence <= 1.0 or character_raw["failure_code"] is not None:
                 raise _ocr_error(f"results[{index}].characters[{char_index}]")
             method = character_raw["confidence_method"]
             if type(method) is not str or not method:
@@ -987,7 +987,7 @@ def _ocr_sorting_result(value: Any) -> StudentOcrSortingResult:
         route_id = _ocr_identifier(raw["route_id"], f"entries[{index}].route_id")
         roi = _ocr_roi(raw["roi_px"], f"entries[{index}].roi_px")
         confidence = _ocr_finite(raw["confidence"], f"entries[{index}].confidence")
-        if not 0.40 <= confidence <= 1.0 or raw["status"] != "APPROVED":
+        if not 0.90 <= confidence <= 1.0 or raw["status"] != "APPROVED":
             raise _ocr_error(f"entries[{index}]")
         entries.append(StudentOcrEntry(entry_id, part_id, identifier, route_id, roi, confidence, "APPROVED"))
     if (

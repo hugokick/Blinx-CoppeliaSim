@@ -174,6 +174,44 @@ def test_ocr_response_is_strictly_validated(mutation) -> None:
 
 
 @pytest.mark.parametrize(
+    "confidence, accepted",
+    [(0.41, False), (0.899999, False), (0.90, True)],
+)
+def test_ocr_sorting_character_confidence_uses_release_threshold(
+    confidence: float,
+    accepted: bool,
+) -> None:
+    value = deepcopy(_value())
+    value["results"][0]["characters"][0]["confidence"] = confidence
+
+    if accepted:
+        result = StudentContext(Connection(value)).vision2d.ocr_sorting()
+        assert result.results[0].characters[0].confidence == confidence
+    else:
+        with pytest.raises(RuntimeError, match="PROTOCOL_RESPONSE_INVALID"):
+            StudentContext(Connection(value)).vision2d.ocr_sorting()
+
+
+@pytest.mark.parametrize(
+    "confidence, accepted",
+    [(0.41, False), (0.899999, False), (0.90, True)],
+)
+def test_ocr_sorting_entry_confidence_uses_release_threshold(
+    confidence: float,
+    accepted: bool,
+) -> None:
+    value = deepcopy(_value())
+    value["entries"][0]["confidence"] = confidence
+
+    if accepted:
+        result = StudentContext(Connection(value)).vision2d.ocr_sorting()
+        assert result.entries[0].confidence == confidence
+    else:
+        with pytest.raises(RuntimeError, match="PROTOCOL_RESPONSE_INVALID"):
+            StudentContext(Connection(value)).vision2d.ocr_sorting()
+
+
+@pytest.mark.parametrize(
     "args",
     [
         {"entry_id": "entry_a", "extra": 1},
