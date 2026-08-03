@@ -4,6 +4,7 @@ import ast
 import hashlib
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 from vision_platform.experiments.catalog import ExperimentCatalog
 
@@ -172,9 +173,44 @@ def test_v1_08_template_executes_against_typed_sdk_results() -> None:
             self.messages.append(message)
 
     context = Context()
+    namespace["SELECTED_ENTRY_ORDER"] = EXPECTED_ENTRIES
     namespace["main"](context)
     assert context.vision2d.calls == ["ocr_sorting", *EXPECTED_ENTRIES]
     assert ".get(" not in source
+
+
+def test_v1_08_template_allows_only_a_permutation_of_approved_entry_ids() -> None:
+    payload = _definition()
+    source = (ROOT / payload["student_template"]).read_text(encoding="utf-8")
+    namespace: dict[str, object] = {}
+    exec(compile(source, str(ROOT / payload["student_template"]), "exec"), namespace)
+    chosen_order = ("entry_c", "entry_a", "entry_d", "entry_b")
+    calls: list[str] = []
+
+    class Vision:
+        def ocr_sorting(self):
+            calls.append("ocr_sorting")
+            return SimpleNamespace(
+                status="PASS",
+                entries=tuple(
+                    SimpleNamespace(entry_id=entry_id, status="APPROVED")
+                    for entry_id in EXPECTED_ENTRIES
+                ),
+            )
+
+        def sort_ocr_entry(self, entry_id: str):
+            calls.append(entry_id)
+            return SimpleNamespace(status="COMPLETED")
+
+    context = SimpleNamespace(
+        vision2d=Vision(),
+        log=lambda _message: None,
+        checkpoint=lambda _message: None,
+    )
+    namespace["SELECTED_ENTRY_ORDER"] = chosen_order
+    namespace["main"](context)
+    assert calls == ["ocr_sorting", *chosen_order]
+    assert "SELECTED_ENTRY_ORDER" in source
 
 
 def test_v1_08_guide_is_chinese_and_preserves_pending_acceptance_boundaries() -> None:

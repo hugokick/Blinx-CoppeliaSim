@@ -6,6 +6,8 @@
 
 
 EXPECTED_ENTRY_IDS = ("entry_a", "entry_b", "entry_c", "entry_d")
+# 学生可以在不改变白名单集合的前提下调整执行顺序。
+SELECTED_ENTRY_ORDER = EXPECTED_ENTRY_IDS
 
 
 def main(ctx):
@@ -25,10 +27,16 @@ def main(ctx):
         for item in entries
     ):
         raise RuntimeError("条目不是主机发布的只读白名单记录")
+    selected_order = SELECTED_ENTRY_ORDER
+    if type(selected_order) not in (tuple, list) or len(selected_order) != len(EXPECTED_ENTRY_IDS):
+        raise RuntimeError("选择的分拣顺序必须包含四个 entry_id")
+    selected_order = tuple(selected_order)
+    if len(set(selected_order)) != len(EXPECTED_ENTRY_IDS) or set(selected_order) != set(approved):
+        raise RuntimeError("选择的分拣顺序只能是四个已批准 entry_id 的排列")
 
     # 只有严格的 entry_id 进入受控主机动作；动作内部的坐标、速度、吸盘和回零
     # 由 host runner 管理，学生模板不直接访问 robot/tool。
-    for entry_id in EXPECTED_ENTRY_IDS:
+    for entry_id in selected_order:
         receipt = ctx.vision2d.sort_ocr_entry(entry_id)
         if receipt.status != "COMPLETED":
             raise RuntimeError(f"分拣条目 {entry_id} 未完成")
