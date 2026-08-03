@@ -11,6 +11,7 @@ from tools.rgbd_lab.build_rgbd_scene import (
     PROJECT_ROOT,
     validate_build_arguments,
 )
+from tests.test_rgbd_sim import coppeliasim_process as lifecycle
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -108,3 +109,61 @@ def test_builder_rejects_replacement_listener_identity() -> None:
 def test_builder_accepts_the_recorded_listener_identity() -> None:
     result = _run_listener_identity_scenario("owned")
     assert result == {"status": "PASS", "pid": 23009}
+
+
+class _FakeProcess:
+    pid = 1234
+
+    def __init__(self, *, exited: bool = False) -> None:
+        self.exited = exited
+        self.terminated = False
+        self.killed = False
+        self.wait_calls = 0
+
+    def poll(self):
+        return 0 if self.exited else None
+
+    def terminate(self) -> None:
+        self.terminated = True
+
+    def kill(self) -> None:
+        self.killed = True
+        self.exited = True
+
+    def wait(self, timeout=None):
+        self.wait_calls += 1
+        if self.wait_calls == 1:
+            raise subprocess.TimeoutExpired("fake-coppeliasim", timeout)
+        self.exited = True
+        return 0
+
+
+def _owned_process(process: _FakeProcess) -> lifecycle.OwnedCoppeliaSim:
+    return lifecycle.OwnedCoppeliaSim(
+        process=process,
+        executable=Path("coppeliaSim.exe"),
+        scene=Path("scene.ttt"),
+        host="127.0.0.1",
+        port=23009,
+    )
+
+
+def test_stop_cleans_owned_process_before_reporting_replacement_listener(monkeypatch) -> None:
+    process = _FakeProcess()
+    monkeypatch.setattr(lifecycle, "_listener_pid", lambda port: 999)
+
+    with pytest.raises(RuntimeError, match=r"replacement listener PID 999.*1234"):
+        _owned_process(process).stop(timeout_s=0.01)
+
+    assert process.terminated is True
+    assert process.killed is True
+
+
+def test_stop_is_idempotent_for_already_exited_owned_process(monkeypatch) -> None:
+    process = _FakeProcess(exited=True)
+    monkeypatch.setattr(lifecycle, "_listener_pid", lambda port: 999)
+
+    _owned_process(process).stop(timeout_s=0.01)
+
+    assert process.terminated is False
+    assert process.killed is False

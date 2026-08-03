@@ -120,18 +120,30 @@ class OwnedCoppeliaSim:
     def stop(self, timeout_s: float = 10.0) -> None:
         if self.process.poll() is not None:
             return
+        owned_pid = self.process.pid
         listener = _listener_pid(self.port)
-        if listener is not None and listener != self.process.pid:
-            raise RuntimeError(
-                f"D1-01 cleanup refused replacement listener PID {listener}; owned PID is {self.process.pid}"
-            )
-        self.process.terminate()
+        replacement_pid = listener if listener is not None and listener != owned_pid else None
+        cleanup_error: Exception | None = None
         try:
-            self.process.wait(timeout=timeout_s)
-        except subprocess.TimeoutExpired:
-            self.process.kill()
-            self.process.wait(timeout=timeout_s)
-        if _listener_pid(self.port) == self.process.pid:
+            self.process.terminate()
+            try:
+                self.process.wait(timeout=timeout_s)
+            except subprocess.TimeoutExpired:
+                self.process.kill()
+                self.process.wait(timeout=timeout_s)
+        except Exception as exc:
+            cleanup_error = exc
+        if cleanup_error is not None:
+            raise cleanup_error
+        listener_after = _listener_pid(self.port)
+        if replacement_pid is None and listener_after is not None and listener_after != owned_pid:
+            replacement_pid = listener_after
+        if replacement_pid is not None:
+            raise RuntimeError(
+                f"D1-01 cleanup refused replacement listener PID {replacement_pid}; "
+                f"owned PID {owned_pid} was cleaned"
+            )
+        if listener_after == owned_pid:
             raise RuntimeError("owned CoppeliaSim process still owns port 23009 after cleanup")
 
     def __enter__(self) -> "OwnedCoppeliaSim":
