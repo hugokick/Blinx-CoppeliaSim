@@ -171,7 +171,7 @@ def run_probe(options: CliOptions, *, repository_root: Path = PROJECT_ROOT) -> N
     try:
         source = capture_adapter.read_source()
         observed = observe_source_depth_model(source, binding.anchors)
-        capture = normalize_source_capture(source, observed)
+        capture = normalize_source_capture(source, observed, binding.anchors)
         report = build_probe_report(capture, binding)
         if report.status != "PASS":
             raise RgbdSimContractError(

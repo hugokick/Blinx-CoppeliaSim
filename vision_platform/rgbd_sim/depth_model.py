@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import math
+import hashlib
+import json
+import weakref
 from dataclasses import dataclass
-from typing import Sequence
+from typing import Any, Sequence
 
 import numpy as np
 
@@ -40,17 +43,119 @@ class DepthAnchor:
             )
 
 
-@dataclass(frozen=True)
+_OBSERVATION_REGISTRY: dict[int, weakref.ReferenceType["SourceDepthModelObservation"]] = {}
+_OBSERVATION_CAPABILITY = object()
+
+
+def _source_digest(source: RgbdSourceCapture) -> str:
+    digest = hashlib.sha256()
+    for array in (source.image_bgr, source.source_depth_m):
+        contiguous = np.ascontiguousarray(array)
+        digest.update(str(contiguous.dtype).encode("ascii"))
+        digest.update(json.dumps(list(contiguous.shape), separators=(",", ":")).encode("ascii"))
+        digest.update(contiguous.tobytes(order="C"))
+    return digest.hexdigest()
+
+
+def _anchor_digest(anchors: Sequence[DepthAnchor]) -> str:
+    canonical = [
+        [
+            anchor.u_px,
+            anchor.v_px,
+            float(anchor.optical_z_m),
+            float(anchor.ray_range_m),
+            float(anchor.tolerance_m),
+        ]
+        for anchor in anchors
+    ]
+    return hashlib.sha256(
+        json.dumps(canonical, separators=(",", ":"), allow_nan=False).encode("ascii")
+    ).hexdigest()
+
+
+def _register_observation(observation: "SourceDepthModelObservation") -> None:
+    key = id(observation)
+    _OBSERVATION_REGISTRY[key] = weakref.ref(
+        observation, lambda reference, key=key: _OBSERVATION_REGISTRY.pop(key, None)
+    )
+
+
+def _is_registered_observation(observation: object) -> bool:
+    reference = _OBSERVATION_REGISTRY.get(id(observation))
+    return reference is not None and reference() is observation
+
+
+@dataclass(frozen=True, init=False)
 class SourceDepthModelObservation:
     model: str
     optical_error_m: float
     ray_range_error_m: float
+    scene_sha256: str
+    source_digest: str
+    sequence_id: int
+    anchor_digest: str
 
-    def __post_init__(self) -> None:
-        if self.model not in {"optical_z", "ray_range"}:
+    def __init__(self, *_args: Any, **_kwargs: Any) -> None:
+        raise RgbdSimContractError(
+            "RGBD_SIM_DEPTH_MODEL_UNOBSERVED",
+            "observations must be produced by source-depth measurement",
+        )
+
+    @classmethod
+    def _from_measurement(
+        cls,
+        *,
+        model: str,
+        optical_error_m: float,
+        ray_range_error_m: float,
+        scene_sha256: str,
+        source_digest: str,
+        sequence_id: int,
+        anchor_digest: str,
+        _capability: object | None = None,
+    ) -> "SourceDepthModelObservation":
+        if _capability is not _OBSERVATION_CAPABILITY:
+            raise RgbdSimContractError(
+                "RGBD_SIM_DEPTH_MODEL_UNOBSERVED",
+                "observations must be produced by source-depth measurement",
+            )
+        if model not in {"optical_z", "ray_range"}:
             raise RgbdSimContractError(
                 "RGBD_SIM_DEPTH_MODEL_INVALID", "observed source model is invalid"
             )
+        if not all(
+            type(error) in {int, float} and math.isfinite(float(error))
+            for error in (optical_error_m, ray_range_error_m)
+        ):
+            raise RgbdSimContractError(
+                "RGBD_SIM_DEPTH_MODEL_INVALID", "observation errors must be finite"
+            )
+        if (
+            type(scene_sha256) is not str
+            or len(scene_sha256) != 64
+            or any(character not in "0123456789abcdef" for character in scene_sha256)
+            or type(source_digest) is not str
+            or len(source_digest) != 64
+            or any(character not in "0123456789abcdef" for character in source_digest)
+            or type(anchor_digest) is not str
+            or len(anchor_digest) != 64
+            or any(character not in "0123456789abcdef" for character in anchor_digest)
+            or type(sequence_id) is not int
+            or sequence_id < 0
+        ):
+            raise RgbdSimContractError(
+                "RGBD_SIM_DEPTH_MODEL_INVALID", "observation binding is invalid"
+            )
+        observation = object.__new__(cls)
+        object.__setattr__(observation, "model", model)
+        object.__setattr__(observation, "optical_error_m", float(optical_error_m))
+        object.__setattr__(observation, "ray_range_error_m", float(ray_range_error_m))
+        object.__setattr__(observation, "scene_sha256", scene_sha256)
+        object.__setattr__(observation, "source_digest", source_digest)
+        object.__setattr__(observation, "sequence_id", sequence_id)
+        object.__setattr__(observation, "anchor_digest", anchor_digest)
+        _register_observation(observation)
+        return observation
 
 
 def observe_source_depth_model(
@@ -85,22 +190,62 @@ def observe_source_depth_model(
             "RGBD_SIM_DEPTH_MODEL_INVALID",
             "source-depth model is ambiguous or matches neither geometry",
         )
-    return SourceDepthModelObservation(
-        "optical_z" if optical_ok else "ray_range",
-        max(optical_errors),
-        max(ray_errors),
+    optical_error = max(optical_errors)
+    ray_error = max(ray_errors)
+    if not math.isfinite(optical_error) or not math.isfinite(ray_error):
+        raise RgbdSimContractError(
+            "RGBD_SIM_DEPTH_MODEL_INVALID", "observation errors must be finite"
+        )
+    return SourceDepthModelObservation._from_measurement(
+        model="optical_z" if optical_ok else "ray_range",
+        optical_error_m=optical_error,
+        ray_range_error_m=ray_error,
+        scene_sha256=source.metadata.scene_sha256,
+        source_digest=_source_digest(source),
+        sequence_id=source.metadata.sequence_id,
+        anchor_digest=_anchor_digest(anchors),
+        _capability=_OBSERVATION_CAPABILITY,
     )
 
 
 def normalize_source_capture(
     source: RgbdSourceCapture,
-    observed: SourceDepthModelObservation | str,
+    observed: SourceDepthModelObservation,
+    anchors: Sequence[DepthAnchor] | None = None,
 ) -> RgbdSimCapture:
     if not isinstance(source, RgbdSourceCapture):
         raise RgbdSimContractError(
             "RGBD_SIM_DEPTH_MODEL_INVALID", "source capture is invalid"
         )
-    model = observed.model if isinstance(observed, SourceDepthModelObservation) else observed
+    if not isinstance(observed, SourceDepthModelObservation) or not _is_registered_observation(observed):
+        raise RgbdSimContractError(
+            "RGBD_SIM_DEPTH_MODEL_UNOBSERVED",
+            "normalization requires a live source-depth observation",
+        )
+    if anchors is None or not isinstance(anchors, Sequence) or not anchors:
+        raise RgbdSimContractError(
+            "RGBD_SIM_DEPTH_MODEL_BINDING_INVALID",
+            "normalization requires the measured anchor contract",
+        )
+    if not all(isinstance(anchor, DepthAnchor) for anchor in anchors):
+        raise RgbdSimContractError(
+            "RGBD_SIM_DEPTH_MODEL_BINDING_INVALID", "anchor contract is invalid"
+        )
+    if (
+        not all(
+            type(error) in {int, float} and math.isfinite(float(error))
+            for error in (observed.optical_error_m, observed.ray_range_error_m)
+        )
+        or observed.scene_sha256 != source.metadata.scene_sha256
+        or observed.sequence_id != source.metadata.sequence_id
+        or observed.source_digest != _source_digest(source)
+        or observed.anchor_digest != _anchor_digest(anchors)
+    ):
+        raise RgbdSimContractError(
+            "RGBD_SIM_DEPTH_MODEL_BINDING_INVALID",
+            "observation does not belong to this source frame and anchor contract",
+        )
+    model = observed.model
     if model not in {"optical_z", "ray_range"}:
         raise RgbdSimContractError(
             "RGBD_SIM_DEPTH_MODEL_INVALID", "observed source model is invalid"
