@@ -2782,8 +2782,10 @@ class StudentProgramController:
             raise VisionPlatformError(
                 "OCR_SORT_PLAN_NOT_ACTIVE", "当前运行没有激活 V1-08 OCR 分拣计划"
             )
+        entry_started = False
         try:
             actions = self._ocr_guard.begin_entry(entry_id)
+            entry_started = True
             for action in actions:
                 self._ocr_action_permission()
                 self._execute_ocr_action(action)
@@ -2821,7 +2823,8 @@ class StudentProgramController:
             }
         except OcrSortGuardError as guard_error:
             error = _error(guard_error.code, _safe_text(guard_error))
-            self._ocr_fail_cleanup(error)
+            if entry_started:
+                self._ocr_fail_cleanup(error)
             raise VisionPlatformError(guard_error.code, _safe_text(guard_error)) from None
         except VisionPlatformError as command_error:
             error = _error(command_error.code, _safe_text(command_error), details=command_error.details)

@@ -329,6 +329,27 @@ def test_private_ocr_runner_executes_only_guard_actions_and_probe(tmp_path: Path
     assert len(evidence.events) == 8
 
 
+def test_unknown_or_duplicate_entry_fails_before_any_cleanup_device_call(tmp_path: Path) -> None:
+    controller, robot, tool, _ = _controller_for_private_ocr(tmp_path)
+    with pytest.raises(VisionPlatformError) as captured:
+        controller._command_ocr_sort_entry({"entry_id": "unknown"})
+    assert captured.value.code == "OCR_SORT_ENTRY_INVALID"
+    assert robot.moves == []
+    assert tool.events == []
+
+    # A successfully completed entry is consumed; selecting it again is also
+    # a pre-motion rejection and must not trigger tool-off/home cleanup.
+    controller, robot, tool, _ = _controller_for_private_ocr(tmp_path / "second")
+    controller._command_ocr_sort_entry({"entry_id": "entry_a"})
+    robot.moves.clear()
+    tool.events.clear()
+    with pytest.raises(VisionPlatformError) as captured:
+        controller._command_ocr_sort_entry({"entry_id": "entry_a"})
+    assert captured.value.code == "OCR_SORT_ENTRY_INVALID"
+    assert robot.moves == []
+    assert tool.events == []
+
+
 @pytest.mark.parametrize("state", [RunState.EMPTY, RunState.RUNNING, RunState.PAUSED, RunState.PASSED, RunState.FAILED])
 @pytest.mark.parametrize("name", ["robot.move_world", "robot.home", "robot.pose", "tool.on", "tool.off"])
 def test_v1_08_dispatch_rejects_raw_device_commands_in_every_state(tmp_path: Path, state: RunState, name: str) -> None:
