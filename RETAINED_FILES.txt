@@ -393,6 +393,7 @@ tests/test_vision_platform/test_v1_07_result_panel.py
 tests/test_acceptance/test_coppeliasim_v1_07.py
 tests/test_acceptance/test_coppeliasim_v1_08.py
 docs/superpowers/reports/2026-08-02-v1-07-validation-report.md
+docs/superpowers/reports/2026-08-03-v1-08-validation-report.md
 vision_platform/rgbd/errors.py
 vision_platform/rgbd/models.py
 tests/test_rgbd/__init__.py
