@@ -18,6 +18,10 @@ ROOT = Path(__file__).resolve().parents[2]
 MANIFEST = ROOT / "simulation/vision_ocr_sorting_lab/ocr_assets_manifest.json"
 
 
+def test_release_default_confidence_gate_is_strict():
+    assert ocr_service._default_sort_config()["confidence_min"] == 0.90
+
+
 def test_service_uses_scene_bound_roi_geometry_correction_without_score_remapping():
     frame, rois = _frame_and_rois()
     x, y, width, height = rois["A2"]
@@ -59,7 +63,11 @@ def _frame_and_rois() -> tuple[np.ndarray, dict[str, tuple[int, int, int, int]]]
 
 
 def test_service_trains_once_and_returns_four_whitelisted_results() -> None:
-    service = OcrSortingService.from_manifest(MANIFEST, minimum_accuracy=0.95)
+    service = OcrSortingService.from_manifest(
+        MANIFEST,
+        minimum_accuracy=0.95,
+        sort_config={**ocr_service._default_sort_config(), "confidence_min": 0.40},
+    )
     frame, rois = _frame_and_rois()
     source = frame.copy()
     output = service.analyze(frame, rois)
@@ -95,7 +103,10 @@ def test_service_does_not_retrain_when_analyzing_again(monkeypatch: pytest.Monke
         return original(*args, **kwargs)
 
     monkeypatch.setattr(module, "train_glyph_classifier", counted)
-    service = OcrSortingService.from_manifest(MANIFEST)
+    service = OcrSortingService.from_manifest(
+        MANIFEST,
+        sort_config={**ocr_service._default_sort_config(), "confidence_min": 0.40},
+    )
     frame, rois = _frame_and_rois()
     service.analyze(frame, rois)
     service.analyze(frame, rois)

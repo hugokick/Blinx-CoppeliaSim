@@ -1307,7 +1307,7 @@ class StudentExperimentGateway:
                     int(recorded.image_bgr.shape[1]),
                     int(recorded.image_bgr.shape[0]),
                 ),
-                confidence_min=(sort_config or {}).get("confidence_min", 0.40),
+                confidence_min=(sort_config or {}).get("confidence_min", 0.90),
             )
             plan = output.plan
             plan_public = ocr_sort_plan_to_dict(plan)

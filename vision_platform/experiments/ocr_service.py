@@ -122,7 +122,7 @@ def _default_sort_config() -> dict[str, object]:
         "schema_version": 1,
         "expected_count": 4,
         "training_accuracy_min": 0.95,
-        "confidence_min": 0.40,
+        "confidence_min": 0.90,
         "safe_z_mm": 110.0,
         "speed_mm_s": 15.0,
         "workspace": {
