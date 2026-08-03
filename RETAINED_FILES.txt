@@ -538,3 +538,7 @@ tests/test_student_programs/test_v1_09_program.py
 tests/test_experiments/test_formal_catalog.py
 tests/test_experiments/test_cli.py
 tests/test_vision_platform/test_experiment_catalog_panel.py
+tools/vision_lab/run_v1_09_surface_defects.ps1
+tests/test_experiments/test_v1_09_probe.py
+tests/test_experiments/test_v1_09_cli.py
+tests/test_student_programs/test_v1_09_evidence.py

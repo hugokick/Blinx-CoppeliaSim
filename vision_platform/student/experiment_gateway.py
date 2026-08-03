@@ -1980,6 +1980,141 @@ class StudentExperimentGateway:
     def collect_defect_entry_post_probe(self, entry_id: str, *, run_id: str) -> dict[str, Any]:
         return self._collect_defect_entry_probe(entry_id, run_id=run_id, phase="post")
 
+    def record_defect_final(
+        self,
+        *,
+        final_probe: Mapping[str, Any] | None,
+        primary_error: Mapping[str, Any] | None,
+        run_context: Mapping[str, Any] | None = None,
+    ) -> str:
+        """Persist one bounded, same-run V1-09 completion evidence record.
+
+        The gateway owns the evidence serialization, while the runner owns
+        device cleanup and supplies a JSON-only snapshot when its normal
+        cleanup has already reset the private plan context.  No student
+        command or scene file is read here.
+        """
+
+        context: Mapping[str, Any] | None = (
+            self._defect_evidence
+            if isinstance(self._defect_evidence, Mapping)
+            else run_context
+        )
+        if not isinstance(context, Mapping):
+            raise VisionPlatformError(
+                "DEFECT_SORT_PLAN_NOT_ACTIVE",
+                "DEFECT_SORT_PLAN_NOT_ACTIVE: 缺陷分拣计划尚未激活，无法记录终态证据",
+            )
+        plan_value = context.get("plan")
+        if isinstance(plan_value, DefectSortPlan):
+            plan_public = defect_sort_plan_to_dict(plan_value)
+        elif isinstance(context.get("plan_public"), Mapping):
+            plan_public = _copy_json_native(
+                context["plan_public"], path="defect-sort.final.plan"
+            )
+            if not isinstance(plan_public, dict):
+                raise VisionPlatformError(
+                    "DEFECT_SORT_EVIDENCE_INVALID",
+                    "缺陷分拣计划证据格式无效",
+                )
+        else:
+            raise VisionPlatformError(
+                "DEFECT_SORT_EVIDENCE_INVALID",
+                "缺陷分拣计划证据缺失",
+            )
+        evidence = context.get("evidence", {})
+        if not isinstance(evidence, Mapping):
+            raise VisionPlatformError(
+                "DEFECT_SORT_EVIDENCE_INVALID",
+                "缺陷分拣图像证据格式无效",
+            )
+        copied_evidence = _copy_json_native(
+            evidence, path="defect-sort.final.evidence"
+        )
+        if not isinstance(copied_evidence, dict):
+            raise VisionPlatformError(
+                "DEFECT_SORT_EVIDENCE_INVALID",
+                "缺陷分拣图像证据格式无效",
+            )
+        probe = (
+            {}
+            if final_probe is None
+            else _copy_json_native(final_probe, path="defect-sort.final.probe")
+        )
+        if not isinstance(probe, dict):
+            raise VisionPlatformError(
+                "DEFECT_SORT_EVIDENCE_INVALID",
+                "缺陷分拣终态探针格式无效",
+            )
+        guard = context.get("guard", {})
+        if not isinstance(guard, Mapping):
+            guard = {}
+        copied_guard = _copy_json_native(guard, path="defect-sort.final.guard")
+        if not isinstance(copied_guard, dict):
+            copied_guard = {}
+        motion_events: list[dict[str, Any]] = []
+        commands_path = Path(self.evidence.directory) / "commands.jsonl"
+        if commands_path.is_file():
+            for line in commands_path.read_text(encoding="utf-8").splitlines():
+                if not line.strip():
+                    continue
+                try:
+                    item = json.loads(line)
+                except (TypeError, ValueError):
+                    continue
+                if not isinstance(item, Mapping):
+                    continue
+                name = item.get("name")
+                if name in {"robot.home", "robot.move_world", "tool.on", "tool.off"}:
+                    motion_events.append(
+                        {
+                            "sequence": len(motion_events) + 1,
+                            "name": name,
+                            "status": item.get("status", "UNKNOWN"),
+                        }
+                    )
+        final_status = probe.get("status") == "PASS"
+        consumed = copied_guard.get("consumed_entry_ids", ())
+        if type(consumed) not in {list, tuple} or tuple(consumed) != tuple(
+            f"entry_{letter}" for letter in "abcdef"
+        ):
+            final_status = False
+        if primary_error is not None:
+            final_status = False
+        error = None if final_status else _copy_json_native(
+            primary_error
+            or probe.get("error")
+            or {"code": "DEFECT_SORT_FINAL_STATE_INVALID", "message": "缺陷分拣终态未通过"},
+            path="defect-sort.final.error",
+        )
+        result = {
+            "schema_version": 1,
+            "experiment_id": self.context.experiment_id,
+            "run_id": plan_public.get("run_id"),
+            "frame_id": plan_public.get("frame_id"),
+            "scene_sha256": plan_public.get("scene_sha256"),
+            "config_sha256": plan_public.get("config_sha256"),
+            "asset_manifest_sha256": plan_public.get("asset_manifest_sha256"),
+            "plan_id": plan_public.get("plan_id"),
+            "status": "PASS" if final_status else "REJECTED",
+            "plan": plan_public,
+            "image_evidence": copied_evidence,
+            "entry_evidence": probe.get("entry_evidence", []),
+            "final_probe": probe,
+            "guard": copied_guard,
+            "motion_events": motion_events,
+            "device_call_count": len(motion_events),
+            "port": 23010,
+            "process_cleanup": {"required": True, "status": "PENDING_RUNTIME"},
+            "error": error,
+            "human_acceptance": "PENDING_HUMAN_ACCEPTANCE",
+            "hardware_status": "PENDING_HARDWARE",
+        }
+        artifact = self.evidence.record_json_artifact(
+            "v1-09-defect-final-evidence.json", result
+        )
+        return artifact
+
     def collect_ocr_entry_probe(
         self,
         entry_id: str,

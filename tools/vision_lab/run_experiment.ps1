@@ -3,7 +3,7 @@ param(
     [Parameter(Mandatory = $true)]
     [ValidateSet(
         'R1-01', 'R1-02', 'R1-05', 'R1-06', 'R1-07',
-        'V1-01', 'V1-02', 'V1-03', 'V1-04', 'V1-05', 'V1-06', 'V1-07', 'V1-08'
+        'V1-01', 'V1-02', 'V1-03', 'V1-04', 'V1-05', 'V1-06', 'V1-07', 'V1-08', 'V1-09'
     )]
     [string]$Experiment,
     [string]$Program,
@@ -15,11 +15,12 @@ param(
 $ErrorActionPreference = 'Stop'
 $Project = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $SelectedPort = $Port
-if ($Experiment -eq 'V1-08') {
+if ($Experiment -eq 'V1-08' -or $Experiment -eq 'V1-09') {
+    $OwnedPort = if ($Experiment -eq 'V1-08') { 23008 } else { 23010 }
     if ($Port -eq 0) {
-        $SelectedPort = 23008
-    } elseif ($Port -ne 23008) {
-        throw 'V1-08 requires dedicated CoppeliaSim port 23008.'
+        $SelectedPort = $OwnedPort
+    } elseif ($Port -ne $OwnedPort) {
+        throw "$Experiment requires dedicated CoppeliaSim port $OwnedPort."
     }
 } elseif ($SelectedPort -eq 0) {
     $SelectedPort = 23000

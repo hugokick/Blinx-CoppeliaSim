@@ -1911,6 +1911,52 @@ class StudentProgramController:
             "tool_on": self._ocr_tool_on_state(),
         }
 
+    def _defect_probe_context(self) -> dict[str, Any] | None:
+        """Capture bounded V1-09 plan/probe state before gateway cleanup."""
+
+        if not self._is_v1_09_experiment():
+            return None
+        evidence = self._evidence
+        gateway = self._experiment_gateway
+        experiment_context = self._experiment_context
+        if evidence is None or gateway is None or experiment_context is None:
+            return None
+        defect_evidence = getattr(gateway, "_defect_evidence", None)
+        if not isinstance(defect_evidence, Mapping):
+            return None
+        plan = defect_evidence.get("plan")
+        try:
+            plan_public = defect_sort_plan_to_dict(plan)
+        except BaseException:
+            return None
+        snapshot = self._defect_guard.snapshot()
+        state = snapshot.get("state")
+        if state in {"EMPTY", "FAILED"}:
+            return None
+        raw_refs = snapshot.get("evidence_refs", ())
+        refs: list[dict[str, Any]] = []
+        try:
+            for raw_ref in raw_refs:
+                refs.append(dict(raw_ref))
+        except (TypeError, ValueError):
+            return None
+        scene_hash = getattr(experiment_context, "scene_sha256", None)
+        if type(scene_hash) is not str or not scene_hash:
+            return None
+        return {
+            "run_id": evidence.run_id,
+            "frame_id": plan_public["frame_id"],
+            "scene_hash": scene_hash,
+            "plan_id": plan_public["plan_id"],
+            "plan_public": plan_public,
+            "evidence": defect_evidence.get("evidence", {}),
+            "entry_evidence": refs,
+            "consumed_entry_ids": list(self._defect_guard.consumed_entry_ids),
+            "guard": _json_safe(dict(snapshot)),
+            "robot_home": False,
+            "tool_on": self._ocr_tool_on_state(),
+        }
+
     def _ocr_robot_home_state(self) -> bool:
         robot = getattr(self._application, "robot", None)
         candidates = [robot, getattr(robot, "backend", None)]
@@ -3456,6 +3502,7 @@ class StudentProgramController:
                 self._condition.notify_all()
             if prior_stop_requested or status != "PASS":
                 self._invalidate_ocr_guard()
+                self._invalidate_defect_guard()
 
             # A worker may return a final result while leaving a non-daemon
             # student thread behind. Once the result is received, no more
@@ -3478,6 +3525,7 @@ class StudentProgramController:
             # private recognition context.  The final read-only probe runs
             # after cleanup so it can also observe tool-off and robot-home.
             ocr_probe_context = self._ocr_probe_context()
+            defect_probe_context = self._defect_probe_context()
 
             cleanup_errors: list[dict[str, Any]] = []
             with self._condition:
@@ -3624,9 +3672,17 @@ class StudentProgramController:
             if isinstance(ocr_probe_context, dict):
                 ocr_probe_context["robot_home"] = self._ocr_robot_home_state()
                 ocr_probe_context["tool_on"] = self._ocr_tool_on_state()
+            if isinstance(defect_probe_context, dict):
+                defect_probe_context["robot_home"] = self._ocr_robot_home_state()
+                defect_probe_context["tool_on"] = self._ocr_tool_on_state()
             scene_probe_status: str | None = None
             final_probe_report: Mapping[str, Any] | None = None
             experiment_gateway = self._experiment_gateway
+            final_probe_context = (
+                defect_probe_context
+                if isinstance(defect_probe_context, dict)
+                else ocr_probe_context
+            )
             timeout_restore_error: dict[str, Any] | None = None
             try:
                 if experiment_gateway is not None:
@@ -3648,7 +3704,7 @@ class StudentProgramController:
                             final_probe = self._record_probe_bounded(
                                 experiment_gateway,
                                 "final",
-                                run_context=ocr_probe_context,
+                                run_context=final_probe_context,
                             )
                         final_probe_report = final_probe
                         reported_status = final_probe.get("status")
@@ -3839,6 +3895,47 @@ class StudentProgramController:
                     cleanup_errors.append(
                         {
                             "stage": "code_route.final_evidence",
+                            "error": diagnostic,
+                        }
+                    )
+                    if final_status == "PASS":
+                        final_status = "FAILED"
+                        final_error = diagnostic
+                    elif final_error is None:
+                        final_error = diagnostic
+                    else:
+                        final_error = _error_with_cleanup_details(
+                            final_error,
+                            cleanup_errors,
+                            quarantined=backend_quarantined,
+                        )
+            record_defect_evidence = getattr(
+                experiment_gateway,
+                "record_defect_final",
+                None,
+            )
+            if callable(record_defect_evidence):
+                defect_primary_error = (
+                    _json_safe(error) if error is not None else None
+                )
+                if final_status != "PASS" and defect_primary_error is None:
+                    defect_primary_error = final_error
+                try:
+                    defect_artifact = record_defect_evidence(
+                        final_probe=final_probe_report,
+                        primary_error=defect_primary_error,
+                        run_context=defect_probe_context,
+                    )
+                    if defect_artifact is not None:
+                        final_evidence_artifact = defect_artifact
+                except BaseException as final_evidence_error:
+                    diagnostic = _exception_error(
+                        final_evidence_error,
+                        code="DEFECT_SORT_FINAL_EVIDENCE_FAILED",
+                    )
+                    cleanup_errors.append(
+                        {
+                            "stage": "defect_sort.final_evidence",
                             "error": diagnostic,
                         }
                     )
