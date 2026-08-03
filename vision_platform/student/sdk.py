@@ -1442,7 +1442,7 @@ def _vision_profile(value: Any) -> StudentVisionProfile:
         camera_rig_z_m=_bounded_profile_number(
             value["camera_rig_z_m"],
             "camera_rig_z_m",
-            0.50,
+            0.49,
             0.90,
         ),
         key_diffuse_rgb=_profile_rgb(

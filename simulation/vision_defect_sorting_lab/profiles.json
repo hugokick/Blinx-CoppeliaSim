@@ -7,7 +7,7 @@
   "near_clip_m": 0.05,
   "profiles": [
     {
-      "camera_rig_z_m": 0.5,
+      "camera_rig_z_m": 0.492,
       "fill_diffuse_rgb": [
         0.35,
         0.35,

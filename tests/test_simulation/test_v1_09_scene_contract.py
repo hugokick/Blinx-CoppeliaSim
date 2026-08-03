@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 
 
@@ -8,6 +9,7 @@ ROOT = Path(__file__).resolve().parents[2]
 SCENE_DIR = ROOT / "simulation" / "vision_defect_sorting_lab"
 SPEC_PATH = SCENE_DIR / "scene_spec.json"
 PROFILES_PATH = SCENE_DIR / "profiles.json"
+MANIFEST_PATH = SCENE_DIR / "scene_manifest.json"
 GROUND_TRUTH_PATH = SCENE_DIR / "acceptance_ground_truth.json"
 
 REFERENCE = {"alias": "reference", "asset_id": "reference", "position_mm": [85, -57, 18], "size_mm": [28, 28, 16]}
@@ -27,6 +29,13 @@ SLOT_POSITIONS = {
     "broken": [85, 75, 22],
     "dimension": [38, 75, 22],
 }
+
+CAMERA_RIG_POSITION_M = [0.085, 0.0, 0.492]
+CALIBRATION_SCALE_MM_PER_PX = 0.16000295944756412
+CALIBRATION_MATRIX = [
+    [-CALIBRATION_SCALE_MM_PER_PX, 0.0, 166.84151375742906],
+    [0.0, CALIBRATION_SCALE_MM_PER_PX, -81.84151375742906],
+]
 
 
 def _project_world_to_pixel(matrix: list[list[float]], position_mm: list[int]) -> tuple[float, float]:
@@ -112,6 +121,54 @@ def test_inspection_faces_keep_eight_pixel_roi_margin_and_slots_do_not_overlap()
         assert 20.0 <= x_mm <= 155.0 and -95.0 <= y_mm <= 95.0
         for other_x, other_y in centers[index + 1 :]:
             assert abs(x_mm - other_x) >= 34.0 or abs(y_mm - other_y) >= 34.0
+
+
+def test_rendering_repair_camera_is_bounded_and_recalibrated() -> None:
+    spec = json.loads(SPEC_PATH.read_text(encoding="utf-8"))
+    assert spec["camera"]["rig_position_m"] == CAMERA_RIG_POSITION_M
+    assert spec["camera"]["orientation_deg"] == [180, 0, 0]
+    assert abs(0.500 - spec["camera"]["rig_position_m"][2]) <= 0.010
+
+    distance_mm = 492.0 - float(spec["camera"]["surface_face_plane_z_mm"])
+    scale = 2.0 * distance_mm * math.tan(math.radians(20.0) / 2.0) / 1024.0
+    assert scale == CALIBRATION_SCALE_MM_PER_PX
+    assert spec["calibration_matrix"] == CALIBRATION_MATRIX
+
+    positions = {"reference": spec["reference"]["position_mm"]}
+    positions.update({part["asset_id"]: part["position_mm"] for part in spec["parts"]})
+    face_half_x_px = 12.0 / CALIBRATION_SCALE_MM_PER_PX
+    face_half_y_px = 12.0 / CALIBRATION_SCALE_MM_PER_PX
+    local_centers: dict[str, tuple[float, float]] = {}
+    for entry_id, position in positions.items():
+        center_u, center_v = _project_world_to_pixel(spec["calibration_matrix"], position)
+        x, y, width, height = spec["rois"][entry_id]
+        local_centers[entry_id] = (center_u - x, center_v - y)
+        margins = (
+            center_u - face_half_x_px - x,
+            x + width - (center_u + face_half_x_px),
+            center_v - face_half_y_px - y,
+            y + height - (center_v + face_half_y_px),
+        )
+        assert min(margins) >= 8.0, (entry_id, margins)
+
+    reference_local = local_centers["reference"]
+    for entry_id in (f"entry_{letter}" for letter in "abcdef"):
+        candidate_local = local_centers[entry_id]
+        assert abs(candidate_local[0] - reference_local[0]) <= 8.0
+        assert abs(candidate_local[1] - reference_local[1]) <= 8.0
+
+
+def test_v1_09_profile_scene_and_manifest_share_camera_calibration() -> None:
+    spec = json.loads(SPEC_PATH.read_text(encoding="utf-8"))
+    profiles = json.loads(PROFILES_PATH.read_text(encoding="utf-8"))
+    manifest = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
+    standard = next(
+        profile for profile in profiles["profiles"] if profile["profile_id"] == "standard"
+    )
+
+    assert standard["camera_rig_z_m"] == 0.492
+    assert spec["camera"]["rig_position_m"][2] == standard["camera_rig_z_m"]
+    assert manifest["defect_sorting"]["calibration_matrix"] == spec["calibration_matrix"]
 
 
 def test_fixed_rois_are_positive_in_frame_and_non_overlapping() -> None:

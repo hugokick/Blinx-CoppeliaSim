@@ -16,6 +16,7 @@ from vision_platform.vision2d.defect_detection import detect_surface_defects
 
 ROOT = Path(__file__).resolve().parents[2]
 SPEC_PATH = ROOT / "simulation" / "vision_defect_sorting_lab" / "scene_spec.json"
+PROFILES_PATH = ROOT / "simulation" / "vision_defect_sorting_lab" / "profiles.json"
 
 REVISED_REFERENCE = {"alias": "reference", "asset_id": "reference", "position_mm": [85, -57, 18], "size_mm": [28, 28, 16]}
 REVISED_PART_POSITIONS = {
@@ -26,6 +27,7 @@ REVISED_SLOT_POSITIONS = {
     "qualified": [132, -93, 22], "missing": [85, -93, 22], "hole": [38, -93, 22],
     "foreign": [132, 75, 22], "broken": [85, 75, 22], "dimension": [38, 75, 22],
 }
+CALIBRATION_SCALE_MM_PER_PX = 0.16000295944756412
 
 
 def _revised_geometry_spec() -> dict[str, object]:
@@ -43,17 +45,24 @@ def _scene_surface_crop(asset_path: Path, *, output_size: int = 192) -> np.ndarr
     image = cv2.imread(str(asset_path), cv2.IMREAD_GRAYSCALE)
     bitmap = builder._rasterize_defect_surface(image, asset_path=asset_path)
     crop = np.full((output_size, output_size), int(image.max()), dtype=np.uint8)
-    cell = output_size / float(bitmap.shape[0])
+    face_size_px = int(round(24.0 / CALIBRATION_SCALE_MM_PER_PX))
+    cell = face_size_px / float(bitmap.shape[0])
+    origin = (output_size - face_size_px) / 2.0
     for row in range(bitmap.shape[0]):
         for column in range(bitmap.shape[1]):
             if int(bitmap[row, column]) >= 160:
                 continue
-            x0 = int(np.floor((column + 0.05) * cell))
-            x1 = int(np.ceil((column + 0.95) * cell))
-            y0 = int(np.floor((row + 0.05) * cell))
-            y1 = int(np.ceil((row + 0.95) * cell))
-            crop[y0:y1, x0:x1] = int(image.min())
-    return crop
+            center_x = origin + (column + 0.5) * cell
+            center_y = origin + (row + 0.5) * cell
+            half = 0.45 * cell
+            cv2.rectangle(
+                crop,
+                (int(round(center_x - half)), int(round(center_y - half))),
+                (int(round(center_x + half)) - 1, int(round(center_y + half)) - 1),
+                int(image.min()),
+                -1,
+            )
+    return cv2.cvtColor(crop, cv2.COLOR_GRAY2BGR)
 
 
 def _write_v1_09_recovery_fixture(tmp_path: Path) -> dict[str, object]:
@@ -119,6 +128,13 @@ def test_v1_09_is_registered_with_the_generic_builder() -> None:
     assert formal.root_path == "/VisionDefectSortingLab"
     assert formal.output_relative == "simulation/vision_defect_sorting_lab/BL23_vision_defect_sorting_lab.ttt"
     assert "/VisionDefectSortingLab/CameraRig/Camera" in formal.required_paths
+
+
+def test_v1_09_builder_profile_uses_approved_camera_height() -> None:
+    catalog = builder._load_defect_profile_catalog(PROFILES_PATH)
+
+    assert catalog.baseline_profile_id == "standard"
+    assert catalog.require("standard").camera_rig_z_m == 0.492
 
 
 def test_v1_09_spec_validation_is_strict_about_assets_and_geometry() -> None:
@@ -273,6 +289,7 @@ def test_v1_09_reference_inspection_face_is_direct_child(tmp_path: Path) -> None
     class FakeSim:
         primitiveshape_cuboid = 1
         colorcomponent_ambient_diffuse = 2
+        colorcomponent_emission = 3
         shapeintparam_static = 3
         shapeintparam_respondable = 4
 
@@ -331,6 +348,7 @@ def test_v1_09_pickable_compound_origin_is_bound_to_declared_center(tmp_path: Pa
     class PositionSim:
         primitiveshape_cuboid = 1
         colorcomponent_ambient_diffuse = 2
+        colorcomponent_emission = 3
         shapeintparam_static = 3
         shapeintparam_respondable = 4
         handle_world = -1
@@ -340,6 +358,7 @@ def test_v1_09_pickable_compound_origin_is_bound_to_declared_center(tmp_path: Pa
             self.aliases: dict[int, str] = {}
             self.parents: dict[int, int] = {}
             self.positions: dict[int, list[float]] = {}
+            self.relocations: list[tuple[int, list[float]]] = []
             self.group_handle = 1000
 
         def createPrimitiveShape(self, *_args):
@@ -362,6 +381,9 @@ def test_v1_09_pickable_compound_origin_is_bound_to_declared_center(tmp_path: Pa
         def setObjectPosition(self, handle, position, _relative):
             self.positions[int(handle)] = [float(value) for value in position]
 
+        def relocateShapeFrame(self, handle, pose):
+            self.relocations.append((int(handle), [float(value) for value in pose]))
+
         def groupShapes(self, _pieces, _merge):
             return self.group_handle
 
@@ -378,11 +400,96 @@ def test_v1_09_pickable_compound_origin_is_bound_to_declared_center(tmp_path: Pa
         100,
         respondable=True,
     )
-    assert fake.positions[fake.group_handle] == [0.14, -0.016, 0.018]
+    assert fake.relocations == [
+        (fake.group_handle, [0.14, -0.016, 0.018, 0.0, 0.0, 0.0, 1.0])
+    ]
+    assert fake.group_handle not in fake.positions
+
+
+def test_v1_09_neutral_body_and_face_are_emissive_but_black_surface_is_not(tmp_path: Path) -> None:
+    asset_path = tmp_path / "candidate.png"
+    assert cv2.imwrite(str(asset_path), np.zeros((256, 256), dtype=np.uint8))
+
+    class EmissionSim:
+        primitiveshape_cuboid = 1
+        primitiveshape_cylinder = 2
+        colorcomponent_ambient_diffuse = 3
+        colorcomponent_emission = 4
+        shapeintparam_static = 5
+        shapeintparam_respondable = 6
+        handle_world = -1
+
+        def __init__(self) -> None:
+            self.next_handle = 1
+            self.aliases: dict[int, str] = {}
+            self.colors: list[tuple[int, int, list[float]]] = []
+            self.group_handle = 1000
+
+        def createPrimitiveShape(self, *_args):
+            handle = self.next_handle
+            self.next_handle += 1
+            return handle
+
+        def setObjectAlias(self, handle, name):
+            self.aliases[int(handle)] = str(name)
+
+        def setShapeColor(self, handle, _name, component, color):
+            self.colors.append((int(handle), int(component), [float(value) for value in color]))
+
+        def setObjectInt32Param(self, *_args):
+            return None
+
+        def setObjectParent(self, *_args):
+            return None
+
+        def setObjectPosition(self, *_args):
+            return None
+
+        def relocateShapeFrame(self, *_args):
+            return None
+
+        def groupShapes(self, *_args):
+            return self.group_handle
+
+        def createDummy(self, *_args):
+            handle = self.next_handle
+            self.next_handle += 1
+            return handle
+
+    fake = EmissionSim()
+    builder._defect_surface_part(
+        fake,
+        {"alias": "part_a", "position_mm": [140, -16, 18], "size_mm": [28, 28, 16]},
+        asset_path,
+        100,
+        respondable=True,
+    )
+    emission_aliases = {
+        fake.aliases[handle]
+        for handle, component, _color in fake.colors
+        if component == fake.colorcomponent_emission
+    }
+    assert emission_aliases == {"part_a_body", "part_a_face_plate"}
+    assert all("surface" not in fake.aliases[handle] for handle, component, _color in fake.colors if component == fake.colorcomponent_emission)
 
 
 def test_v1_09_surface_rasterization_preserves_unique_defect_semantics() -> None:
     assets = ROOT / "simulation" / "vision_defect_sorting_lab" / "assets"
+    reference_image = cv2.imread(str(assets / "reference.png"), cv2.IMREAD_GRAYSCALE)
+    missing_image = cv2.imread(str(assets / "candidate_b.png"), cv2.IMREAD_GRAYSCALE)
+    reference_bitmap = builder._rasterize_defect_surface(
+        reference_image,
+        asset_path=assets / "reference.png",
+    )
+    missing_bitmap = builder._rasterize_defect_surface(
+        missing_image,
+        asset_path=assets / "candidate_b.png",
+    )
+    reference_foreground = reference_bitmap < 160
+    missing_cells = np.count_nonzero(reference_foreground & (missing_bitmap >= 160))
+    assert reference_bitmap.shape == (35, 35)
+    assert missing_cells / np.count_nonzero(reference_foreground) > FORMAL_DEFECT_CONFIG.missing_ratio
+
     reference = _scene_surface_crop(assets / "reference.png")
     expected = {
         "a": (),

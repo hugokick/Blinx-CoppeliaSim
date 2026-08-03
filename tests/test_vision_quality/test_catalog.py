@@ -87,6 +87,27 @@ def test_loads_v1_08_ocr_catalog_with_its_independent_scene_root():
     assert catalog.profile_ids == ("standard",)
 
 
+def test_camera_rig_height_accepts_v1_09_micro_adjustment_and_rejects_lower_value(tmp_path) -> None:
+    accepted = _payload()
+    accepted["profiles"][0]["camera_rig_z_m"] = 0.49
+    catalog = load_profile_catalog(_write_catalog(tmp_path, accepted))
+    assert catalog.require("standard").camera_rig_z_m == 0.49
+
+    rejected = _payload()
+    rejected["profiles"][0]["camera_rig_z_m"] = 0.489
+    with pytest.raises(ValueError, match="camera_rig_z_m"):
+        load_profile_catalog(_write_catalog(tmp_path, rejected))
+
+
+def test_loads_v1_09_catalog_with_approved_camera_height() -> None:
+    root = Path(__file__).resolve().parents[2]
+    catalog = load_profile_catalog(
+        root / "simulation" / "vision_defect_sorting_lab" / "profiles.json"
+    )
+    assert catalog.profile_ids == ("standard",)
+    assert catalog.require("standard").camera_rig_z_m == 0.492
+
+
 @pytest.mark.parametrize(
     ("mutate", "message"),
     [

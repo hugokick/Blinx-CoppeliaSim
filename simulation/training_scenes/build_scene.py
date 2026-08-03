@@ -552,7 +552,7 @@ def _load_defect_profile_catalog(path: Path) -> VisionProfileCatalog:
     item = profiles[0]
     if item["profile_id"] != "standard" or item["label"] != "表面缺陷固定视图" or item["resolution"] != [1024, 1024]:
         raise ValueError("V1-09 profile identity/resolution is invalid")
-    if item["perspective_angle_deg"] != 20 or item["camera_rig_z_m"] != 0.5:
+    if item["perspective_angle_deg"] != 20 or item["camera_rig_z_m"] != 0.492:
         raise ValueError("V1-09 profile camera parameters are invalid")
     if item["key_diffuse_rgb"] != [0.8, 0.8, 0.8] or item["fill_diffuse_rgb"] != [0.35, 0.35, 0.35]:
         raise ValueError("V1-09 profile lighting values are invalid")
@@ -570,7 +570,7 @@ def _load_defect_profile_catalog(path: Path) -> VisionProfileCatalog:
                 label=item["label"],
                 resolution=(1024, 1024),
                 perspective_angle_deg=20,
-                camera_rig_z_m=0.5,
+                camera_rig_z_m=0.492,
                 key_diffuse_rgb=(0.8, 0.8, 0.8),
                 fill_diffuse_rgb=(0.35, 0.35, 0.35),
             ),
@@ -1366,7 +1366,7 @@ def _validate_defect_sorting(spec: dict[str, Any], formal: _FormalScene) -> None
     )
     if camera["alias"] != "Camera" or camera["path"] != f"{formal.root_path}/CameraRig/Camera":
         raise ValueError("V1-09 camera alias/path must match the formal scene root")
-    if _vector(camera["rig_position_m"], label="camera rig_position_m", length=3) != [0.085, 0.0, 0.5]:
+    if _vector(camera["rig_position_m"], label="camera rig_position_m", length=3) != [0.085, 0.0, 0.492]:
         raise ValueError("V1-09 camera rig position is fixed")
     if _vector(camera["orientation_deg"], label="camera orientation_deg", length=3) != [180.0, 0.0, 0.0]:
         raise ValueError("V1-09 camera orientation is fixed")
@@ -1389,8 +1389,8 @@ def _validate_defect_sorting(spec: dict[str, Any], formal: _FormalScene) -> None
     ):
         raise ValueError("V1-09 calibration_matrix must be finite 2x3")
     expected_matrix = [
-        [-0.1627580685211339, 0.0, 168.25075204856],
-        [0.0, 0.1627580685211339, -83.25075204855999],
+        [-0.16000295944756412, 0.0, 166.84151375742906],
+        [0.0, 0.16000295944756412, -81.84151375742906],
     ]
     if matrix != expected_matrix:
         raise ValueError("V1-09 calibration_matrix must match the fixed camera calibration")
@@ -1698,6 +1698,7 @@ def _shape(
     color: list[float],
     parent: int,
     respondable: bool,
+    emissive: bool = False,
 ) -> int:
     primitive = (
         sim.primitiveshape_cylinder
@@ -1721,6 +1722,13 @@ def _shape(
         sim.colorcomponent_ambient_diffuse,
         [float(value) for value in color],
     )
+    if emissive:
+        sim.setShapeColor(
+            handle,
+            "",
+            sim.colorcomponent_emission,
+            [float(value) for value in color],
+        )
     _set_int_parameter(sim, handle, sim.shapeintparam_static, 1)
     _set_int_parameter(
         sim,
@@ -2632,6 +2640,7 @@ def _defect_surface_part(
             color=[0.74, 0.75, 0.77],
             parent=parent,
             respondable=respondable,
+            emissive=True,
         )
     ]
     face_width = size[0] - 4.0
@@ -2647,17 +2656,19 @@ def _defect_surface_part(
             color=[0.98, 0.98, 0.98],
             parent=parent,
             respondable=False,
+            emissive=True,
         )
     )
     image = cv2.imread(str(asset_path), cv2.IMREAD_GRAYSCALE)
     bitmap = _rasterize_defect_surface(image, asset_path=asset_path)
-    pitch_x = face_width / 20.0
-    pitch_y = face_height / 20.0
+    raster_height, raster_width = bitmap.shape
+    pitch_x = face_width / float(raster_width)
+    pitch_y = face_height / float(raster_height)
     origin_x = center[0] - face_width / 2.0
     origin_y = center[1] - face_height / 2.0
     pixel_index = 0
-    for row in range(20):
-        for column in range(20):
+    for row in range(raster_height):
+        for column in range(raster_width):
             if int(bitmap[row, column]) >= 160:
                 continue
             pieces.append(
@@ -2680,14 +2691,20 @@ def _defect_surface_part(
     compound = int(sim.groupShapes(pieces, False))
     _alias(sim, compound, "InspectionFace" if inspection_face_direct else group_alias or part["alias"])
     sim.setObjectParent(compound, parent, True)
-    # CoppeliaSim chooses a compound's local origin from its merged geometry.
-    # Bind the public pickable alias back to the declared scene center so the
-    # route/probe contract and the visual body use the same coordinate frame.
-    sim.setObjectPosition(
-        compound,
-        [value / 1000.0 for value in center],
-        getattr(sim, "handle_world", -1),
-    )
+    relocate_frame = getattr(sim, "relocateShapeFrame", None)
+    if callable(relocate_frame):
+        relocate_frame(
+            compound,
+            [
+                center[0] / 1000.0,
+                center[1] / 1000.0,
+                center[2] / 1000.0,
+                0.0,
+                0.0,
+                0.0,
+                1.0,
+            ],
+        )
     _set_int_parameter(sim, compound, sim.shapeintparam_static, 1)
     _set_int_parameter(sim, compound, sim.shapeintparam_respondable, int(respondable))
     if not inspection_face_direct:
@@ -2699,7 +2716,7 @@ def _rasterize_defect_surface(
     image: np.ndarray | None,
     *,
     asset_path: Path,
-    raster_size: int = 20,
+    raster_size: int = 35,
 ) -> np.ndarray:
     if image is None or image.shape != (256, 256) or image.dtype != np.uint8:
         raise ValueError(f"could not decode V1-09 defect surface asset: {asset_path}")
