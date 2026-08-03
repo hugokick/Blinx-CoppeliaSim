@@ -99,7 +99,7 @@ def test_online_rgbd_capture_contract_and_probe(online_context, tmp_path: Path) 
             assert np.all(np.isfinite(source.source_depth_m))
             assert np.all(source.source_depth_m >= 0.0)
             observation = observe_source_depth_model(source, binding.anchors)
-            capture = normalize_source_capture(source, observation)
+            capture = normalize_source_capture(source, observation, binding.anchors)
             report = build_probe_report(capture, binding)
             assert report.status == "PASS"
             assert report.expected_source_depth_model == "optical_z"
