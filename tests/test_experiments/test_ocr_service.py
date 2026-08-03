@@ -1,0 +1,98 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+import cv2
+import numpy as np
+import pytest
+
+from vision_platform.experiments.ocr_service import (
+    OcrServiceError,
+    OcrSortingService,
+)
+
+
+ROOT = Path(__file__).resolve().parents[2]
+MANIFEST = ROOT / "simulation/vision_ocr_sorting_lab/ocr_assets_manifest.json"
+
+
+def _frame_and_rois() -> tuple[np.ndarray, dict[str, tuple[int, int, int, int]]]:
+    import json
+
+    manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
+    labels = {
+        item["identifier"]: cv2.imdecode(
+            np.frombuffer((MANIFEST.parent / item["path"]).read_bytes(), dtype=np.uint8),
+            cv2.IMREAD_UNCHANGED,
+        )
+        for item in manifest["labels"]
+    }
+    frame = np.full((240, 320, 3), 255, dtype=np.uint8)
+    rois: dict[str, tuple[int, int, int, int]] = {}
+    for index, identifier in enumerate(("A1", "A2", "B1", "B2")):
+        image = labels[identifier]
+        x = 10 + (index % 2) * 150
+        y = 10 + (index // 2) * 110
+        height, width = image.shape[:2]
+        frame[y : y + height, x : x + width] = image
+        rois[identifier] = (x, y, width, height)
+    return frame, rois
+
+
+def test_service_trains_once_and_returns_four_whitelisted_results() -> None:
+    service = OcrSortingService.from_manifest(MANIFEST, minimum_accuracy=0.95)
+    frame, rois = _frame_and_rois()
+    source = frame.copy()
+    output = service.analyze(frame, rois)
+    assert service.training_report.held_out_accuracy >= 0.95
+    assert [result.text for result in output.results] == ["A1", "A2", "B1", "B2"]
+    assert output.plan.status == "PASS"
+    assert output.annotated_frame is not frame
+    assert np.array_equal(frame, source)
+    assert output.annotated_frame.shape == frame.shape
+    assert not output.annotated_frame.flags.writeable
+    assert not hasattr(output, "classifier")
+
+
+def test_service_does_not_retrain_when_analyzing_again(monkeypatch: pytest.MonkeyPatch) -> None:
+    import vision_platform.experiments.ocr_service as module
+
+    calls = 0
+    original = module.train_glyph_classifier
+
+    def counted(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(module, "train_glyph_classifier", counted)
+    service = OcrSortingService.from_manifest(MANIFEST)
+    frame, rois = _frame_and_rois()
+    service.analyze(frame, rois)
+    service.analyze(frame, rois)
+    assert calls == 1
+
+
+@pytest.mark.parametrize(
+    "mutation,code",
+    [
+        (lambda frame, rois: rois.pop("A1"), "OCR_SERVICE_ROI_INVALID"),
+        (lambda frame, rois: rois.__setitem__("C9", rois["A2"]), "OCR_SERVICE_ROI_INVALID"),
+        (lambda frame, rois: rois.__setitem__("A1", (310, 0, 64, 96)), "OCR_SERVICE_ROI_INVALID"),
+        (lambda frame, rois: frame.__setitem__((slice(10, 106), slice(10, 74)), 255), "OCR_SORT_RESULT_INVALID"),
+    ],
+)
+def test_service_rejects_invalid_capture_before_plan_activation(mutation, code: str) -> None:
+    service = OcrSortingService.from_manifest(MANIFEST)
+    frame, rois = _frame_and_rois()
+    mutation(frame, rois)
+    with pytest.raises(OcrServiceError) as exc:
+        service.analyze(frame, rois)
+    assert exc.value.code == code
+
+
+def test_service_requires_bgr_uint8_frame() -> None:
+    service = OcrSortingService.from_manifest(MANIFEST)
+    with pytest.raises(OcrServiceError) as exc:
+        service.analyze(np.zeros((96, 64), dtype=np.uint8), {})
+    assert exc.value.code == "OCR_SERVICE_FRAME_INVALID"

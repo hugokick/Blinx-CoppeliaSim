@@ -477,3 +477,7 @@ tools/vision_lab/build_v1_08_scene.py
 tools/vision_lab/build_v1_08_scene.ps1
 tests/test_simulation/test_v1_08_scene_builder.py
 tests/test_simulation/test_v1_08_scene_contract.py
+vision_platform/experiments/ocr_assets.py
+vision_platform/experiments/ocr_service.py
+tests/test_experiments/test_ocr_assets.py
+tests/test_experiments/test_ocr_service.py

@@ -7,6 +7,22 @@ from vision_platform.experiments.code_routing import (
     code_route_plan_to_dict,
 )
 from vision_platform.experiments.models import ExperimentDefinition
+from vision_platform.experiments.ocr_assets import (
+    ALPHABET,
+    EXPECTED_SCENE_ID,
+    IDENTIFIERS,
+    OcrAssetError,
+    OcrAssetLoader,
+    OcrAssetRecord,
+    OcrTrainingAssets,
+    load_hash_bound_ocr_assets,
+    load_ocr_assets,
+)
+from vision_platform.experiments.ocr_service import (
+    OcrServiceError,
+    OcrServiceResult,
+    OcrSortingService,
+)
 from vision_platform.experiments.ocr_sorting import (
     ROUTES,
     ApprovedOcrSortEntry,
@@ -27,6 +43,18 @@ __all__ = [
     "CodeRoutePlan",
     "ExperimentCatalog",
     "ExperimentDefinition",
+    "ALPHABET",
+    "EXPECTED_SCENE_ID",
+    "IDENTIFIERS",
+    "OcrAssetError",
+    "OcrAssetLoader",
+    "OcrAssetRecord",
+    "OcrTrainingAssets",
+    "load_hash_bound_ocr_assets",
+    "load_ocr_assets",
+    "OcrServiceError",
+    "OcrServiceResult",
+    "OcrSortingService",
     "build_code_route_plan",
     "code_route_plan_to_dict",
     "ROUTES",
