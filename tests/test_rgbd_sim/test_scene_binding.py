@@ -20,7 +20,12 @@ def _write_manifest(tmp_path: Path, mutate) -> Path:
     scene = root / "simulation" / "rgbd_lab" / "BL23_rgbd_lab.ttt"
     scene.parent.mkdir(parents=True)
     scene.write_bytes(b"scene")
+    template = root / "simulation" / "vision_lab" / "BL23_vision_lab.ttt"
+    template.parent.mkdir(parents=True)
+    template.write_bytes(b"template")
     payload = json.loads(MANIFEST.read_text(encoding="utf-8"))
+    payload["template"]["path"] = "simulation/vision_lab/BL23_vision_lab.ttt"
+    payload["template"]["sha256"] = hashlib.sha256(template.read_bytes()).hexdigest()
     payload["scene"]["path"] = "simulation/rgbd_lab/BL23_rgbd_lab.ttt"
     payload["scene"]["sha256"] = hashlib.sha256(scene.read_bytes()).hexdigest()
     payload["scene"]["size_bytes"] = scene.stat().st_size
@@ -46,6 +51,10 @@ def test_load_scene_binding_validates_manifest_and_scene_hash() -> None:
     "mutate,code",
     [
         (lambda payload: payload["scene"].update(path="../../outside.ttt"), "RGBD_SIM_BINDING_PATH_INVALID"),
+        (lambda payload: payload["template"].update(path="../../../outside.ttt"), "RGBD_SIM_BINDING_PATH_INVALID"),
+        (lambda payload: payload["template"].update(path="simulation/vision_lab/missing.ttt"), "RGBD_SIM_BINDING_TEMPLATE_INVALID"),
+        (lambda payload: payload["template"].update(sha256="0" * 64), "RGBD_SIM_BINDING_TEMPLATE_INVALID"),
+        (lambda payload: payload["template"].update(sha256="f" * 64), "RGBD_SIM_BINDING_TEMPLATE_INVALID"),
         (lambda payload: payload["validation_rois"].update(extra=[0, 0, 1, 1]), "RGBD_SIM_BINDING_ROI_INVALID"),
         (lambda payload: payload["validation_rois"].update(near_block=[0, 0, 20, 20], far_block=[10, 10, 30, 30]), "RGBD_SIM_BINDING_ROI_INVALID"),
         (lambda payload: payload["validation_rois"].update(near_block=[0, 0, 257, 20]), "RGBD_SIM_BINDING_ROI_INVALID"),
@@ -53,6 +62,10 @@ def test_load_scene_binding_validates_manifest_and_scene_hash() -> None:
         (lambda payload: payload.update(unexpected=True), "RGBD_SIM_BINDING_MANIFEST_INVALID"),
         (lambda payload: payload["template"].update(unexpected=True), "RGBD_SIM_BINDING_MANIFEST_INVALID"),
         (lambda payload: payload["sensor"].update(path="/RgbdLab/CameraRig/OtherSensor"), "RGBD_SIM_BINDING_SENSOR_INVALID"),
+        (lambda payload: payload["sensor"]["position_m"].__setitem__(0, float("nan")), "RGBD_SIM_BINDING_SENSOR_INVALID"),
+        (lambda payload: payload["sensor"]["orientation_quaternion"].__setitem__(0, float("inf")), "RGBD_SIM_BINDING_SENSOR_INVALID"),
+        (lambda payload: payload["sensor"].update(orientation_quaternion=[0.0, 0.0, 0.0, 0.0]), "RGBD_SIM_BINDING_SENSOR_INVALID"),
+        (lambda payload: payload["sensor"].update(orientation_quaternion=[2.0, 0.0, 0.0, 0.0]), "RGBD_SIM_BINDING_SENSOR_INVALID"),
         (lambda payload: payload["probe_anchors"][0]["position_m"].__setitem__(0, float("nan")), "RGBD_SIM_BINDING_ANCHOR_INVALID"),
     ],
 )

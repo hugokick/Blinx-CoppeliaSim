@@ -146,7 +146,14 @@ def _finite(value: object, label: str, *, positive: bool = False) -> float:
     return result
 
 
-def _safe_relative_file(raw: object, root: Path, manifest_parent: Path, code: str) -> tuple[Path, str]:
+def _safe_relative_file(
+    raw: object,
+    root: Path,
+    manifest_parent: Path,
+    code: str,
+    *,
+    missing_code: str | None = None,
+) -> tuple[Path, str]:
     if type(raw) is not str or not raw or Path(raw).is_absolute():
         _fail(code, "manifest file path must be relative")
     raw_path = Path(raw)
@@ -174,7 +181,7 @@ def _safe_relative_file(raw: object, root: Path, manifest_parent: Path, code: st
             resolved.relative_to(root)
         except (OSError, ValueError):
             _fail(code, "manifest file path escapes repository root")
-        _fail(code, "manifest file does not exist")
+        _fail(missing_code or code, "manifest file does not exist")
     current = chosen
     while True:
         if current.is_symlink():
@@ -187,14 +194,20 @@ def _safe_relative_file(raw: object, root: Path, manifest_parent: Path, code: st
     return chosen, chosen.relative_to(root).as_posix()
 
 
-def _verify_sha256(path: Path, expected: object) -> str:
+def _verify_sha256(
+    path: Path,
+    expected: object,
+    *,
+    code: str = "RGBD_SIM_BINDING_SCENE_INVALID",
+    label: str = "scene",
+) -> str:
     if type(expected) is not str or len(expected) != _SHA256_LENGTH or any(
         char not in "0123456789abcdef" for char in expected
     ):
-        _fail("RGBD_SIM_BINDING_SCENE_INVALID", "scene sha256 must be lowercase SHA-256")
+        _fail(code, f"{label} sha256 must be lowercase SHA-256")
     digest = hashlib.sha256(path.read_bytes()).hexdigest()
     if digest != expected:
-        _fail("RGBD_SIM_BINDING_SCENE_INVALID", "scene sha256 does not match manifest")
+        _fail(code, f"{label} sha256 does not match manifest")
     return digest
 
 
@@ -307,6 +320,19 @@ def load_scene_binding(
         or any(char not in "0123456789abcdef" for char in template["sha256"])
     ):
         _fail("RGBD_SIM_BINDING_MANIFEST_INVALID", "template identity is invalid")
+    template_file, _ = _safe_relative_file(
+        template["path"],
+        root,
+        manifest.parent,
+        "RGBD_SIM_BINDING_PATH_INVALID",
+        missing_code="RGBD_SIM_BINDING_TEMPLATE_INVALID",
+    )
+    _verify_sha256(
+        template_file,
+        template["sha256"],
+        code="RGBD_SIM_BINDING_TEMPLATE_INVALID",
+        label="template",
+    )
 
     scene_value = _object(value["scene"], "RGBD_SIM_BINDING_SCENE_INVALID", "scene", _SCENE_KEYS)
     scene_file, scene_path = _safe_relative_file(scene_value["path"], root, manifest.parent, "RGBD_SIM_BINDING_PATH_INVALID")
@@ -326,6 +352,22 @@ def load_scene_binding(
         _fail("RGBD_SIM_BINDING_SENSOR_INVALID", "sensor resolution is invalid")
     if any(sensor[name] is not True for name in ("explicit_handling", "perspective", "rgb_enabled", "depth_enabled")):
         _fail("RGBD_SIM_BINDING_SENSOR_INVALID", "sensor contract flags must be true")
+    position = sensor["position_m"]
+    orientation = sensor["orientation_quaternion"]
+    if (
+        not isinstance(position, list)
+        or len(position) != 3
+        or any(type(item) not in {int, float} or not math.isfinite(float(item)) for item in position)
+        or not isinstance(orientation, list)
+        or len(orientation) != 4
+        or any(type(item) not in {int, float} or not math.isfinite(float(item)) for item in orientation)
+    ):
+        _fail("RGBD_SIM_BINDING_SENSOR_INVALID", "sensor pose must contain finite values")
+    quaternion_norm = math.sqrt(sum(float(item) ** 2 for item in orientation))
+    if not math.isfinite(quaternion_norm) or quaternion_norm <= 0.0 or not math.isclose(
+        quaternion_norm, 1.0, rel_tol=0.0, abs_tol=1e-6
+    ):
+        _fail("RGBD_SIM_BINDING_SENSOR_INVALID", "sensor orientation quaternion is invalid")
     angle_rad = math.radians(_finite(sensor["perspective_angle_deg"], "perspective_angle_deg", positive=True))
     near_clip_m = _finite(sensor["near_clip_m"], "near_clip_m", positive=True)
     far_clip_m = _finite(sensor["far_clip_m"], "far_clip_m", positive=True)
