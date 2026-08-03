@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import hashlib
 import json
 import os
@@ -20,6 +21,18 @@ SCENE = ROOT / "simulation" / "vision_defect_sorting_lab" / "BL23_vision_defect_
 MANIFEST = ROOT / "simulation" / "vision_defect_sorting_lab" / "scene_manifest.json"
 PORT = 23010
 WRAPPER = ROOT / "tools" / "vision_lab" / "run_v1_09_surface_defects.ps1"
+RUNTIME_EVIDENCE_ENV = "V1_09_RUNTIME_EVIDENCE_DIR"
+
+
+def _runtime_evidence_root(tmp_path: Path) -> Path:
+    configured = os.environ.get(RUNTIME_EVIDENCE_ENV)
+    if configured is None:
+        return tmp_path / "runs"
+    selected = Path(configured).expanduser()
+    if not selected.is_absolute():
+        pytest.fail(f"{RUNTIME_EVIDENCE_ENV} must be an absolute path: {selected}")
+    selected.mkdir(parents=True, exist_ok=True)
+    return selected.resolve()
 
 
 def _endpoint(request) -> tuple[str, int]:
@@ -91,11 +104,53 @@ def test_v1_09_online_wrapper_uses_owned_launcher_and_exact_scope() -> None:
     assert "test_coppeliasim_v1_09.py" in source
     assert "Stop-Process -Name" not in source
     assert "taskkill" not in source.lower()
+    assert "V1_09_RUNTIME_EVIDENCE_DIR" in source
+    assert "runtime-evidence" in source
+    assert "Confirm-RuntimeEvidence" in source
+    assert 'Steps["runtime_evidence"]' in source
+
+
+def test_v1_09_online_case_routes_cli_output_to_wrapper_evidence_root() -> None:
+    source = Path(__file__).read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    online_test = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef)
+        and node.name == "test_v1_09_online_defect_sorting_is_complete"
+    )
+    assert "V1_09_RUNTIME_EVIDENCE_DIR" in source
+    assert any(
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "_runtime_evidence_root"
+        for node in ast.walk(online_test)
+    )
+
+
+def test_v1_09_runtime_evidence_root_falls_back_to_tmp_path(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.delenv(RUNTIME_EVIDENCE_ENV, raising=False)
+    assert _runtime_evidence_root(tmp_path) == tmp_path / "runs"
+
+
+def test_v1_09_runtime_evidence_root_uses_absolute_wrapper_path(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    configured = tmp_path / "wrapper" / "runtime-evidence"
+    monkeypatch.setenv(RUNTIME_EVIDENCE_ENV, str(configured))
+    selected = _runtime_evidence_root(tmp_path)
+    assert selected == configured.resolve()
+    assert selected.is_dir()
 
 
 @pytest.mark.coppeliasim
 def test_v1_09_online_defect_sorting_is_complete(tmp_path: Path, request) -> None:
     host, port = _endpoint(request)
+    runtime_evidence_root = _runtime_evidence_root(tmp_path)
     try:
         with socket.create_connection((host, port), timeout=0.5):
             pass
@@ -117,7 +172,7 @@ def test_v1_09_online_defect_sorting_is_complete(tmp_path: Path, request) -> Non
             "--port",
             str(port),
             "--output",
-            str(tmp_path / "runs"),
+            str(runtime_evidence_root),
         ],
         cwd=ROOT,
         text=True,

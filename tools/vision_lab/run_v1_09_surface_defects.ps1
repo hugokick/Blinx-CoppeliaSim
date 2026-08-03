@@ -21,6 +21,14 @@ if (-not [System.IO.Path]::IsPathRooted($OutputDir)) {
 }
 New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
 $OutputDir = (Resolve-Path -LiteralPath $OutputDir).Path
+$RuntimeEvidenceDir = Join-Path $OutputDir "runtime-evidence"
+New-Item -ItemType Directory -Force -Path $RuntimeEvidenceDir | Out-Null
+$RuntimeEvidenceDir = (Resolve-Path -LiteralPath $RuntimeEvidenceDir).Path
+$RuntimeEvidenceEnvName = "V1_09_RUNTIME_EVIDENCE_DIR"
+$PreviousRuntimeEvidenceDir = [Environment]::GetEnvironmentVariable(
+    $RuntimeEvidenceEnvName,
+    "Process"
+)
 $SummaryPath = Join-Path $OutputDir "v1-09-online-summary.json"
 $JUnitPath = Join-Path $OutputDir "v1-09-online.xml"
 $Scene = Join-Path $ProjectRoot "simulation\vision_defect_sorting_lab\BL23_vision_defect_sorting_lab.ttt"
@@ -73,9 +81,60 @@ function Read-JUnitCounts {
     }
 }
 
+function Confirm-RuntimeEvidence {
+    param([string]$Path)
+    if (-not (Test-Path -LiteralPath $Path -PathType Container)) {
+        throw "V1-09 runtime evidence root is missing: $Path"
+    }
+    $Runs = @(Get-ChildItem -LiteralPath $Path -Directory)
+    if ($Runs.Count -ne 1) {
+        throw "V1-09 runtime evidence requires exactly one run directory; found $($Runs.Count): $Path"
+    }
+    $Run = $Runs[0]
+    $RequiredFiles = @(
+        "summary.json",
+        "scene-initial.json",
+        "scene-final.json",
+        "v1-09-defect-final-evidence.json",
+        "commands.jsonl",
+        "events.jsonl",
+        "frames\frame-000001.png"
+    )
+    foreach ($RelativePath in $RequiredFiles) {
+        $RequiredPath = Join-Path $Run.FullName $RelativePath
+        if (-not (Test-Path -LiteralPath $RequiredPath -PathType Leaf)) {
+            throw "V1-09 runtime evidence is missing required file: $RequiredPath"
+        }
+    }
+    $Bundles = @(Get-ChildItem -LiteralPath $Run.FullName -Recurse -File -Filter "vision-bundle-*.json")
+    if ($Bundles.Count -ne 1) {
+        throw "V1-09 runtime evidence requires exactly one vision bundle; found $($Bundles.Count)"
+    }
+    $Probes = @(Get-ChildItem -LiteralPath $Run.FullName -Recurse -File -Filter "defect-entry-*.json")
+    if ($Probes.Count -ne 12) {
+        throw "V1-09 runtime evidence requires exactly twelve entry probes; found $($Probes.Count)"
+    }
+    $Pngs = @(Get-ChildItem -LiteralPath $Run.FullName -Recurse -File -Filter "*.png")
+    if ($Pngs.Count -lt 15) {
+        throw "V1-09 runtime evidence requires at least fifteen PNG files; found $($Pngs.Count)"
+    }
+    $FileCount = @(Get-ChildItem -LiteralPath $Run.FullName -Recurse -File).Count
+    $Steps["runtime_evidence"] = [ordered]@{
+        status = "PASS"
+        root = $Path
+        run_id = $Run.Name
+        file_count = $FileCount
+    }
+}
+
 try {
     Push-Location $ProjectRoot
     try {
+        [Environment]::SetEnvironmentVariable(
+            $RuntimeEvidenceEnvName,
+            $RuntimeEvidenceDir,
+            "Process"
+        )
         $Launch = & (Join-Path $PSScriptRoot "launch_coppeliasim.ps1") `
             -CoppeliaRoot $CoppeliaRoot `
             -Scene $Scene `
@@ -122,6 +181,7 @@ try {
             throw "V1-09 online acceptance failed with exit code $ExitCode"
         }
         Read-JUnitCounts -Path $JUnitPath
+        Confirm-RuntimeEvidence -Path $RuntimeEvidenceDir
     } finally {
         Pop-Location
     }
@@ -138,6 +198,16 @@ try {
             $Cleanup = "Owned CoppeliaSim cleanup failed: $($_.Exception.Message)"
             $FailureMessage = if ($FailureMessage) { "$FailureMessage`n$Cleanup" } else { $Cleanup }
         }
+    }
+    try {
+        [Environment]::SetEnvironmentVariable(
+            $RuntimeEvidenceEnvName,
+            $PreviousRuntimeEvidenceDir,
+            "Process"
+        )
+    } catch {
+        $Cleanup = "Runtime evidence environment cleanup failed: $($_.Exception.Message)"
+        $FailureMessage = if ($FailureMessage) { "$FailureMessage`n$Cleanup" } else { $Cleanup }
     }
     $Summary = [ordered]@{
         schema_version = 1
