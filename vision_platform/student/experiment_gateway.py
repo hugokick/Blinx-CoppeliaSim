@@ -1813,16 +1813,34 @@ class StudentExperimentGateway:
         report = self.collect_probe(phase)
         return self.record_probe_report(phase, report)
 
-    def collect_probe(self, phase: str) -> dict[str, Any]:
+    def collect_probe(
+        self,
+        phase: str,
+        *,
+        run_context: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
         if type(phase) is not str or phase not in {"initial", "final"}:
             raise ValueError("phase must be initial or final")
+        copied_context = None
+        if run_context is not None:
+            copied_context = _copy_json_native(
+                run_context,
+                path=f"scene-{phase}.run_context",
+            )
+            if not isinstance(copied_context, dict):
+                raise TypeError("run_context must be a JSON object")
         with self._probe_lock:
             try:
+                probe_kwargs: dict[str, Any] = {
+                    "phase": phase,
+                    "scene_manifest": self._scene_manifest,
+                }
+                if copied_context is not None:
+                    probe_kwargs["run_context"] = copied_context
                 report = probe_experiment(
                     self.application.sim,
                     self._definition,
-                    phase=phase,
-                    scene_manifest=self._scene_manifest,
+                    **probe_kwargs,
                 )
             except BaseException as error:
                 try:

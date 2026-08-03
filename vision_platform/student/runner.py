@@ -568,6 +568,11 @@ class StudentProgramController:
         self._application = session.application
         self._guard = self._new_guard(self._application)
         self._ocr_guard = OcrSortGuard()
+        # The BLX RobotAdapter deliberately exposes only a position-only
+        # contract and therefore may not provide an ``is_home`` getter.  This
+        # marker is set only after the bounded cleanup home action returns
+        # successfully; it is never used to claim home before that action.
+        self._ocr_home_confirmed = False
 
         self._evidence: StudentRunEvidence | None = None
         self._experiment_gateway: StudentExperimentGateway | None = None
@@ -1815,6 +1820,7 @@ class StudentProgramController:
 
     def _prepare_run_locked(self, evidence: StudentRunEvidence) -> None:
         self._ocr_guard.reset()
+        self._ocr_home_confirmed = False
         self._evidence = evidence
         self._result = None
         self._error = None
@@ -1837,6 +1843,128 @@ class StudentProgramController:
         self._backend_quarantined = False
         self._backend_quarantine_error = None
         self._done.clear()
+
+    def _ocr_probe_context(self) -> dict[str, Any] | None:
+        """Capture immutable same-run OCR evidence before gateway cleanup.
+
+        ``_cleanup()`` intentionally resets the gateway and releases the OCR
+        snapshot.  Final probing therefore receives this bounded copy rather
+        than reaching back into a reset gateway object.
+        """
+
+        if not self._is_v1_08_experiment():
+            return None
+        evidence = self._evidence
+        gateway = self._experiment_gateway
+        experiment_context = self._experiment_context
+        if evidence is None or gateway is None or experiment_context is None:
+            return None
+        ocr_evidence = getattr(gateway, "_ocr_evidence", None)
+        if not isinstance(ocr_evidence, Mapping):
+            return None
+        snapshot_id = ocr_evidence.get("snapshot_id")
+        scene_hash = getattr(experiment_context, "scene_sha256", None)
+        if (
+            type(evidence.run_id) is not str
+            or type(snapshot_id) is not str
+            or not snapshot_id
+            or type(scene_hash) is not str
+            or not scene_hash
+        ):
+            return None
+        guard_snapshot = self._ocr_guard.snapshot()
+        # Preserve a bounded partial context for an incomplete but still
+        # active run.  The final probe will then fail with its precise
+        # occupancy/evidence error rather than losing the same-run binding.
+        # EMPTY and INVALIDATED are hard boundaries and must not expose any
+        # executable/evidence context.
+        if guard_snapshot.get("state") in {"EMPTY", "INVALIDATED"}:
+            return None
+        raw_refs = guard_snapshot.get("evidence_refs", ())
+        entry_evidence: list[dict[str, Any]] = []
+        try:
+            for raw_item in raw_refs:
+                item = dict(raw_item)
+                reference = dict(item["reference"])
+                reference["entry_id"] = item["entry_id"]
+                entry_evidence.append(reference)
+        except (KeyError, TypeError, ValueError):
+            return None
+        return {
+            "run_id": evidence.run_id,
+            "scene_hash": scene_hash,
+            "snapshot_id": snapshot_id,
+            "entry_evidence": entry_evidence,
+            "consumed_entry_ids": tuple(self._ocr_guard.consumed_entry_ids),
+            "robot_home": self._ocr_robot_home_state(),
+            "tool_on": self._ocr_tool_on_state(),
+        }
+
+    def _ocr_robot_home_state(self) -> bool:
+        robot = getattr(self._application, "robot", None)
+        candidates = [robot, getattr(robot, "backend", None)]
+        for candidate in candidates:
+            if candidate is None:
+                continue
+            for name in ("is_home", "at_home"):
+                checker = getattr(candidate, name, None)
+                if callable(checker):
+                    try:
+                        value = checker()
+                    except BaseException:
+                        continue
+                    if type(value) is bool:
+                        return value
+            current = getattr(candidate, "current_angles", None)
+            home = getattr(candidate, "_home_angles", None)
+            if (
+                isinstance(current, (list, tuple))
+                and isinstance(home, (list, tuple))
+                and len(current) == len(home)
+                and len(current) > 0
+            ):
+                try:
+                    return all(
+                        isfinite(float(left))
+                        and isfinite(float(right))
+                        and abs(float(left) - float(right)) <= 1e-6
+                        for left, right in zip(current, home)
+                    )
+                except (TypeError, ValueError, OverflowError):
+                    continue
+        return bool(getattr(self, "_ocr_home_confirmed", False))
+
+    def _ocr_tool_on_state(self) -> bool:
+        tool = getattr(self._application, "tool", None)
+        if tool is None:
+            return False
+        for name in ("is_on", "enabled"):
+            value = getattr(tool, name, None)
+            if callable(value):
+                try:
+                    result = value()
+                except BaseException:
+                    continue
+                if type(result) is bool:
+                    return result
+            elif type(value) is bool:
+                return value
+        for candidate in (tool, getattr(tool, "backend", None)):
+            value = getattr(candidate, "_enabled", None)
+            if type(value) is bool:
+                return value
+            value = getattr(candidate, "_pump_state", None)
+            if type(value) is bool:
+                return value
+        checker = getattr(tool, "is_attached", None)
+        if callable(checker):
+            try:
+                value = checker()
+            except BaseException:
+                return False
+            if type(value) is bool:
+                return value
+        return False
 
     def _snapshot_locked(self) -> StudentRunSnapshot:
         elapsed = (
@@ -2521,11 +2649,21 @@ class StudentProgramController:
         self,
         gateway: StudentExperimentGateway,
         phase: str,
+        *,
+        run_context: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
         try:
+            def collect() -> dict[str, Any]:
+                if run_context is None:
+                    return gateway.collect_probe(phase)
+                return gateway.collect_probe(
+                    phase,
+                    run_context=run_context,
+                )
+
             report = self._dispatch_probe_bounded(
                 phase,
-                lambda: gateway.collect_probe(phase),
+                collect,
             )
         except _BackendActionStuck:
             message = (
@@ -3119,6 +3257,11 @@ class StudentProgramController:
                     details={"original_error": final_error},
                 )
 
+            # Capture OCR evidence before _cleanup() resets the gateway's
+            # private recognition context.  The final read-only probe runs
+            # after cleanup so it can also observe tool-off and robot-home.
+            ocr_probe_context = self._ocr_probe_context()
+
             cleanup_errors: list[dict[str, Any]] = []
             with self._condition:
                 active_backend_actions = (
@@ -3261,6 +3404,9 @@ class StudentProgramController:
                     cleanup_errors,
                     quarantined=True,
                 )
+            if isinstance(ocr_probe_context, dict):
+                ocr_probe_context["robot_home"] = self._ocr_robot_home_state()
+                ocr_probe_context["tool_on"] = self._ocr_tool_on_state()
             scene_probe_status: str | None = None
             final_probe_report: Mapping[str, Any] | None = None
             experiment_gateway = self._experiment_gateway
@@ -3285,6 +3431,7 @@ class StudentProgramController:
                             final_probe = self._record_probe_bounded(
                                 experiment_gateway,
                                 "final",
+                                run_context=ocr_probe_context,
                             )
                         final_probe_report = final_probe
                         reported_status = final_probe.get("status")
@@ -3811,7 +3958,15 @@ class StudentProgramController:
                 if lift_succeeded:
                     self._last_pose = target
 
-        capture("robot.move_home", self._application.robot.move_home)
+        stop, home_succeeded, _ = capture(
+            "robot.move_home",
+            self._application.robot.move_home,
+        )
+        if not stop and home_succeeded:
+            # Only a successful, bounded cleanup action may establish this
+            # fallback.  Any timeout/exception leaves the value false so the
+            # final probe fails closed when no backend home getter exists.
+            self._ocr_home_confirmed = True
         return errors
 
     def _close_ipc(self) -> None:

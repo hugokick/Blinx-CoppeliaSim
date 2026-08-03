@@ -222,6 +222,83 @@ def test_gateway_builds_complete_ocr_plan_before_motion(tmp_path, monkeypatch) -
     assert evidence.json_calls
 
 
+def test_gateway_final_probe_forwards_same_run_context(tmp_path, monkeypatch) -> None:
+    gateway, _, _, _ = _gateway(tmp_path, activate=lambda plan: None)
+    captured: dict[str, object] = {}
+
+    def fake_probe(sim, definition, **kwargs):
+        captured.update(kwargs)
+        return {
+            "schema_version": 1,
+            "experiment_id": "V1-08",
+            "phase": "final",
+            "status": "PASS",
+            "matched": 4,
+            "expected": 4,
+            "hardware_status": "PENDING_HARDWARE",
+        }
+
+    monkeypatch.setattr(
+        "vision_platform.student.experiment_gateway.probe_experiment",
+        fake_probe,
+    )
+    context = {
+        "run_id": "run-v1-08",
+        "scene_hash": "a" * 64,
+        "snapshot_id": "frame-000001",
+        "entry_evidence": (),
+        "consumed_entry_ids": (),
+        "robot_home": True,
+        "tool_on": False,
+    }
+    report = gateway.collect_probe("final", run_context=context)
+
+    assert report["status"] == "PASS"
+    # Gateway copies contexts into its bounded JSON-native representation;
+    # tuples are intentionally normalized to lists before reaching probes.
+    expected_context = {
+        **context,
+        "entry_evidence": [],
+        "consumed_entry_ids": [],
+    }
+    assert captured["run_context"] == expected_context
+
+
+def test_runner_captures_ocr_context_before_gateway_cleanup(tmp_path: Path) -> None:
+    controller, _, _, evidence = _controller_for_private_ocr(tmp_path)
+    controller._experiment_context = SimpleNamespace(scene_sha256="c" * 64)
+    controller._experiment_gateway._ocr_evidence["snapshot_id"] = "frame-000001"
+    controller._command_ocr_sort_entry({"entry_id": "entry_a"})
+
+    context = controller._ocr_probe_context()
+
+    assert context["run_id"] == evidence.run_id
+    assert context["scene_hash"] == "c" * 64
+    assert context["snapshot_id"] == "frame-000001"
+    assert context["consumed_entry_ids"] == ("entry_a",)
+    assert context["entry_evidence"][0]["entry_id"] == "entry_a"
+
+
+@pytest.mark.parametrize("fail_home", [False, True])
+def test_runner_home_fallback_requires_successful_cleanup(
+    tmp_path: Path,
+    fail_home: bool,
+) -> None:
+    controller, robot, _, _ = _controller_for_private_ocr(tmp_path)
+
+    def move_home() -> None:
+        robot.moves.append(("home",))
+        if fail_home:
+            raise RuntimeError("home-cleanup-failed")
+
+    controller._application.robot.move_home = move_home
+    controller._ocr_home_confirmed = False
+
+    controller._cleanup()
+
+    assert controller._ocr_robot_home_state() is (not fail_home)
+
+
 def test_gateway_rejects_result_geometry_before_guard_activation(tmp_path, monkeypatch) -> None:
     activated: list[OcrSortPlan] = []
     gateway, camera, application, _ = _gateway(tmp_path, activate=activated.append)
@@ -344,6 +421,9 @@ def _controller_for_private_ocr(tmp_path: Path):
 
     class Gateway:
         _ocr_evidence = {"plan": plan}
+
+        def reset_environment(self):
+            return None
 
         def collect_ocr_entry_probe(self, entry_id: str, *, run_id: str):
             return {
