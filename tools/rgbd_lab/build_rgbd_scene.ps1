@@ -14,6 +14,8 @@ $Python = Join-Path $ProjectRoot ".venv-vision\Scripts\python.exe"
 $Executable = (Resolve-Path (Join-Path $CoppeliaRoot "coppeliaSim.exe")).Path
 $Scene = (Resolve-Path (Join-Path $ProjectRoot "simulation\vision_lab\BL23_vision_lab.ttt")).Path
 if (-not (Test-Path -LiteralPath $Python -PathType Leaf)) { throw "Python environment is missing: $Python" }
+. (Join-Path $ProjectRoot "tools\rgbd_lab\listener_identity.ps1")
+. (Join-Path $ProjectRoot "tools\vision_lab\process_ownership.ps1")
 
 function Get-PortListener {
     Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
@@ -28,15 +30,18 @@ $process = $null
 $identity = $null
 try {
     $process = Start-Process @start
-    $identity = [pscustomobject]@{
-        ProcessId = [int]$process.Id
-        ProcessPath = [System.IO.Path]::GetFullPath([string]$process.Path)
-        ProcessStartTimeUtcTicks = [long]$process.StartTime.ToUniversalTime().Ticks
-    }
+    $identity = Get-RgbdProcessIdentity -Process $process
     Push-Location -LiteralPath $ProjectRoot
     try {
         & $Python -m vision_platform.coppeliasim_readiness --host $HostAddress --port $Port --scene $Scene --timeout $TimeoutSeconds
         if ($LASTEXITCODE -ne 0) { throw "CoppeliaSim readiness failed on 23009" }
+        Assert-RgbdOwnedListener `
+            -ExpectedIdentity $identity `
+            -GetListenerAction { Get-PortListener } `
+            -GetProcessAction {
+                param($requestedId)
+                Get-Process -Id $requestedId -ErrorAction Stop
+            }
         & $Python -m tools.rgbd_lab.build_rgbd_scene --host $HostAddress --port $Port
         if ($LASTEXITCODE -ne 0) { throw "D1-01 scene build failed" }
     } finally {
@@ -51,7 +56,10 @@ try {
             if ($currentPath -ne $identity.ProcessPath -or $currentTicks -ne $identity.ProcessStartTimeUtcTicks) {
                 throw "D1-01 cleanup identity mismatch; refusing to stop replacement process"
             }
-            Stop-Process -Id $identity.ProcessId -Force
+            Stop-ExactOwnedProcess `
+                -ProcessId $identity.ProcessId `
+                -ProcessPath $identity.ProcessPath `
+                -ProcessStartTimeUtcTicks $identity.ProcessStartTimeUtcTicks
         }
     }
 }
