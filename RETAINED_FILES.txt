@@ -496,3 +496,4 @@ tests/test_student_programs/test_v1_08_sort_guard.py
 tests/test_student_programs/test_v1_08_protocol_sdk.py
 tests/test_student_programs/test_v1_08_gateway.py
 docs/superpowers/specs/2026-08-03-v1-09-surface-defect-sorting-design.md
+docs/superpowers/plans/2026-08-03-v1-09-surface-defect-sorting-plan.md
