@@ -198,6 +198,28 @@ def test_final_probe_accepts_guard_six_field_refs_and_binds_run_snapshot_context
     assert all(item["snapshot_id"] == "frame-000001" for item in report["entry_evidence"])
 
 
+def test_final_probe_rejects_a_reference_that_rebinds_an_entry_to_other_slot():
+    refs = _refs()
+    refs[0] = {**refs[0], "slot_id": "slot_2"}
+    refs[1] = {**refs[1], "slot_id": "slot_1"}
+    positions = _positions()
+    positions["/VisionOcrSortingLab/Parts/part_a"] = [128.0, -60.0, 22.0]
+    positions["/VisionOcrSortingLab/Parts/part_b"] = [116.0, -60.0, 22.0]
+    report = probe_ocr_final(
+        FakeOcrSim(positions, robot_pose=(0.0, 0.0, 0.0), tool_on=False),
+        _definition(),
+        run_id="run-v1-08",
+        scene_hash=_scene_hash(),
+        snapshot_id="frame-000001",
+        entry_evidence=refs,
+        consumed_entry_ids=("entry_a", "entry_b", "entry_c", "entry_d"),
+        robot_home=True,
+        tool_on=False,
+    )
+    assert report["status"] == "FAIL"
+    assert report["same_run_evidence"] is False
+
+
 @pytest.mark.parametrize(
     "overrides",
     [

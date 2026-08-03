@@ -840,10 +840,15 @@ def probe_ocr_final(
         entry = routes.get(entry_id)
         if entry is None:
             continue
+        ordered_route_entries = sorted(
+            (item for item in routes.values() if item["route_id"] == entry["route_id"]),
+            key=lambda item: tuple(item["drop_xyz_mm"]),
+        )
+        configured_slot_id = f"slot_{ordered_route_entries.index(entry) + 1}"
         same_run = same_run and (
             ref["part_id"] == entry["part_id"]
             and ref["route_id"] == entry["route_id"]
-            and ref["slot_id"] in {"slot_1", "slot_2"}
+            and ref["slot_id"] == configured_slot_id
         )
         normalized = dict(ref)
         normalized["entry_id"] = entry_id
