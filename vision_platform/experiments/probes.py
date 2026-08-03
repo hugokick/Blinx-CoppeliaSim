@@ -705,6 +705,17 @@ def probe_ocr_entry(
         "scene_hash": scene_hash,
         "snapshot_id": snapshot_id,
         "evidence_id": evidence_id,
+        # This exact six-field object is the only value that a pure guard
+        # needs to consume.  The surrounding report is intentionally richer
+        # and remains read-only evidence for the host/UI.
+        "evidence_ref": {
+            "run_id": run_id,
+            "scene_hash": scene_hash,
+            "part_id": entry["part_id"],
+            "route_id": route_id,
+            "slot_id": slot_id,
+            "evidence_id": evidence_id,
+        },
         "position_mm": actual,
         "expected_mm": expected,
         "distance_mm": distance_mm,
@@ -785,8 +796,11 @@ def probe_ocr_final(
     same_run = True
     for index, raw in enumerate(refs):
         ref = _mapping(raw, f"entry_evidence[{index}]")
-        required = {"entry_id", "part_id", "route_id", "slot_id", "run_id", "scene_hash", "snapshot_id", "evidence_id"}
-        if set(ref) != required:
+        if "evidence_ref" in ref:
+            ref = _mapping(ref["evidence_ref"], f"entry_evidence[{index}].evidence_ref")
+        required = {"part_id", "route_id", "slot_id", "run_id", "scene_hash", "evidence_id"}
+        optional = {"entry_id", "snapshot_id"}
+        if not required <= set(ref) or not set(ref) <= required | optional:
             return {
                 "schema_version": 1,
                 "status": "FAIL",
@@ -795,19 +809,32 @@ def probe_ocr_final(
                 "error": {"code": "OCR_SORT_EVIDENCE_INVALID"},
                 "hardware_status": "PENDING_HARDWARE",
             }
-        entry_id = ref["entry_id"]
+        entry_id = ref.get("entry_id")
+        if entry_id is None:
+            candidates = [
+                candidate_id
+                for candidate_id, candidate in routes.items()
+                if candidate["part_id"] == ref.get("part_id")
+                and candidate["route_id"] == ref.get("route_id")
+            ]
+            entry_id = candidates[0] if len(candidates) == 1 else None
         if type(entry_id) is not str or entry_id not in routes or entry_id in seen_entries:
             same_run = False
         seen_entries.add(entry_id)
-        for field in ("run_id", "scene_hash", "snapshot_id", "part_id", "route_id", "slot_id", "evidence_id"):
+        for field in ("run_id", "scene_hash", "part_id", "route_id", "slot_id", "evidence_id"):
             try:
                 _ocr_binding_text(ref[field], field)
+            except ValueError:
+                same_run = False
+        if "snapshot_id" in ref:
+            try:
+                _ocr_binding_text(ref["snapshot_id"], "snapshot_id")
             except ValueError:
                 same_run = False
         same_run = same_run and (
             ref["run_id"] == run_id
             and ref["scene_hash"] == scene_hash
-            and ref["snapshot_id"] == snapshot_id
+            and ref.get("snapshot_id", snapshot_id) == snapshot_id
         )
         entry = routes.get(entry_id)
         if entry is None:
@@ -817,7 +844,10 @@ def probe_ocr_final(
             and ref["route_id"] == entry["route_id"]
             and ref["slot_id"] in {"slot_1", "slot_2"}
         )
-        normalized_refs.append(dict(ref))
+        normalized = dict(ref)
+        normalized["entry_id"] = entry_id
+        normalized["snapshot_id"] = ref.get("snapshot_id", snapshot_id)
+        normalized_refs.append(normalized)
 
     rows: list[dict[str, Any]] = []
     occupancy: dict[str, dict[str, str]] = {

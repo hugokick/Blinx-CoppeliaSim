@@ -155,6 +155,33 @@ def test_final_probe_requires_exact_occupancy_home_tool_off_and_four_refs():
     assert len(report["entry_evidence"]) == 4
 
 
+def test_final_probe_accepts_guard_six_field_refs_and_binds_run_snapshot_context():
+    guard_refs = [
+        {
+            key: value
+            for key, value in reference.items()
+            if key not in {"entry_id", "snapshot_id"}
+        }
+        for reference in _refs()
+    ]
+    report = probe_ocr_final(
+        FakeOcrSim(_positions(), robot_pose=(0.0, 0.0, 0.0), tool_on=False),
+        _definition(),
+        run_id="run-v1-08",
+        scene_hash=_scene_hash(),
+        snapshot_id="frame-000001",
+        entry_evidence=guard_refs,
+        consumed_entry_ids=("entry_a", "entry_b", "entry_c", "entry_d"),
+        robot_home=True,
+        tool_on=False,
+    )
+    assert report["status"] == "PASS"
+    assert [item["entry_id"] for item in report["entry_evidence"]] == [
+        "entry_a", "entry_b", "entry_c", "entry_d"
+    ]
+    assert all(item["snapshot_id"] == "frame-000001" for item in report["entry_evidence"])
+
+
 @pytest.mark.parametrize(
     "overrides",
     [
