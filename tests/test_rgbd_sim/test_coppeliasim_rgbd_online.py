@@ -153,6 +153,11 @@ def test_online_tampered_manifest_is_rejected(tmp_path: Path) -> None:
     manifest.parent.mkdir(parents=True)
     scene = root / "simulation" / "rgbd_lab" / "BL23_rgbd_lab.ttt"
     scene.write_bytes((ROOT / "simulation" / "rgbd_lab" / "BL23_rgbd_lab.ttt").read_bytes())
+    template = root / "simulation" / "vision_lab" / "BL23_vision_lab.ttt"
+    template.parent.mkdir(parents=True)
+    template.write_bytes((ROOT / "simulation" / "vision_lab" / "BL23_vision_lab.ttt").read_bytes())
+    payload["template"]["path"] = "simulation/vision_lab/BL23_vision_lab.ttt"
+    payload["template"]["sha256"] = hashlib.sha256(template.read_bytes()).hexdigest()
     payload["scene"]["path"] = "simulation/rgbd_lab/BL23_rgbd_lab.ttt"
     payload["scene"]["size_bytes"] = scene.stat().st_size
     manifest.write_text(json.dumps(payload), encoding="utf-8")
