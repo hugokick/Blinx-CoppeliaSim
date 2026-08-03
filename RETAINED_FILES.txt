@@ -517,3 +517,9 @@ tools/vision_lab/build_v1_09_scene.ps1
 simulation/training_scenes/build_scene.py
 tests/test_simulation/test_v1_09_scene_contract.py
 tests/test_simulation/test_v1_09_scene_builder.py
+vision_platform/experiments/defect_assets.py
+vision_platform/experiments/defect_service.py
+vision_platform/experiments/defect_visualization.py
+tests/test_experiments/test_defect_assets.py
+tests/test_experiments/test_defect_service.py
+tests/test_experiments/test_defect_visualization.py
