@@ -36,6 +36,19 @@ from vision_platform.experiments.ocr_sorting import (
     ocr_sort_plan_to_dict,
     validate_training_report,
 )
+from vision_platform.experiments.defect_sorting import (
+    APPROVED_DEFECTS,
+    EXPECTED_ENTRIES,
+    ApprovedDefectSortEntry,
+    DefectObservation,
+    DefectSortError,
+    DefectSortPlan,
+    DefectSortReceipt,
+    build_defect_sort_plan,
+    classify_defect_result,
+    defect_sort_plan_to_dict,
+    defect_sort_receipt_to_dict,
+)
 
 __all__ = [
     "ApprovedCodeRoute",
@@ -68,4 +81,15 @@ __all__ = [
     "build_ocr_sort_plan",
     "ocr_sort_plan_to_dict",
     "validate_training_report",
+    "APPROVED_DEFECTS",
+    "EXPECTED_ENTRIES",
+    "ApprovedDefectSortEntry",
+    "DefectObservation",
+    "DefectSortError",
+    "DefectSortPlan",
+    "DefectSortReceipt",
+    "build_defect_sort_plan",
+    "classify_defect_result",
+    "defect_sort_plan_to_dict",
+    "defect_sort_receipt_to_dict",
 ]
