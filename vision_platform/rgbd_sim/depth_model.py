@@ -13,7 +13,12 @@ import numpy as np
 
 from .errors import RgbdSimContractError
 from .intrinsics import derive_intrinsics
-from .models import RgbdSimCapture, RgbdSourceCapture
+from .models import (
+    RgbdSimCapture,
+    RgbdSourceCapture,
+    _CAPTURE_CAPABILITY,
+    _source_digest,
+)
 
 
 @dataclass(frozen=True)
@@ -45,16 +50,6 @@ class DepthAnchor:
 
 _OBSERVATION_REGISTRY: dict[int, weakref.ReferenceType["SourceDepthModelObservation"]] = {}
 _OBSERVATION_CAPABILITY = object()
-
-
-def _source_digest(source: RgbdSourceCapture) -> str:
-    digest = hashlib.sha256()
-    for array in (source.image_bgr, source.source_depth_m):
-        contiguous = np.ascontiguousarray(array)
-        digest.update(str(contiguous.dtype).encode("ascii"))
-        digest.update(json.dumps(list(contiguous.shape), separators=(",", ":")).encode("ascii"))
-        digest.update(contiguous.tobytes(order="C"))
-    return digest.hexdigest()
 
 
 def _anchor_digest(anchors: Sequence[DepthAnchor]) -> str:
@@ -273,11 +268,16 @@ def normalize_source_capture(
     from vision_platform.rgbd.models import RgbdFrame
 
     frame = RgbdFrame(source.image_bgr, depth)
-    return RgbdSimCapture(
+    return RgbdSimCapture._from_normalization(
         source=source,
         frame=frame,
         intrinsics=intrinsics,
         observed_source_depth_model=model,
+        proof_scene_sha256=observed.scene_sha256,
+        proof_source_digest=observed.source_digest,
+        proof_sequence_id=observed.sequence_id,
+        proof_anchor_digest=observed.anchor_digest,
+        _capability=_CAPTURE_CAPABILITY,
     )
 
 

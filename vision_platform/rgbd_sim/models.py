@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import math
+import hashlib
+import json
 import re
-from dataclasses import dataclass
+import weakref
+from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
@@ -159,15 +162,75 @@ class RgbdSourceCapture:
         object.__setattr__(self, "source_depth_m", _immutable_c_copy(depth))
 
 
-@dataclass(frozen=True, eq=False)
+def _array_digest(*arrays: np.ndarray) -> str:
+    digest = hashlib.sha256()
+    for array in arrays:
+        contiguous = np.ascontiguousarray(array)
+        digest.update(str(contiguous.dtype).encode("ascii"))
+        digest.update(json.dumps(list(contiguous.shape), separators=(",", ":")).encode("ascii"))
+        digest.update(contiguous.tobytes(order="C"))
+    return digest.hexdigest()
+
+
+def _source_digest(source: RgbdSourceCapture) -> str:
+    return _array_digest(source.image_bgr, source.source_depth_m)
+
+
+def _frame_digest(frame: RgbdFrame) -> str:
+    return _array_digest(frame.image_bgr, frame.depth_m)
+
+
+_CAPTURE_REGISTRY: dict[
+    int,
+    tuple[weakref.ReferenceType["RgbdSimCapture"], tuple[object, ...]],
+] = {}
+_CAPTURE_CAPABILITY = object()
+
+
+def _register_capture(capture: "RgbdSimCapture") -> None:
+    key = id(capture)
+    trusted = (
+        capture.source,
+        capture.frame,
+        capture.intrinsics,
+        capture.observed_source_depth_model,
+        capture.output_depth_model,
+        capture._proof_scene_sha256,
+        capture._proof_source_digest,
+        capture._proof_sequence_id,
+        capture._proof_anchor_digest,
+        capture._proof_frame_digest,
+    )
+    _CAPTURE_REGISTRY[key] = (
+        weakref.ref(capture, lambda reference, key=key: _CAPTURE_REGISTRY.pop(key, None)),
+        trusted,
+    )
+
+
+def _untrusted_capture_error(code: str, message: str) -> RgbdSimContractError:
+    return RgbdSimContractError(code, message)
+
+
+@dataclass(frozen=True, init=False, eq=False)
 class RgbdSimCapture:
     source: RgbdSourceCapture
     frame: RgbdFrame
     intrinsics: CameraIntrinsics
     observed_source_depth_model: str
     output_depth_model: str = "optical_z"
+    _proof_scene_sha256: str = field(repr=False, compare=False)
+    _proof_source_digest: str = field(repr=False, compare=False)
+    _proof_sequence_id: int = field(repr=False, compare=False)
+    _proof_anchor_digest: str = field(repr=False, compare=False)
+    _proof_frame_digest: str = field(repr=False, compare=False)
 
-    def __post_init__(self) -> None:
+    def __init__(self, *_args: object, **_kwargs: object) -> None:
+        raise RgbdSimContractError(
+            "RGBD_SIM_CAPTURE_UNOBSERVED",
+            "captures must be produced by source-depth normalization",
+        )
+
+    def _validate_payload(self) -> None:
         if not isinstance(self.source, RgbdSourceCapture):
             raise RgbdSimContractError(
                 "RGBD_SIM_CAPTURE_INVALID", "source capture type is invalid"
@@ -200,6 +263,112 @@ class RgbdSimCapture:
             raise RgbdSimContractError(
                 "RGBD_SIM_CAPTURE_INVALID", "output depth model must be optical_z"
             )
+        if (
+            type(self._proof_scene_sha256) is not str
+            or _SHA256.fullmatch(self._proof_scene_sha256) is None
+            or type(self._proof_source_digest) is not str
+            or _SHA256.fullmatch(self._proof_source_digest) is None
+            or type(self._proof_sequence_id) is not int
+            or self._proof_sequence_id < 0
+            or type(self._proof_anchor_digest) is not str
+            or _SHA256.fullmatch(self._proof_anchor_digest) is None
+            or type(self._proof_frame_digest) is not str
+            or _SHA256.fullmatch(self._proof_frame_digest) is None
+        ):
+            raise RgbdSimContractError(
+                "RGBD_SIM_CAPTURE_INVALID", "capture normalization proof is invalid"
+            )
+        metadata = self.source.metadata
+        if (
+            self._proof_scene_sha256 != metadata.scene_sha256
+            or self._proof_sequence_id != metadata.sequence_id
+            or self._proof_source_digest != _source_digest(self.source)
+            or self._proof_frame_digest != _frame_digest(self.frame)
+        ):
+            raise RgbdSimContractError(
+                "RGBD_SIM_CAPTURE_BINDING_INVALID",
+                "capture no longer matches its normalization proof",
+            )
+
+    @classmethod
+    def _from_normalization(
+        cls,
+        *,
+        source: RgbdSourceCapture,
+        frame: RgbdFrame,
+        intrinsics: CameraIntrinsics,
+        observed_source_depth_model: str,
+        output_depth_model: str = "optical_z",
+        proof_scene_sha256: str,
+        proof_source_digest: str,
+        proof_sequence_id: int,
+        proof_anchor_digest: str,
+        _capability: object | None = None,
+    ) -> "RgbdSimCapture":
+        if _capability is not _CAPTURE_CAPABILITY:
+            raise RgbdSimContractError(
+                "RGBD_SIM_CAPTURE_UNOBSERVED",
+                "captures must be produced by source-depth normalization",
+            )
+        capture = object.__new__(cls)
+        object.__setattr__(capture, "source", source)
+        object.__setattr__(capture, "frame", frame)
+        object.__setattr__(capture, "intrinsics", intrinsics)
+        object.__setattr__(capture, "observed_source_depth_model", observed_source_depth_model)
+        object.__setattr__(capture, "output_depth_model", output_depth_model)
+        object.__setattr__(capture, "_proof_scene_sha256", proof_scene_sha256)
+        object.__setattr__(capture, "_proof_source_digest", proof_source_digest)
+        object.__setattr__(capture, "_proof_sequence_id", proof_sequence_id)
+        object.__setattr__(capture, "_proof_anchor_digest", proof_anchor_digest)
+        object.__setattr__(capture, "_proof_frame_digest", _frame_digest(frame))
+        capture._validate_payload()
+        _register_capture(capture)
+        return capture
+
+
+def _assert_capture_trusted(capture: RgbdSimCapture) -> None:
+    if not isinstance(capture, RgbdSimCapture):
+        raise _untrusted_capture_error("RGBD_SIM_CAPTURE_INVALID", "capture type is invalid")
+    entry = _CAPTURE_REGISTRY.get(id(capture))
+    if entry is None or entry[0]() is not capture:
+        raise _untrusted_capture_error(
+            "RGBD_SIM_CAPTURE_UNOBSERVED",
+            "capture is not a live normalized source-depth result",
+        )
+    trusted = entry[1]
+    current = (
+        getattr(capture, "source", None),
+        getattr(capture, "frame", None),
+        getattr(capture, "intrinsics", None),
+        getattr(capture, "observed_source_depth_model", None),
+        getattr(capture, "output_depth_model", None),
+        getattr(capture, "_proof_scene_sha256", None),
+        getattr(capture, "_proof_source_digest", None),
+        getattr(capture, "_proof_sequence_id", None),
+        getattr(capture, "_proof_anchor_digest", None),
+        getattr(capture, "_proof_frame_digest", None),
+    )
+    identity_mismatch = any(
+        left is not right for left, right in zip(current[:3], trusted[:3])
+    )
+    value_mismatch = any(
+        type(left) is not type(right) or left != right
+        for left, right in zip(current[3:], trusted[3:])
+    )
+    if identity_mismatch or value_mismatch:
+        raise _untrusted_capture_error(
+            "RGBD_SIM_CAPTURE_BINDING_INVALID",
+            "capture fields no longer match the normalization proof",
+        )
+    try:
+        capture._validate_payload()
+    except Exception as exc:
+        if isinstance(exc, RgbdSimContractError) and exc.code == "RGBD_SIM_CAPTURE_BINDING_INVALID":
+            raise
+        raise _untrusted_capture_error(
+            "RGBD_SIM_CAPTURE_BINDING_INVALID",
+            "capture no longer satisfies its normalization proof",
+        ) from exc
 
 
 def _summary(depth: np.ndarray) -> dict[str, Any]:
@@ -247,8 +416,7 @@ def source_capture_to_dict(source: RgbdSourceCapture) -> dict[str, Any]:
 
 
 def capture_to_dict(capture: RgbdSimCapture) -> dict[str, Any]:
-    if not isinstance(capture, RgbdSimCapture):
-        raise RgbdSimContractError("RGBD_SIM_CAPTURE_INVALID", "capture type is invalid")
+    _assert_capture_trusted(capture)
     payload = _metadata_to_dict(capture.source.metadata)
     payload.update(
         {

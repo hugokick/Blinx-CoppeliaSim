@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 
 import numpy as np
@@ -7,6 +8,11 @@ import pytest
 
 from vision_platform.rgbd.models import CameraIntrinsics, RgbdFrame
 from vision_platform.rgbd_sim.errors import RgbdSimContractError
+from vision_platform.rgbd_sim.depth_model import (
+    DepthAnchor,
+    normalize_source_capture,
+    observe_source_depth_model,
+)
 from vision_platform.rgbd_sim.models import (
     RgbdSensorMetadata,
     RgbdSimCapture,
@@ -41,6 +47,17 @@ def _source(**overrides: object) -> RgbdSourceCapture:
     )
 
 
+def _valid_capture() -> RgbdSimCapture:
+    source = _source()
+    anchors = [
+        DepthAnchor(1, 1, 1.25, 1.25, 1e-4),
+        DepthAnchor(0, 1, 1.25, 1.40, 1e-4),
+        DepthAnchor(3, 1, 1.25, 1.40, 1e-4),
+    ]
+    observation = observe_source_depth_model(source, anchors)
+    return normalize_source_capture(source, observation, anchors)
+
+
 def test_source_capture_copies_and_seals_raw_arrays() -> None:
     image = np.zeros((3, 4, 3), dtype=np.uint8)
     depth = np.full((3, 4), 1.25, dtype=np.float32)
@@ -62,36 +79,62 @@ def test_source_capture_copies_and_seals_raw_arrays() -> None:
 
 
 def test_sim_capture_requires_observed_model_matching_expectation() -> None:
+    capture = _valid_capture()
+    assert capture.output_depth_model == "optical_z"
+    assert capture.observed_source_depth_model == "optical_z"
+    source = _source(expected_source_depth_model="ray_range")
+    anchors = [DepthAnchor(1, 1, 1.25, 1.40, 1e-4)]
+    observation = observe_source_depth_model(source, anchors)
+    with pytest.raises(RgbdSimContractError) as captured:
+        normalize_source_capture(source, observation, anchors)
+    assert captured.value.code == "RGBD_SIM_DEPTH_MODEL_INVALID"
+
+
+def test_sim_capture_cannot_be_constructed_without_normalization_proof() -> None:
     source = _source()
     frame = RgbdFrame(source.image_bgr, source.source_depth_m)
     intrinsics = CameraIntrinsics(4, 3, 3.464101615, 3.464101615, 1.5, 1.0)
-    capture = RgbdSimCapture(
-        source=source,
-        frame=frame,
-        intrinsics=intrinsics,
-        observed_source_depth_model="optical_z",
-    )
-    assert capture.output_depth_model == "optical_z"
-    assert capture.observed_source_depth_model == "optical_z"
     with pytest.raises(RgbdSimContractError) as captured:
         RgbdSimCapture(
-            source=_source(expected_source_depth_model="ray_range"),
+            source=source,
             frame=frame,
             intrinsics=intrinsics,
             observed_source_depth_model="optical_z",
         )
-    assert captured.value.code == "RGBD_SIM_CAPTURE_INVALID"
+    assert captured.value.code == "RGBD_SIM_CAPTURE_UNOBSERVED"
+
+
+def test_capture_serialization_rejects_copies_and_injected_frame_depth() -> None:
+    capture = _valid_capture()
+    with pytest.raises(RgbdSimContractError) as captured:
+        capture_to_dict(copy.copy(capture))
+    assert captured.value.code == "RGBD_SIM_CAPTURE_UNOBSERVED"
+
+    tampered = _valid_capture()
+    object.__setattr__(
+        tampered,
+        "frame",
+        RgbdFrame(tampered.frame.image_bgr, np.full((3, 4), 9.0, dtype=np.float32)),
+    )
+    with pytest.raises(RgbdSimContractError) as captured:
+        capture_to_dict(tampered)
+    assert captured.value.code == "RGBD_SIM_CAPTURE_BINDING_INVALID"
+
+    forged_proof = _valid_capture()
+    object.__setattr__(forged_proof, "_proof_anchor_digest", "b" * 64)
+    with pytest.raises(RgbdSimContractError) as captured:
+        capture_to_dict(forged_proof)
+    assert captured.value.code == "RGBD_SIM_CAPTURE_BINDING_INVALID"
 
 
 def test_capture_serialization_is_json_native_and_excludes_raw_arrays() -> None:
     source = _source()
-    frame = RgbdFrame(source.image_bgr, source.source_depth_m)
-    capture = RgbdSimCapture(
-        source=source,
-        frame=frame,
-        intrinsics=CameraIntrinsics(4, 3, 3.464101615, 3.464101615, 1.5, 1.0),
-        observed_source_depth_model="optical_z",
-    )
+    anchors = [
+        DepthAnchor(1, 1, 1.25, 1.25, 1e-4),
+        DepthAnchor(0, 1, 1.25, 1.40, 1e-4),
+        DepthAnchor(3, 1, 1.25, 1.40, 1e-4),
+    ]
+    capture = normalize_source_capture(source, observe_source_depth_model(source, anchors), anchors)
     source_payload = source_capture_to_dict(source)
     payload = capture_to_dict(capture)
     assert "image_bgr" not in source_payload

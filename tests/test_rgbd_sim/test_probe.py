@@ -2,12 +2,17 @@ from __future__ import annotations
 
 import json
 import math
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
+import pytest
 
-from vision_platform.rgbd.models import RgbdFrame
-from vision_platform.rgbd_sim.depth_model import SourceDepthModelObservation
+from vision_platform.rgbd_sim.depth_model import (
+    normalize_source_capture,
+    observe_source_depth_model,
+)
+from vision_platform.rgbd_sim.errors import RgbdSimContractError
 from vision_platform.rgbd_sim.models import RgbdSimCapture, RgbdSourceCapture, RgbdSensorMetadata
 from vision_platform.rgbd_sim.probe import build_probe_report, probe_report_to_dict
 from vision_platform.rgbd_sim.scene_binding import load_scene_binding
@@ -43,15 +48,9 @@ def _capture() -> RgbdSimCapture:
         source_depth[y0:y1, x0:x1] = value
     image = np.zeros((height, width, 3), dtype=np.uint8)
     source = RgbdSourceCapture(metadata, image, source_depth)
-    frame = RgbdFrame(image, source_depth)
-    from vision_platform.rgbd_sim.intrinsics import derive_intrinsics
-
-    return RgbdSimCapture(
-        source=source,
-        frame=frame,
-        intrinsics=derive_intrinsics(metadata),
-        observed_source_depth_model="optical_z",
-    )
+    binding = load_scene_binding(MANIFEST, repository_root=ROOT)
+    observed = observe_source_depth_model(source, binding.anchors)
+    return normalize_source_capture(source, observed, binding.anchors)
 
 
 def test_probe_proves_configured_virtual_depth_order() -> None:
@@ -72,18 +71,19 @@ def test_probe_proves_configured_virtual_depth_order() -> None:
     json.dumps(payload, allow_nan=False, sort_keys=True)
 
 
-def test_probe_reports_depth_model_mismatch_without_raw_arrays() -> None:
+def test_probe_report_excludes_raw_arrays() -> None:
     binding = load_scene_binding(MANIFEST, repository_root=ROOT)
-    capture = _capture()
-    bad = RgbdSimCapture(
-        source=capture.source,
-        frame=capture.frame,
-        intrinsics=capture.intrinsics,
-        observed_source_depth_model="optical_z",
-    )
-    report = build_probe_report(bad, binding)
+    report = build_probe_report(_capture(), binding)
     payload = probe_report_to_dict(report)
 
     assert report.status == "PASS"
     assert "image_bgr" not in payload
     assert "source_depth_summary" not in payload
+
+
+def test_probe_rejects_capture_replayed_with_different_anchor_contract() -> None:
+    binding = load_scene_binding(MANIFEST, repository_root=ROOT)
+    replay_binding = replace(binding, anchors=tuple(reversed(binding.anchors)))
+    with pytest.raises(RgbdSimContractError) as captured:
+        build_probe_report(_capture(), replay_binding)
+    assert captured.value.code == "RGBD_SIM_CAPTURE_BINDING_INVALID"

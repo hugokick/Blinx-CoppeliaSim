@@ -9,9 +9,13 @@ from typing import Any, Mapping
 
 import numpy as np
 
-from .depth_model import SourceDepthModelObservation, observe_source_depth_model
+from .depth_model import (
+    SourceDepthModelObservation,
+    _anchor_digest,
+    observe_source_depth_model,
+)
 from .errors import RgbdSimContractError
-from .models import RgbdSimCapture
+from .models import RgbdSimCapture, _assert_capture_trusted
 from .preview import depth_summary
 from .scene_binding import RoiSpec, SceneBinding
 
@@ -128,8 +132,14 @@ def _failure_report(capture: RgbdSimCapture, binding: SceneBinding, code: str, m
 def build_probe_report(capture: RgbdSimCapture, binding: SceneBinding) -> ProbeReport:
     """Build deterministic evidence and return ``FAIL`` for contract mismatches."""
 
+    _assert_capture_trusted(capture)
     if not isinstance(capture, RgbdSimCapture) or not isinstance(binding, SceneBinding):
         raise RgbdSimContractError("RGBD_SIM_PROBE_INVALID", "capture or scene binding type is invalid")
+    if capture._proof_anchor_digest != _anchor_digest(binding.anchors):
+        raise RgbdSimContractError(
+            "RGBD_SIM_CAPTURE_BINDING_INVALID",
+            "capture normalization proof does not match scene anchor contract",
+        )
     metadata = capture.source.metadata
     if (
         metadata.scene_path != binding.scene_path

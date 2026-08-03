@@ -173,3 +173,23 @@ def test_observation_rejects_non_finite_error_before_normalization() -> None:
     with pytest.raises(RgbdSimContractError) as captured:
         normalize_source_capture(source, observation, anchors)
     assert captured.value.code == "RGBD_SIM_DEPTH_MODEL_BINDING_INVALID"
+
+
+def test_normalized_capture_rejects_cross_source_replay_after_source_injection() -> None:
+    source = _source(np.full((5, 5), 1.0, dtype=np.float32))
+    anchors = [
+        DepthAnchor(2, 2, 1.0, 1.0, 1e-4),
+        DepthAnchor(0, 2, 1.0, 1.1, 1e-4),
+        DepthAnchor(4, 2, 1.0, 1.1, 1e-4),
+    ]
+    observation = observe_source_depth_model(source, anchors)
+    capture = normalize_source_capture(source, observation, anchors)
+    changed_depth = np.full((5, 5), 1.0, dtype=np.float32)
+    changed_depth[0, 0] = 1.25
+    changed_source = _source(changed_depth)
+    object.__setattr__(capture, "source", changed_source)
+    with pytest.raises(RgbdSimContractError) as captured:
+        from vision_platform.rgbd_sim.models import capture_to_dict
+
+        capture_to_dict(capture)
+    assert captured.value.code == "RGBD_SIM_CAPTURE_BINDING_INVALID"
