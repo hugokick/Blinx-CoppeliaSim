@@ -16,7 +16,7 @@
 
 以下清单由 `git log --reverse` 与逐提交 `git show --name-status` 提取；路径是该提交实际变更的仓库相对路径。
 
-1. `326f1ca9a2e44c2bef1e364f34778c2dcb7accd` — `feat(v1-09): define defect sorting contracts`：`RETAINED_FILES.txt`、`tests/test_experiments/test_defect_sorting.py`、`vision_platform/experiments/__init__.py`、`vision_platform/experiments/defect_sorting.py`。
+1. `326f1ca9a2e44c2bef1e364f34778c2dcb7accd5` — `feat(v1-09): define defect sorting contracts`：`RETAINED_FILES.txt`、`tests/test_experiments/test_defect_sorting.py`、`vision_platform/experiments/__init__.py`、`vision_platform/experiments/defect_sorting.py`。
 2. `61a21631e7c612b45ea22fe2286e0666d390c0e9` — `feat(v1-09): guard defect sort execution`：`RETAINED_FILES.txt`、`tests/test_student_programs/test_v1_09_defect_sort_guard.py`、`vision_platform/student/defect_sort_guard.py`。
 3. `c1db18718180d133545c42805999dcc941485a3e` — `fix(v1-09): align defect crops and route whitelist`：`tests/test_experiments/test_defect_sorting.py`、`vision_platform/experiments/defect_sorting.py`。
 4. `bbd0fed28287e73da603cfc71200d4815e3ca055` — `feat(v1-09): generate original defect assets`：七张 V1-09 PNG、`simulation/vision_defect_sorting_lab/defect_assets_manifest.json`、`tests/test_simulation/test_v1_09_defect_assets.py`、`tools/vision_lab/generate_v1_09_defect_assets.py`。
