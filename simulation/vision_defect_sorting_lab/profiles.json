@@ -1,0 +1,32 @@
+{
+  "baseline_profile_id": "standard",
+  "camera_rig_path": "/VisionDefectSortingLab/CameraRig",
+  "far_clip_m": 1.0,
+  "fill_light_path": "/VisionDefectSortingLab/Lighting/FillLight",
+  "key_light_path": "/VisionDefectSortingLab/Lighting/KeyLight",
+  "near_clip_m": 0.05,
+  "profiles": [
+    {
+      "camera_rig_z_m": 0.5,
+      "fill_diffuse_rgb": [
+        0.35,
+        0.35,
+        0.35
+      ],
+      "key_diffuse_rgb": [
+        0.8,
+        0.8,
+        0.8
+      ],
+      "label": "表面缺陷固定视图",
+      "perspective_angle_deg": 20,
+      "profile_id": "standard",
+      "resolution": [
+        1024,
+        1024
+      ]
+    }
+  ],
+  "schema_version": 1,
+  "sensor_path": "/VisionDefectSortingLab/CameraRig/Camera"
+}
