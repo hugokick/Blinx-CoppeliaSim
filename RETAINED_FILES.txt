@@ -481,3 +481,5 @@ vision_platform/experiments/ocr_assets.py
 vision_platform/experiments/ocr_service.py
 tests/test_experiments/test_ocr_assets.py
 tests/test_experiments/test_ocr_service.py
+vision_platform/student/ocr_sort_guard.py
+tests/test_student_programs/test_v1_08_sort_guard.py
