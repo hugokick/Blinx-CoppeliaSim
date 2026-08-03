@@ -207,6 +207,7 @@ def test_stop_invalidates_and_reset_clears_the_plan(plan: OcrSortPlan) -> None:
     guard = _active_guard(plan)
     guard.stop()
     assert guard.state == OcrSortState.INVALIDATED
+    assert guard.plan_id is None
     with pytest.raises(OcrSortGuardError) as captured:
         guard.begin_entry("entry_a")
     assert captured.value.code == "OCR_SORT_PLAN_INVALIDATED"

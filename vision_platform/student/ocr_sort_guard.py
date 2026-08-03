@@ -429,9 +429,18 @@ class OcrSortGuard:
         raise OcrSortGuardError(code, message)
 
     def _invalidate(self) -> None:
+        # Stop/failure is a hard safety boundary: do not leave an executable
+        # plan reachable after invalidation.  The first error remains exposed
+        # for evidence, while a fresh plan requires an explicit reset and
+        # activation.
+        self._plan = None
         self._active_entry = None
         self._actions = ()
         self._action_index = 0
+        self._consumed.clear()
+        self._evidence.clear()
+        self._run_id = None
+        self._scene_hash = None
         self._state = OcrSortState.INVALIDATED
 
     @staticmethod
