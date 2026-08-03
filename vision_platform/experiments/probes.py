@@ -20,6 +20,7 @@ _KNOWN_PROBE_KINDS = frozenset(
         "class_zones",
         "vision_profile_observation",
         "code_route_occupancy",
+        "ocr_sort_occupancy",
     }
 )
 _GROUP_BY_KIND = {
@@ -496,6 +497,450 @@ def _probe_code_route_occupancy(
     }
 
 
+# V1-08 has a deliberately separate probe contract.  The legacy probes above
+# remain position-only and retain their historical output shape; this layer
+# binds every observation to the host-owned OCR route, run, scene and
+# snapshot evidence before reporting success.
+_OCR_ENTRY_IDS = ("entry_a", "entry_b", "entry_c", "entry_d")
+_OCR_PART_IDS = ("part_a", "part_b", "part_c", "part_d")
+_OCR_ROUTE_IDS = ("route_alpha", "route_beta")
+_OCR_SCENE_PREFIX = "/VisionOcrSortingLab/Parts/"
+_HEX64 = re.compile(r"[0-9a-f]{64}\Z")
+
+
+def _ocr_sort_config(definition: Any) -> tuple[dict[str, dict[str, Any]], dict[str, list[list[float]]]]:
+    try:
+        public = _mapping(definition.public_parameters, "definition.public_parameters")
+        selected = _mapping(public.get("ocr_sorting"), "public_parameters.ocr_sorting")
+        config = _mapping(selected.get("sort_config"), "public_parameters.ocr_sorting.sort_config")
+        raw_routes = _sequence(
+            config.get("routes"),
+            "public_parameters.ocr_sorting.sort_config.routes",
+            length=4,
+        )
+    except AttributeError as error:
+        raise ValueError("V1-08 definition is missing OCR sorting configuration") from error
+
+    expected = {
+        "entry_a": ("part_a", "A1", "route_alpha"),
+        "entry_b": ("part_b", "A2", "route_alpha"),
+        "entry_c": ("part_c", "B1", "route_beta"),
+        "entry_d": ("part_d", "B2", "route_beta"),
+    }
+    routes: dict[str, dict[str, Any]] = {}
+    for index, raw in enumerate(raw_routes):
+        route = _mapping(raw, f"ocr_sorting.sort_config.routes[{index}]")
+        entry_id = _alias(route.get("entry_id"), f"routes[{index}].entry_id")
+        if entry_id in routes or entry_id not in expected:
+            raise ValueError("V1-08 route entry whitelist is invalid")
+        part_id, identifier, route_id = expected[entry_id]
+        if (
+            route.get("part_id") != part_id
+            or route.get("identifier") != identifier
+            or route.get("route_id") != route_id
+        ):
+            raise ValueError("V1-08 route binding is invalid")
+        drop = _position(route.get("drop_xyz_mm"), f"routes[{index}].drop_xyz_mm")
+        pick = _position(route.get("pick_xyz_mm"), f"routes[{index}].pick_xyz_mm")
+        routes[entry_id] = {
+            "entry_id": entry_id,
+            "part_id": part_id,
+            "identifier": identifier,
+            "route_id": route_id,
+            "drop_xyz_mm": drop,
+            "pick_xyz_mm": pick,
+        }
+    if tuple(routes) != _OCR_ENTRY_IDS:
+        raise ValueError("V1-08 route entries must contain the four fixed IDs")
+
+    selected_binding = _mapping(
+        _mapping(definition.public_parameters, "definition.public_parameters")
+        .get("ocr_sorting"),
+        "public_parameters.ocr_sorting",
+    )
+    # The route slots are authoritative scene data.  If a small unit fixture
+    # omits them, derive the exact same two slots from the host sort config.
+    raw_slots = selected_binding.get("route_slots_mm")
+    if raw_slots is None:
+        raw_slots = {
+            route_id: [
+                routes[entry_id]["drop_xyz_mm"]
+                for entry_id in _OCR_ENTRY_IDS
+                if routes[entry_id]["route_id"] == route_id
+            ]
+            for route_id in _OCR_ROUTE_IDS
+        }
+    slots_mapping = _mapping(raw_slots, "public_parameters.ocr_sorting.route_slots_mm")
+    slots: dict[str, list[list[float]]] = {}
+    for route_id in _OCR_ROUTE_IDS:
+        raw_route_slots = _sequence(
+            slots_mapping.get(route_id),
+            f"route_slots_mm.{route_id}",
+            length=2,
+        )
+        slots[route_id] = [
+            _position(value, f"route_slots_mm.{route_id}[{index}]")
+            for index, value in enumerate(raw_route_slots)
+        ]
+    return routes, slots
+
+
+def _ocr_manifest_slots(
+    scene_manifest: Mapping[str, Any],
+    routes: Mapping[str, Mapping[str, Any]],
+    slots: Mapping[str, list[list[float]]],
+) -> dict[str, list[list[float]]]:
+    binding = scene_manifest.get("ocr_sorting")
+    if binding is None:
+        return {route_id: [list(value) for value in values] for route_id, values in slots.items()}
+    selected = _mapping(binding, "scene_manifest.ocr_sorting")
+    raw = selected.get("route_slots_mm")
+    if raw is None:
+        return {route_id: [list(value) for value in values] for route_id, values in slots.items()}
+    declared = _mapping(raw, "scene_manifest.ocr_sorting.route_slots_mm")
+    result: dict[str, list[list[float]]] = {}
+    for route_id in _OCR_ROUTE_IDS:
+        values = _sequence(
+            declared.get(route_id),
+            f"scene_manifest.ocr_sorting.route_slots_mm.{route_id}",
+            length=2,
+        )
+        result[route_id] = [
+            _position(value, f"scene_manifest.ocr_sorting.route_slots_mm.{route_id}[{index}]")
+            for index, value in enumerate(values)
+        ]
+    # A scene cannot silently redefine the host route slots.
+    for route_id in _OCR_ROUTE_IDS:
+        if result[route_id] != slots[route_id]:
+            raise ValueError("scene manifest route slots do not match OCR config")
+    return result
+
+
+def _ocr_binding_text(value: Any, name: str) -> str:
+    if type(value) is not str or not value or len(value) > 128:
+        raise ValueError(f"{name} must be a bounded string")
+    if name == "scene_hash" and _HEX64.fullmatch(value) is None:
+        raise ValueError("scene_hash must be a lowercase SHA-256 digest")
+    if any(ord(character) < 32 for character in value):
+        raise ValueError(f"{name} contains control characters")
+    return value
+
+
+def _ocr_actual_position(sim: Any, part_id: str) -> list[float]:
+    get_object = getattr(sim, "getObject", None)
+    get_position = getattr(sim, "getObjectPosition", None)
+    if not callable(get_object) or not callable(get_position):
+        raise ValueError("sim does not expose read-only object position methods")
+    path = f"{_OCR_SCENE_PREFIX}{part_id}"
+    try:
+        handle = get_object(path)
+        raw = get_position(handle, getattr(sim, "handle_world", -1))
+        metres = _position(raw, f"sim position for {path}")
+    except ValueError:
+        raise
+    except Exception as error:
+        raise ValueError(f"could not read OCR part position: {part_id}") from error
+    return [value * 1000.0 for value in metres]
+
+
+def _ocr_entry_for_id(routes: Mapping[str, Mapping[str, Any]], entry_id: Any) -> Mapping[str, Any]:
+    if type(entry_id) is not str or entry_id not in routes:
+        raise ValueError("entry_id is not an approved V1-08 route")
+    return routes[entry_id]
+
+
+def _ocr_evidence_id(entry_id: str, run_id: str, scene_hash: str, snapshot_id: str) -> str:
+    digest = hashlib.sha256(
+        f"{run_id}\0{scene_hash}\0{snapshot_id}\0{entry_id}".encode("utf-8")
+    ).hexdigest()[:16]
+    return f"ocr-entry-{entry_id}-{digest}"
+
+
+def probe_ocr_entry(
+    sim: Any,
+    definition: Any,
+    *,
+    entry_id: str,
+    run_id: str,
+    scene_hash: str,
+    snapshot_id: str,
+    scene_manifest: Mapping[str, Any] | None = None,
+    tolerance_mm: float = 6.0,
+) -> dict[str, Any]:
+    """Return a bounded same-run proof for one configured OCR route slot."""
+
+    routes, slots = _ocr_sort_config(definition)
+    entry = _ocr_entry_for_id(routes, entry_id)
+    route_id = str(entry["route_id"])
+    _ocr_manifest_slots(
+        scene_manifest if scene_manifest is not None else {},
+        routes,
+        slots,
+    )
+    run_id = _ocr_binding_text(run_id, "run_id")
+    scene_hash = _ocr_binding_text(scene_hash, "scene_hash")
+    snapshot_id = _ocr_binding_text(snapshot_id, "snapshot_id")
+    tolerance = _number(tolerance_mm, "tolerance_mm")
+    if tolerance <= 0:
+        raise ValueError("tolerance_mm must be greater than zero")
+
+    ordered = sorted(
+        (item for item in routes.values() if item["route_id"] == route_id),
+        key=lambda item: tuple(item["drop_xyz_mm"]),
+    )
+    slot_id = f"slot_{ordered.index(entry) + 1}"
+    expected = list(slots[route_id][int(slot_id.rsplit("_", 1)[1]) - 1])
+    actual = _ocr_actual_position(sim, str(entry["part_id"]))
+    distance_mm = _distance_mm(actual, expected)
+    passed = distance_mm <= tolerance
+    evidence_id = _ocr_evidence_id(entry_id, run_id, scene_hash, snapshot_id)
+    result: dict[str, Any] = {
+        "schema_version": 1,
+        "status": "PASS" if passed else "FAIL",
+        "entry_id": entry_id,
+        "part_id": entry["part_id"],
+        "route_id": route_id,
+        "slot_id": slot_id,
+        "run_id": run_id,
+        "scene_hash": scene_hash,
+        "snapshot_id": snapshot_id,
+        "evidence_id": evidence_id,
+        "position_mm": actual,
+        "expected_mm": expected,
+        "distance_mm": distance_mm,
+        "tolerance_mm": tolerance,
+        "hardware_status": "PENDING_HARDWARE",
+    }
+    return result
+
+
+def _ocr_runtime_flag(sim: Any, name: str, explicit: Any) -> bool:
+    if explicit is not None:
+        if type(explicit) is not bool:
+            raise ValueError(f"{name} must be a boolean")
+        return explicit
+    getter = getattr(sim, f"get_{name}", None)
+    if callable(getter):
+        value = getter()
+        if type(value) is not bool:
+            raise ValueError(f"sim {name} state must be a boolean")
+        return value
+    value = getattr(sim, name, None)
+    if type(value) is bool:
+        return value
+    return False
+
+
+def probe_ocr_final(
+    sim: Any,
+    definition: Any,
+    *,
+    run_id: str,
+    scene_hash: str,
+    snapshot_id: str,
+    entry_evidence: Any,
+    consumed_entry_ids: Any,
+    scene_manifest: Mapping[str, Any] | None = None,
+    robot_home: bool | None = None,
+    tool_on: bool | None = None,
+    tolerance_mm: float = 6.0,
+) -> dict[str, Any]:
+    """Verify V1-08's exact four-slot terminal state and evidence binding."""
+
+    routes, slots = _ocr_sort_config(definition)
+    _ocr_manifest_slots(
+        scene_manifest if scene_manifest is not None else {},
+        routes,
+        slots,
+    )
+    run_id = _ocr_binding_text(run_id, "run_id")
+    scene_hash = _ocr_binding_text(scene_hash, "scene_hash")
+    snapshot_id = _ocr_binding_text(snapshot_id, "snapshot_id")
+    tolerance = _number(tolerance_mm, "tolerance_mm")
+    if tolerance <= 0:
+        raise ValueError("tolerance_mm must be greater than zero")
+    refs = _sequence(entry_evidence, "entry_evidence")
+    consumed = _sequence(consumed_entry_ids, "consumed_entry_ids")
+    if len(refs) != 4 or len(consumed) != 4:
+        return {
+            "schema_version": 1,
+            "status": "FAIL",
+            "matched": 0,
+            "expected": 4,
+            "error": {"code": "OCR_SORT_EVIDENCE_INCOMPLETE"},
+            "hardware_status": "PENDING_HARDWARE",
+        }
+    if any(type(item) is not str for item in consumed) or set(consumed) != set(_OCR_ENTRY_IDS):
+        return {
+            "schema_version": 1,
+            "status": "FAIL",
+            "matched": 0,
+            "expected": 4,
+            "error": {"code": "OCR_SORT_EVIDENCE_INCOMPLETE"},
+            "hardware_status": "PENDING_HARDWARE",
+        }
+
+    normalized_refs: list[dict[str, Any]] = []
+    seen_entries: set[str] = set()
+    same_run = True
+    for index, raw in enumerate(refs):
+        ref = _mapping(raw, f"entry_evidence[{index}]")
+        required = {"entry_id", "part_id", "route_id", "slot_id", "run_id", "scene_hash", "snapshot_id", "evidence_id"}
+        if set(ref) != required:
+            return {
+                "schema_version": 1,
+                "status": "FAIL",
+                "matched": 0,
+                "expected": 4,
+                "error": {"code": "OCR_SORT_EVIDENCE_INVALID"},
+                "hardware_status": "PENDING_HARDWARE",
+            }
+        entry_id = ref["entry_id"]
+        if type(entry_id) is not str or entry_id not in routes or entry_id in seen_entries:
+            same_run = False
+        seen_entries.add(entry_id)
+        for field in ("run_id", "scene_hash", "snapshot_id", "part_id", "route_id", "slot_id", "evidence_id"):
+            try:
+                _ocr_binding_text(ref[field], field)
+            except ValueError:
+                same_run = False
+        same_run = same_run and (
+            ref["run_id"] == run_id
+            and ref["scene_hash"] == scene_hash
+            and ref["snapshot_id"] == snapshot_id
+        )
+        entry = routes.get(entry_id)
+        if entry is None:
+            continue
+        same_run = same_run and (
+            ref["part_id"] == entry["part_id"]
+            and ref["route_id"] == entry["route_id"]
+            and ref["slot_id"] in {"slot_1", "slot_2"}
+        )
+        normalized_refs.append(dict(ref))
+
+    rows: list[dict[str, Any]] = []
+    occupancy: dict[str, dict[str, str]] = {
+        route_id: {} for route_id in _OCR_ROUTE_IDS
+    }
+    matched = 0
+    for entry_id in _OCR_ENTRY_IDS:
+        entry = routes[entry_id]
+        route_id = str(entry["route_id"])
+        slot_id = next(
+            (
+                str(ref["slot_id"])
+                for ref in normalized_refs
+                if ref.get("entry_id") == entry_id
+            ),
+            "",
+        )
+        expected_slot = slots[route_id][int(slot_id.rsplit("_", 1)[1]) - 1] if slot_id in {"slot_1", "slot_2"} else list(entry["drop_xyz_mm"])
+        actual = _ocr_actual_position(sim, str(entry["part_id"]))
+        distance_mm = _distance_mm(actual, expected_slot)
+        position_match = distance_mm <= tolerance
+        duplicate = slot_id in occupancy[route_id] if slot_id in {"slot_1", "slot_2"} else True
+        if position_match and not duplicate:
+            occupancy[route_id][slot_id] = str(entry["part_id"])
+            matched += 1
+        same_run = same_run and position_match and not duplicate
+        rows.append(
+            {
+                "entry_id": entry_id,
+                "part_id": entry["part_id"],
+                "route_id": route_id,
+                "slot_id": slot_id,
+                "position_mm": actual,
+                "expected_mm": expected_slot,
+                "distance_mm": distance_mm,
+                "matched": position_match and not duplicate,
+            }
+        )
+    home = _ocr_runtime_flag(sim, "robot_home", robot_home)
+    suction_on = _ocr_runtime_flag(sim, "tool_on", tool_on)
+    tool_off = not suction_on
+    passed = (
+        matched == 4
+        and same_run
+        and home
+        and tool_off
+        and set(seen_entries) == set(_OCR_ENTRY_IDS)
+        and len(normalized_refs) == 4
+    )
+    return {
+        "schema_version": 1,
+        "status": "PASS" if passed else "FAIL",
+        "matched": matched,
+        "expected": 4,
+        "run_id": run_id,
+        "scene_hash": scene_hash,
+        "snapshot_id": snapshot_id,
+        "rows": rows,
+        "final_occupancy": {
+            route_id: dict(sorted(values.items()))
+            for route_id, values in sorted(occupancy.items())
+        },
+        "entry_evidence": normalized_refs,
+        "consumed_entry_ids": list(consumed),
+        "same_run_evidence": same_run,
+        "robot_home": home,
+        "tool_off": tool_off,
+        "hardware_status": "PENDING_HARDWARE",
+    }
+
+
+def _probe_ocr_initial(
+    sim: Any,
+    definition: Any,
+    *,
+    scene_manifest: Mapping[str, Any],
+    tolerance_mm: float,
+) -> dict[str, Any]:
+    routes, _ = _ocr_sort_config(definition)
+    binding = _mapping(
+        scene_manifest.get("ocr_sorting"),
+        "scene_manifest.ocr_sorting",
+    )
+    initial = _mapping(
+        binding.get("initial_positions_mm"),
+        "scene_manifest.ocr_sorting.initial_positions_mm",
+    )
+    rows: list[dict[str, Any]] = []
+    matched = 0
+    for entry_id in _OCR_ENTRY_IDS:
+        entry = routes[entry_id]
+        expected = _position(
+            initial.get(entry["part_id"]),
+            f"initial_positions_mm.{entry['part_id']}",
+        )
+        actual = _ocr_actual_position(sim, str(entry["part_id"]))
+        distance = _distance_mm(actual, expected)
+        is_match = distance <= tolerance_mm
+        matched += int(is_match)
+        rows.append(
+            {
+                "entry_id": entry_id,
+                "part_id": entry["part_id"],
+                "position_mm": actual,
+                "expected_mm": expected,
+                "distance_mm": distance,
+                "matched": is_match,
+            }
+        )
+    return {
+        "schema_version": 1,
+        "experiment_id": str(definition.experiment_id),
+        "phase": "initial",
+        "status": "PASS" if matched == 4 else "FAIL",
+        "matched": matched,
+        "expected": 4,
+        "tolerance_mm": tolerance_mm,
+        "rows": rows,
+        "final_occupancy": {},
+        "hardware_status": "PENDING_HARDWARE",
+    }
+
+
 def probe_experiment(
     sim: Any,
     definition: Any,
@@ -503,6 +948,7 @@ def probe_experiment(
     phase: str,
     scene_manifest: Mapping[str, Any],
     tolerance_mm: float = 6.0,
+    run_context: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     if type(phase) is not str or phase not in {"initial", "final"}:
         raise ValueError("phase must be initial or final")
@@ -551,6 +997,55 @@ def probe_experiment(
             manifest=manifest,
             tolerance_mm=tolerance,
         )
+
+    if kind == "ocr_sort_occupancy":
+        if phase == "initial":
+            return _probe_ocr_initial(
+                sim,
+                definition,
+                scene_manifest=manifest,
+                tolerance_mm=tolerance,
+            )
+        if run_context is None or not isinstance(run_context, Mapping):
+            return {
+                "schema_version": 1,
+                "experiment_id": experiment_id,
+                "phase": "final",
+                "status": "FAIL",
+                "matched": 0,
+                "expected": 4,
+                "error": {"code": "OCR_SORT_EVIDENCE_CONTEXT_REQUIRED"},
+                "hardware_status": "PENDING_HARDWARE",
+            }
+        context = dict(run_context)
+        try:
+            return probe_ocr_final(
+                sim,
+                definition,
+                run_id=context["run_id"],
+                scene_hash=context["scene_hash"],
+                snapshot_id=context["snapshot_id"],
+                entry_evidence=context["entry_evidence"],
+                consumed_entry_ids=context["consumed_entry_ids"],
+                robot_home=context.get("robot_home"),
+                tool_on=context.get("tool_on"),
+                scene_manifest=manifest,
+                tolerance_mm=tolerance,
+            )
+        except (KeyError, TypeError) as error:
+            return {
+                "schema_version": 1,
+                "experiment_id": experiment_id,
+                "phase": "final",
+                "status": "FAIL",
+                "matched": 0,
+                "expected": 4,
+                "error": {
+                    "code": "OCR_SORT_EVIDENCE_CONTEXT_INVALID",
+                    "type": type(error).__name__,
+                },
+                "hardware_status": "PENDING_HARDWARE",
+            }
 
     if kind == "motion_observation":
         paths = _validate_motion(parameters)

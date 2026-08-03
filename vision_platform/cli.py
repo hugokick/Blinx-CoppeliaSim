@@ -739,6 +739,20 @@ def _resolve_experiment_program(
     return selected
 
 
+def _resolve_experiment_port(experiment_id: str, raw_port: Any) -> int:
+    """Resolve the endpoint while keeping V1-08 on its owned port."""
+
+    default_port = 23008 if experiment_id == "V1-08" else 23000
+    if raw_port is None or raw_port == "":
+        return default_port
+    port = int(raw_port)
+    if not 1 <= port <= 65535:
+        raise ValueError("port must be between 1 and 65535")
+    if experiment_id == "V1-08" and port != 23008:
+        raise ValueError("V1-08 requires dedicated CoppeliaSim port 23008")
+    return port
+
+
 def _execute_experiment_run(
     args: argparse.Namespace,
 ) -> tuple[int, dict[str, Any], Any | None]:
@@ -775,9 +789,7 @@ def _execute_experiment_run(
         )
 
     try:
-        port = int(args.port)
-        if not 1 <= port <= 65535:
-            raise ValueError("port must be between 1 and 65535")
+        port = _resolve_experiment_port(experiment_id, args.port)
         program = _resolve_experiment_program(
             args.program,
             definition.student_template,
@@ -1166,7 +1178,11 @@ def build_parser() -> argparse.ArgumentParser:
     experiment_run.add_argument("--program")
     experiment_run.add_argument("--config")
     experiment_run.add_argument("--host", default="127.0.0.1")
-    experiment_run.add_argument("--port", default=23000)
+    experiment_run.add_argument(
+        "--port",
+        default=None,
+        help="CoppeliaSim port (V1-08 is fixed to 23008; other labs default to 23000)",
+    )
     experiment_run.add_argument(
         "--output",
         default="artifacts/vision_lab/experiment-runs",

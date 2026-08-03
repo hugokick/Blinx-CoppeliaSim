@@ -175,6 +175,8 @@ tests/test_experiments/test_capabilities.py
 tests/test_experiments/test_catalog.py
 tests/test_experiments/test_formal_catalog.py
 tests/test_experiments/test_cli.py
+tests/test_experiments/test_v1_08_cli.py
+tests/test_experiments/test_v1_08_probe.py
 tests/test_experiments/test_probes.py
 tests/test_experiments/test_scene_setup.py
 tests/test_experiments/test_session.py
