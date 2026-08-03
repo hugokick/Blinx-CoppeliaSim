@@ -525,3 +525,4 @@ tests/test_experiments/test_defect_service.py
 tests/test_experiments/test_defect_visualization.py
 tests/test_student_programs/test_v1_09_protocol_sdk.py
 tests/test_student_programs/test_v1_09_gateway.py
+tests/test_student_programs/test_v1_09_runner.py
