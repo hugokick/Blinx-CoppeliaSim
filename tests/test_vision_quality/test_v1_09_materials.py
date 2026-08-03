@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import runpy
 from pathlib import Path
+from types import SimpleNamespace
 
 from vision_platform.experiments.catalog import ExperimentCatalog
 
@@ -35,3 +37,53 @@ def test_v1_09_definition_keeps_pending_human_and_hardware_boundaries() -> None:
     assert payload["acceptance"]["human_checks"]
     assert "PENDING_HUMAN_ACCEPTANCE" in payload["acceptance"]["human_checks"]
     assert "PENDING_HARDWARE" in payload["acceptance"]["human_checks"]
+
+
+def test_v1_09_student_template_executes_with_strict_log_contract() -> None:
+    decisions = {
+        "entry_a": "qualified",
+        "entry_b": "missing",
+        "entry_c": "hole",
+        "entry_d": "foreign",
+        "entry_e": "broken",
+        "entry_f": "dimension",
+    }
+    entry_ids = tuple(decisions)
+    entry_calls: list[str] = []
+
+    class Vision2D:
+        def surface_defects(self):
+            return SimpleNamespace(
+                plan_id="a" * 64,
+                entries=tuple(SimpleNamespace(entry_id=entry_id) for entry_id in entry_ids),
+            )
+
+        def defect_sort_entry(self, entry_id: str):
+            entry_calls.append(entry_id)
+            return SimpleNamespace(
+                entry_id=entry_id,
+                decision=decisions[entry_id],
+                status="COMPLETED",
+            )
+
+    class Context:
+        def __init__(self) -> None:
+            self.vision2d = Vision2D()
+            self.logs: list[str] = []
+
+        def log(self, message: str) -> None:
+            assert isinstance(message, str)
+            self.logs.append(message)
+
+    namespace = runpy.run_path(str(ROOT / "student_programs/templates/v1_09_surface_defects.py"))
+    context = Context()
+
+    namespace["main"](context)
+
+    assert entry_calls == list(entry_ids)
+    assert len(context.logs) == 7
+    assert context.logs[0] == "缺陷计划已冻结 plan_id=" + ("a" * 64) + " entries=6"
+    assert context.logs[1:] == [
+        f"条目完成 entry_id={entry_id} decision={decisions[entry_id]} status=COMPLETED"
+        for entry_id in entry_ids
+    ]
