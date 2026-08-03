@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 import json
 import hashlib
 from pathlib import Path
@@ -9,10 +10,50 @@ import numpy as np
 import pytest
 
 from simulation.training_scenes import build_scene as builder
+from vision_platform.experiments.defect_service import FORMAL_DEFECT_CONFIG
+from vision_platform.vision2d.defect_detection import detect_surface_defects
 
 
 ROOT = Path(__file__).resolve().parents[2]
 SPEC_PATH = ROOT / "simulation" / "vision_defect_sorting_lab" / "scene_spec.json"
+
+REVISED_REFERENCE = {"alias": "reference", "asset_id": "reference", "position_mm": [85, -57, 18], "size_mm": [28, 28, 16]}
+REVISED_PART_POSITIONS = {
+    "part_a": [140, -16, 18], "part_b": [85, -16, 18], "part_c": [30, -16, 18],
+    "part_d": [140, 38, 18], "part_e": [85, 38, 18], "part_f": [30, 38, 18],
+}
+REVISED_SLOT_POSITIONS = {
+    "qualified": [132, -93, 22], "missing": [85, -93, 22], "hole": [38, -93, 22],
+    "foreign": [132, 75, 22], "broken": [85, 75, 22], "dimension": [38, 75, 22],
+}
+
+
+def _revised_geometry_spec() -> dict[str, object]:
+    spec = json.loads(SPEC_PATH.read_text(encoding="utf-8"))
+    spec["reference"] = deepcopy(REVISED_REFERENCE)
+    spec["workspace"] = {"alias": "Workspace", "center_mm": [85, 0, 5], "size_mm": [150, 220, 10]}
+    for part in spec["parts"]:
+        part["position_mm"] = list(REVISED_PART_POSITIONS[part["alias"]])
+    for slot in spec["slots"]:
+        slot["position_mm"] = list(REVISED_SLOT_POSITIONS[slot["decision"]])
+    return spec
+
+
+def _scene_surface_crop(asset_path: Path, *, output_size: int = 192) -> np.ndarray:
+    image = cv2.imread(str(asset_path), cv2.IMREAD_GRAYSCALE)
+    bitmap = builder._rasterize_defect_surface(image, asset_path=asset_path)
+    crop = np.full((output_size, output_size), int(image.max()), dtype=np.uint8)
+    cell = output_size / float(bitmap.shape[0])
+    for row in range(bitmap.shape[0]):
+        for column in range(bitmap.shape[1]):
+            if int(bitmap[row, column]) >= 160:
+                continue
+            x0 = int(np.floor((column + 0.05) * cell))
+            x1 = int(np.ceil((column + 0.95) * cell))
+            y0 = int(np.floor((row + 0.05) * cell))
+            y1 = int(np.ceil((row + 0.95) * cell))
+            crop[y0:y1, x0:x1] = int(image.min())
+    return crop
 
 
 def _write_v1_09_recovery_fixture(tmp_path: Path) -> dict[str, object]:
@@ -85,6 +126,29 @@ def test_v1_09_spec_validation_is_strict_about_assets_and_geometry() -> None:
     _spec_path, formal = builder._formal_spec_path(SPEC_PATH)
     builder._validate_spec(spec, formal)
     assert spec["port"] == 23010
+
+
+def test_v1_09_builder_accepts_only_the_revised_geometry() -> None:
+    _spec_path, formal = builder._formal_spec_path(SPEC_PATH)
+    revised = _revised_geometry_spec()
+    builder._validate_spec(revised, formal)
+
+    mutations = []
+    old_workspace = deepcopy(revised)
+    old_workspace["workspace"] = {"alias": "Workspace", "center_mm": [87.5, 0, 5], "size_mm": [135, 190, 10]}
+    mutations.append(old_workspace)
+    old_reference = deepcopy(revised)
+    old_reference["reference"]["position_mm"] = [60, 54, 18]
+    mutations.append(old_reference)
+    old_part = deepcopy(revised)
+    old_part["parts"][0]["position_mm"] = [32, -58, 18]
+    mutations.append(old_part)
+    old_slot = deepcopy(revised)
+    old_slot["slots"][0]["position_mm"] = [112, -78, 22]
+    mutations.append(old_slot)
+    for payload in mutations:
+        with pytest.raises(ValueError):
+            builder._validate_spec(payload, formal)
 
 
 def test_v1_09_builder_entrypoint_is_fixed_port_and_does_not_read_ground_truth() -> None:
@@ -217,7 +281,6 @@ def test_v1_09_reference_inspection_face_is_direct_child(tmp_path: Path) -> None
             self.aliases: dict[int, str] = {}
             self.parents: dict[int, int] = {}
             self.group_handle = 0
-
         def createPrimitiveShape(self, *_args):
             handle = self.next_handle
             self.next_handle += 1
@@ -259,3 +322,77 @@ def test_v1_09_reference_inspection_face_is_direct_child(tmp_path: Path) -> None
     assert fake.aliases[fake.group_handle] == "InspectionFace"
     assert fake.parents[fake.group_handle] == 100
     assert "ReferencePart" not in fake.aliases.values()
+
+
+def test_v1_09_pickable_compound_origin_is_bound_to_declared_center(tmp_path: Path) -> None:
+    asset_path = tmp_path / "candidate.png"
+    assert cv2.imwrite(str(asset_path), np.full((256, 256), 255, dtype=np.uint8))
+
+    class PositionSim:
+        primitiveshape_cuboid = 1
+        colorcomponent_ambient_diffuse = 2
+        shapeintparam_static = 3
+        shapeintparam_respondable = 4
+        handle_world = -1
+
+        def __init__(self) -> None:
+            self.next_handle = 1
+            self.aliases: dict[int, str] = {}
+            self.parents: dict[int, int] = {}
+            self.positions: dict[int, list[float]] = {}
+            self.group_handle = 1000
+
+        def createPrimitiveShape(self, *_args):
+            handle = self.next_handle
+            self.next_handle += 1
+            return handle
+
+        def setObjectAlias(self, handle, name):
+            self.aliases[int(handle)] = str(name)
+
+        def setShapeColor(self, *_args):
+            return None
+
+        def setObjectInt32Param(self, *_args):
+            return None
+
+        def setObjectParent(self, handle, parent, _keep_in_place):
+            self.parents[int(handle)] = int(parent)
+
+        def setObjectPosition(self, handle, position, _relative):
+            self.positions[int(handle)] = [float(value) for value in position]
+
+        def groupShapes(self, _pieces, _merge):
+            return self.group_handle
+
+        def createDummy(self, *_args):
+            handle = self.next_handle
+            self.next_handle += 1
+            return handle
+
+    fake = PositionSim()
+    builder._defect_surface_part(
+        fake,
+        {"alias": "part_a", "position_mm": [140, -16, 18], "size_mm": [28, 28, 16]},
+        asset_path,
+        100,
+        respondable=True,
+    )
+    assert fake.positions[fake.group_handle] == [0.14, -0.016, 0.018]
+
+
+def test_v1_09_surface_rasterization_preserves_unique_defect_semantics() -> None:
+    assets = ROOT / "simulation" / "vision_defect_sorting_lab" / "assets"
+    reference = _scene_surface_crop(assets / "reference.png")
+    expected = {
+        "a": (),
+        "b": ("missing",),
+        "c": ("hole",),
+        "d": ("foreign",),
+        "e": ("broken",),
+        "f": ("dimension",),
+    }
+    for entry_id, defect_types in expected.items():
+        candidate = _scene_surface_crop(assets / f"candidate_{entry_id}.png")
+        result = detect_surface_defects(reference, candidate, config=FORMAL_DEFECT_CONFIG)
+        assert tuple(finding.defect_type for finding in result.defects) == defect_types, entry_id

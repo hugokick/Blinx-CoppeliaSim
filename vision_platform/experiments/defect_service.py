@@ -32,6 +32,14 @@ FIXED_ROIS = {
     "entry_e": (416, 648, 192, 192),
     "entry_f": (752, 648, 192, 192),
 }
+_FIXED_ROUTES = (
+    ("entry_a", "part_a", "route_qualified", "slot_qualified", (140.0, -16.0, 18.0), (132.0, -93.0, 22.0)),
+    ("entry_b", "part_b", "route_missing", "slot_missing", (85.0, -16.0, 18.0), (85.0, -93.0, 22.0)),
+    ("entry_c", "part_c", "route_hole", "slot_hole", (30.0, -16.0, 18.0), (38.0, -93.0, 22.0)),
+    ("entry_d", "part_d", "route_foreign", "slot_foreign", (140.0, 38.0, 18.0), (132.0, 75.0, 22.0)),
+    ("entry_e", "part_e", "route_broken", "slot_broken", (85.0, 38.0, 18.0), (85.0, 75.0, 22.0)),
+    ("entry_f", "part_f", "route_dimension", "slot_dimension", (30.0, 38.0, 18.0), (38.0, 75.0, 22.0)),
+)
 FORMAL_DEFECT_CONFIG = DefectConfig(
     missing_ratio=0.01,
     hole_ratio=0.005,
@@ -204,12 +212,15 @@ class DefectSortingService:
                     "speed_mm_s": 15.0,
                     "workspace": {"x_mm": [20.0, 155.0], "y_mm": [-95.0, 95.0], "z_mm": [10.0, 140.0], "safe_z_mm": 110.0},
                     "routes": [
-                        {"entry_id": "entry_a", "part_id": "part_a", "route_id": "route_qualified", "slot_id": "slot_qualified", "pick_xyz_mm": [32.0, -58.0, 18.0], "drop_xyz_mm": [112.0, -78.0, 22.0]},
-                        {"entry_id": "entry_b", "part_id": "part_b", "route_id": "route_missing", "slot_id": "slot_missing", "pick_xyz_mm": [60.0, -58.0, 18.0], "drop_xyz_mm": [126.0, -78.0, 22.0]},
-                        {"entry_id": "entry_c", "part_id": "part_c", "route_id": "route_hole", "slot_id": "slot_hole", "pick_xyz_mm": [88.0, -58.0, 18.0], "drop_xyz_mm": [140.0, -78.0, 22.0]},
-                        {"entry_id": "entry_d", "part_id": "part_d", "route_id": "route_foreign", "slot_id": "slot_foreign", "pick_xyz_mm": [32.0, 10.0, 18.0], "drop_xyz_mm": [112.0, 78.0, 22.0]},
-                        {"entry_id": "entry_e", "part_id": "part_e", "route_id": "route_broken", "slot_id": "slot_broken", "pick_xyz_mm": [60.0, 10.0, 18.0], "drop_xyz_mm": [126.0, 78.0, 22.0]},
-                        {"entry_id": "entry_f", "part_id": "part_f", "route_id": "route_dimension", "slot_id": "slot_dimension", "pick_xyz_mm": [88.0, 10.0, 18.0], "drop_xyz_mm": [140.0, 78.0, 22.0]},
+                        {
+                            "entry_id": entry_id,
+                            "part_id": part_id,
+                            "route_id": route_id,
+                            "slot_id": slot_id,
+                            "pick_xyz_mm": list(pick_xyz_mm),
+                            "drop_xyz_mm": list(drop_xyz_mm),
+                        }
+                        for entry_id, part_id, route_id, slot_id, pick_xyz_mm, drop_xyz_mm in _FIXED_ROUTES
                     ],
                 },
                 tuple(observations),

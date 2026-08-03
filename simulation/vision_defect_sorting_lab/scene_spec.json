@@ -32,13 +32,27 @@
     "key_path": "/VisionDefectSortingLab/Lighting/KeyLight"
   },
   "output": "simulation/vision_defect_sorting_lab/BL23_vision_defect_sorting_lab.ttt",
+  "reference": {
+    "alias": "reference",
+    "asset_id": "reference",
+    "position_mm": [
+      85,
+      -57,
+      18
+    ],
+    "size_mm": [
+      28,
+      28,
+      16
+    ]
+  },
   "parts": [
     {
       "alias": "part_a",
       "asset_id": "entry_a",
       "position_mm": [
-        32,
-        -58,
+        140,
+        -16,
         18
       ],
       "size_mm": [
@@ -51,8 +65,8 @@
       "alias": "part_b",
       "asset_id": "entry_b",
       "position_mm": [
-        60,
-        -58,
+        85,
+        -16,
         18
       ],
       "size_mm": [
@@ -65,8 +79,8 @@
       "alias": "part_c",
       "asset_id": "entry_c",
       "position_mm": [
-        88,
-        -58,
+        30,
+        -16,
         18
       ],
       "size_mm": [
@@ -79,8 +93,8 @@
       "alias": "part_d",
       "asset_id": "entry_d",
       "position_mm": [
-        32,
-        10,
+        140,
+        38,
         18
       ],
       "size_mm": [
@@ -93,8 +107,8 @@
       "alias": "part_e",
       "asset_id": "entry_e",
       "position_mm": [
-        60,
-        10,
+        85,
+        38,
         18
       ],
       "size_mm": [
@@ -107,8 +121,8 @@
       "alias": "part_f",
       "asset_id": "entry_f",
       "position_mm": [
-        88,
-        10,
+        30,
+        38,
         18
       ],
       "size_mm": [
@@ -225,8 +239,8 @@
       ],
       "decision": "qualified",
       "position_mm": [
-        112,
-        -78,
+        132,
+        -93,
         22
       ]
     },
@@ -239,8 +253,8 @@
       ],
       "decision": "missing",
       "position_mm": [
-        126,
-        -78,
+        85,
+        -93,
         22
       ]
     },
@@ -253,8 +267,8 @@
       ],
       "decision": "hole",
       "position_mm": [
-        140,
-        -78,
+        38,
+        -93,
         22
       ]
     },
@@ -267,8 +281,8 @@
       ],
       "decision": "foreign",
       "position_mm": [
-        112,
-        78,
+        132,
+        75,
         22
       ]
     },
@@ -281,8 +295,8 @@
       ],
       "decision": "broken",
       "position_mm": [
-        126,
-        78,
+        85,
+        75,
         22
       ]
     },
@@ -295,23 +309,23 @@
       ],
       "decision": "dimension",
       "position_mm": [
-        140,
-        78,
+        38,
+        75,
         22
       ]
     }
   ],
   "template": "simulation/vision_lab/BL23_vision_lab.ttt",
   "workspace": {
-    "alias": "Workspace",
-    "center_mm": [
-      87.5,
+      "alias": "Workspace",
+      "center_mm": [
+      85,
       0,
       5
     ],
-    "size_mm": [
-      135,
-      190,
+      "size_mm": [
+      150,
+      220,
       10
     ]
   }

@@ -28,6 +28,8 @@ ENTRIES = (
 SCENE_SHA = "1" * 64
 CONFIG_SHA = "2" * 64
 ASSET_SHA = "3" * 64
+PICK_POSITIONS = ((140.0, -16.0, 18.0), (85.0, -16.0, 18.0), (30.0, -16.0, 18.0), (140.0, 38.0, 18.0), (85.0, 38.0, 18.0), (30.0, 38.0, 18.0))
+DROP_POSITIONS = ((132.0, -93.0, 22.0), (85.0, -93.0, 22.0), (38.0, -93.0, 22.0), (132.0, 75.0, 22.0), (85.0, 75.0, 22.0), (38.0, 75.0, 22.0))
 
 
 @pytest.fixture
@@ -40,8 +42,8 @@ def plan() -> DefectSortPlan:
             route_id=route_id,
             slot_id=slot_id,
             roi_px=(80 + (index % 3) * 336, 56 + (index // 3) * 328, 192, 192),
-            pick_xyz_mm=(32.0 + (index % 3) * 28.0, -58.0 if index < 3 else 10.0, 18.0),
-            drop_xyz_mm=(112.0 + (index % 3) * 14.0, -78.0 if index < 3 else 78.0, 22.0),
+            pick_xyz_mm=PICK_POSITIONS[index],
+            drop_xyz_mm=DROP_POSITIONS[index],
             reference_crop_sha256="a" * 64,
             candidate_crop_sha256=("b" if index == 0 else format(index + 2, "x")) * 64,
             findings_sha256="d" * 64,
@@ -125,9 +127,9 @@ def test_guard_returns_immutable_eight_step_actions_without_device_access(plan: 
     assert type(actions) is tuple
     assert tuple(action.kind for action in actions) == ACTION_KINDS
     assert all(type(action) is DefectSortAction for action in actions)
-    assert actions[0].target_xyz_mm == (32.0, -58.0, 110.0)
-    assert actions[1].target_xyz_mm == (32.0, -58.0, 18.0)
-    assert actions[5].target_xyz_mm == (112.0, -78.0, 22.0)
+    assert actions[0].target_xyz_mm == (140.0, -16.0, 110.0)
+    assert actions[1].target_xyz_mm == (140.0, -16.0, 18.0)
+    assert actions[5].target_xyz_mm == (132.0, -93.0, 22.0)
     with pytest.raises(FrozenInstanceError):
         actions[0].kind = "move_drop"  # type: ignore[misc]
     with pytest.raises(TypeError):

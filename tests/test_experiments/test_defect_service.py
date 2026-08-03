@@ -61,6 +61,17 @@ def test_service_analyzes_one_fixed_frame_and_freezes_six_decisions() -> None:
     assert output.reference_crop.flags.writeable is False
     assert len(output.results) == 6
     assert output.annotated_frame.shape == (1024, 1024, 3)
+    assert [
+        (entry.entry_id, entry.pick_xyz_mm, entry.drop_xyz_mm)
+        for entry in output.plan.entries
+    ] == [
+        ("entry_a", (140.0, -16.0, 18.0), (132.0, -93.0, 22.0)),
+        ("entry_b", (85.0, -16.0, 18.0), (85.0, -93.0, 22.0)),
+        ("entry_c", (30.0, -16.0, 18.0), (38.0, -93.0, 22.0)),
+        ("entry_d", (140.0, 38.0, 18.0), (132.0, 75.0, 22.0)),
+        ("entry_e", (85.0, 38.0, 18.0), (85.0, 75.0, 22.0)),
+        ("entry_f", (30.0, 38.0, 18.0), (38.0, 75.0, 22.0)),
+    ]
 
 
 def test_service_rejects_invalid_roi_before_analysis() -> None:

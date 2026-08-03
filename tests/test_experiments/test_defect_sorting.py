@@ -54,8 +54,8 @@ def _config() -> dict[str, object]:
                 "part_id": part_id,
                 "route_id": route_id,
                 "slot_id": slot_id,
-                "pick_xyz_mm": [32.0 + (index % 3) * 28.0, -58.0 if index < 3 else 10.0, 18.0],
-                "drop_xyz_mm": [112.0 + (index % 3) * 14.0, -78.0 if index < 3 else 78.0, 22.0],
+                "pick_xyz_mm": list(((140, -16, 18), (85, -16, 18), (30, -16, 18), (140, 38, 18), (85, 38, 18), (30, 38, 18))[index]),
+                "drop_xyz_mm": list(((132, -93, 22), (85, -93, 22), (38, -93, 22), (132, 75, 22), (85, 75, 22), (38, 75, 22))[index]),
             }
             for index, (entry_id, part_id, _decision, route_id, slot_id) in enumerate(EXPECTED)
         ],

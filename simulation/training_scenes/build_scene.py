@@ -1306,6 +1306,7 @@ def _validate_defect_sorting(spec: dict[str, Any], formal: _FormalScene) -> None
             "remove_paths",
             "required_paths",
             "reset_contract",
+            "reference",
             "rois",
             "root_path",
             "safe_z_mm",
@@ -1343,8 +1344,20 @@ def _validate_defect_sorting(spec: dict[str, Any], formal: _FormalScene) -> None
     workspace = spec["workspace"]
     center = _vector(workspace["center_mm"], label="workspace center_mm", length=3)
     size = _vector(workspace["size_mm"], label="workspace size_mm", length=3, positive=True)
-    if center != [87.5, 0.0, 5.0] or size != [135.0, 190.0, 10.0]:
+    if center != [85.0, 0.0, 5.0] or size != [150.0, 220.0, 10.0]:
         raise ValueError("V1-09 workspace geometry is fixed")
+
+    reference = _exact_keys(
+        spec["reference"],
+        {"alias", "asset_id", "position_mm", "size_mm"},
+        label="V1-09 reference",
+    )
+    if reference["alias"] != "reference" or reference["asset_id"] != "reference":
+        raise ValueError("V1-09 reference identity is fixed")
+    if tuple(_vector(reference["position_mm"], label="V1-09 reference position_mm", length=3)) != (85.0, -57.0, 18.0):
+        raise ValueError("V1-09 reference position is fixed")
+    if _vector(reference["size_mm"], label="V1-09 reference size_mm", length=3, positive=True) != [28.0, 28.0, 16.0]:
+        raise ValueError("V1-09 reference geometry is fixed")
 
     camera = _exact_keys(
         spec["camera"],
@@ -1404,7 +1417,7 @@ def _validate_defect_sorting(spec: dict[str, Any], formal: _FormalScene) -> None
     parts = spec["parts"]
     if not isinstance(parts, list) or len(parts) != 6:
         raise ValueError("V1-09 must contain six candidate parts")
-    positions = ((32, -58, 18), (60, -58, 18), (88, -58, 18), (32, 10, 18), (60, 10, 18), (88, 10, 18))
+    positions = ((140, -16, 18), (85, -16, 18), (30, -16, 18), (140, 38, 18), (85, 38, 18), (30, 38, 18))
     for index, (item, expected_alias, expected_position) in enumerate(zip(parts, expected_parts, positions)):
         part = _exact_keys(item, {"alias", "asset_id", "position_mm", "size_mm"}, label="V1-09 part")
         if part["alias"] != expected_alias or part["asset_id"] != f"entry_{expected_alias[-1]}":
@@ -1419,7 +1432,8 @@ def _validate_defect_sorting(spec: dict[str, Any], formal: _FormalScene) -> None
     if not isinstance(slots, list) or len(slots) != 6:
         raise ValueError("V1-09 must contain six decision slots")
     slot_positions: set[tuple[float, float, float]] = set()
-    for slot, decision, expected_position in zip(slots, expected_decisions, ((112, -78, 22), (126, -78, 22), (140, -78, 22), (112, 78, 22), (126, 78, 22), (140, 78, 22))):
+    slot_positions_expected = ((132, -93, 22), (85, -93, 22), (38, -93, 22), (132, 75, 22), (85, 75, 22), (38, 75, 22))
+    for slot, decision, expected_position in zip(slots, expected_decisions, slot_positions_expected):
         item = _exact_keys(slot, {"alias", "color_rgb", "decision", "position_mm"}, label="V1-09 slot")
         if item["alias"] != f"slot_{decision}" or item["decision"] != decision:
             raise ValueError("V1-09 slots must be ordered by decision")
@@ -2636,9 +2650,7 @@ def _defect_surface_part(
         )
     )
     image = cv2.imread(str(asset_path), cv2.IMREAD_GRAYSCALE)
-    if image is None or image.shape != (256, 256) or image.dtype != np.uint8:
-        raise ValueError(f"could not decode V1-09 defect surface asset: {asset_path}")
-    bitmap = cv2.resize(image, (20, 20), interpolation=cv2.INTER_AREA)
+    bitmap = _rasterize_defect_surface(image, asset_path=asset_path)
     pitch_x = face_width / 20.0
     pitch_y = face_height / 20.0
     origin_x = center[0] - face_width / 2.0
@@ -2668,11 +2680,30 @@ def _defect_surface_part(
     compound = int(sim.groupShapes(pieces, False))
     _alias(sim, compound, "InspectionFace" if inspection_face_direct else group_alias or part["alias"])
     sim.setObjectParent(compound, parent, True)
+    # CoppeliaSim chooses a compound's local origin from its merged geometry.
+    # Bind the public pickable alias back to the declared scene center so the
+    # route/probe contract and the visual body use the same coordinate frame.
+    sim.setObjectPosition(
+        compound,
+        [value / 1000.0 for value in center],
+        getattr(sim, "handle_world", -1),
+    )
     _set_int_parameter(sim, compound, sim.shapeintparam_static, 1)
     _set_int_parameter(sim, compound, sim.shapeintparam_respondable, int(respondable))
     if not inspection_face_direct:
         _dummy(sim, "InspectionFace", compound)
     return compound
+
+
+def _rasterize_defect_surface(
+    image: np.ndarray | None,
+    *,
+    asset_path: Path,
+    raster_size: int = 20,
+) -> np.ndarray:
+    if image is None or image.shape != (256, 256) or image.dtype != np.uint8:
+        raise ValueError(f"could not decode V1-09 defect surface asset: {asset_path}")
+    return cv2.resize(image, (raster_size, raster_size), interpolation=cv2.INTER_NEAREST)
 
 
 def _defect_slot(sim: Any, slot: dict[str, Any], parent: int) -> None:
@@ -2751,7 +2782,7 @@ def _build_defect_sorting(
     sim.setObjectPosition(camera, [0.0, 0.0, 0.0], camera_rig)
     sim.setObjectOrientation(camera, [math.radians(float(value)) for value in camera_spec["orientation_deg"]], camera_rig)
     assets = {item["asset_id"]: item for item in defect_assets["assets"]}
-    reference = {"alias": "reference", "asset_id": "reference", "position_mm": [60, 54, 18], "size_mm": [28, 28, 16]}
+    reference = spec["reference"]
     _defect_surface_part(
         sim,
         reference,
@@ -3358,6 +3389,7 @@ def build_scene(
             }
             manifest["defect_sorting"] = {
                 "part_ids": [part["alias"] for part in spec["parts"]],
+                "reference_position_mm": list(spec["reference"]["position_mm"]),
                 "initial_positions_mm": {
                     part["alias"]: list(part["position_mm"]) for part in spec["parts"]
                 },
