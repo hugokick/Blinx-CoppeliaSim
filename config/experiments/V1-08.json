@@ -1,0 +1,112 @@
+{
+  "schema_version": 1,
+  "experiment_id": "V1-08",
+  "pack_id": "V1",
+  "title": "OCR 字符训练、编号识别与机器人分拣",
+  "version": "2.2.0",
+  "scene": "simulation/vision_ocr_sorting_lab/BL23_vision_ocr_sorting_lab.ttt",
+  "scene_manifest": "simulation/vision_ocr_sorting_lab/scene_manifest.json",
+  "student_template": "student_programs/templates/v1_08_ocr_sorting.py",
+  "guide": "docs/experiments/V1-08.md",
+  "capabilities": [
+    "camera.rgb",
+    "camera.profile",
+    "lighting.profile",
+    "vision2d.ocr_sorting"
+  ],
+  "workspace": {
+    "x_mm": [20, 140],
+    "y_mm": [-90, 90],
+    "z_mm": [10, 140],
+    "safe_z_mm": 110
+  },
+  "public_parameters": {
+    "baseline_profile_id": "standard",
+    "allowed_profile_ids": ["standard"],
+    "camera_path": "/VisionOcrSortingLab/CameraRig/Camera",
+    "scene_group_path": "/VisionOcrSortingLab",
+    "pickables_path": "/VisionOcrSortingLab/Parts",
+    "ocr_sorting": {
+      "profile_id": "standard",
+      "image_size_px": [1024, 1024],
+      "training_manifest": "simulation/vision_ocr_sorting_lab/ocr_assets_manifest.json",
+      "training_manifest_sha256": "ddd986169b72363a2f619e57da668546f4f8c778011b125aa6c23d960b4f2444",
+      "expected_identifiers": ["A1", "A2", "B1", "B2"],
+      "fixed_rois_px": {
+        "A1": [740, 170, 96, 128],
+        "A2": [494, 170, 96, 128],
+        "B1": [740, 478, 96, 128],
+        "B2": [494, 478, 96, 128]
+      },
+      "sort_config": {
+        "schema_version": 1,
+        "expected_count": 4,
+        "training_accuracy_min": 0.95,
+        "confidence_min": 0.90,
+        "safe_z_mm": 110.0,
+        "speed_mm_s": 15.0,
+        "workspace": {
+          "x_mm": [20.0, 140.0],
+          "y_mm": [-90.0, 90.0],
+          "z_mm": [10.0, 140.0],
+          "safe_z_mm": 110.0
+        },
+        "routes": [
+          {
+            "entry_id": "entry_a",
+            "part_id": "part_a",
+            "identifier": "A1",
+            "route_id": "route_alpha",
+            "pick_xyz_mm": [40.0, -45.0, 18.0],
+            "drop_xyz_mm": [116.0, -60.0, 22.0]
+          },
+          {
+            "entry_id": "entry_b",
+            "part_id": "part_b",
+            "identifier": "A2",
+            "route_id": "route_alpha",
+            "pick_xyz_mm": [80.0, -45.0, 18.0],
+            "drop_xyz_mm": [128.0, -60.0, 22.0]
+          },
+          {
+            "entry_id": "entry_c",
+            "part_id": "part_c",
+            "identifier": "B1",
+            "route_id": "route_beta",
+            "pick_xyz_mm": [40.0, 5.0, 18.0],
+            "drop_xyz_mm": [116.0, 60.0, 22.0]
+          },
+          {
+            "entry_id": "entry_d",
+            "part_id": "part_d",
+            "identifier": "B2",
+            "route_id": "route_beta",
+            "pick_xyz_mm": [80.0, 5.0, 18.0],
+            "drop_xyz_mm": [128.0, 60.0, 22.0]
+          }
+        ]
+      }
+    }
+  },
+  "acceptance": {
+    "probe_kind": "ocr_sort_occupancy",
+    "automated_checks": [
+      "standard_profile",
+      "training_manifest_hash",
+      "four_identifiers",
+      "complete_sort_plan",
+      "no_motion_before_plan",
+      "four_guarded_transfers",
+      "final_bin_occupancy",
+      "robot_home",
+      "tool_off",
+      "same_run_evidence"
+    ],
+    "human_checks": [
+      "学生能够说明训练集、测试集、字符分割和置信度门槛的作用",
+      "学生能够解释 A1、A2、B1、B2 的白名单路由并分析一次失败证据",
+      "学生能够在不提交坐标或 raw robot/tool 命令的情况下选择分拣顺序"
+    ]
+  },
+  "hardware_status": "PENDING_HARDWARE"
+}
