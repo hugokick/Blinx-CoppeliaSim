@@ -5,6 +5,10 @@ import json
 
 import pytest
 
+from vision_platform.experiments.defect_sorting import (
+    DefectSortReceipt,
+    defect_sort_receipt_to_dict,
+)
 from vision_platform.student.protocol import ALLOWED_COMMANDS, CommandMessage, ResponseMessage
 from vision_platform.student.sdk import StudentContext
 
@@ -38,6 +42,23 @@ class Connection:
             command_id=self.sent[-1]["command_id"],
             status="PASS",
             value=value,
+            error=None,
+        ).to_dict()
+
+
+class ReceiptConnection:
+    def __init__(self, value: dict[str, object]) -> None:
+        self.value = value
+        self.sent: list[dict] = []
+
+    def send(self, payload: dict) -> None:
+        self.sent.append(payload)
+
+    def recv(self) -> dict:
+        return ResponseMessage(
+            command_id=self.sent[-1]["command_id"],
+            status="PASS",
+            value=self.value,
             error=None,
         ).to_dict()
 
@@ -101,6 +122,45 @@ def test_surface_defect_commands_are_public_without_raw_device_api() -> None:
     CommandMessage("000001", "vision2d.surface_defects", {})
     CommandMessage("000002", "vision2d.defect_sort_entry", {"entry_id": "entry_a"})
     assert "robot.move_world" in ALLOWED_COMMANDS  # blocked by the V1-09 runner, not exposed by the DTO
+
+
+@pytest.mark.parametrize(
+    ("entry_id", "part_id", "decision", "slot_id", "expected_defect"),
+    [
+        ("entry_a", "part_a", "qualified", "slot_qualified", None),
+        ("entry_b", "part_b", "missing", "slot_missing", "missing"),
+    ],
+)
+def test_real_receipt_serializer_is_accepted_by_student_sdk(
+    entry_id: str,
+    part_id: str,
+    decision: str,
+    slot_id: str,
+    expected_defect: str | None,
+) -> None:
+    payload = defect_sort_receipt_to_dict(
+        DefectSortReceipt(
+            run_id="run-v1-09",
+            plan_id="a" * 64,
+            entry_id=entry_id,
+            part_id=part_id,
+            decision=decision,
+            slot_id=slot_id,
+            status="COMPLETED",
+            evidence_id=f"post-{entry_id}",
+            evidence_sha256="b" * 64,
+            hardware_status="PENDING_HARDWARE",
+        )
+    )
+    connection = ReceiptConnection(payload)
+
+    receipt = StudentContext(connection).vision2d.defect_sort_entry(entry_id)
+
+    assert receipt.entry_id == entry_id
+    assert receipt.decision == decision
+    assert receipt.defect_type == expected_defect
+    assert receipt.status == "COMPLETED"
+    assert connection.sent[0]["args"] == {"entry_id": entry_id}
 
 
 def test_surface_defect_sdk_returns_decisions_and_digests_only() -> None:

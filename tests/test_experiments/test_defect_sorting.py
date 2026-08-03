@@ -163,6 +163,52 @@ def test_plan_and_receipt_models_are_frozen_and_json_native() -> None:
 
 
 @pytest.mark.parametrize(
+    ("decision", "expected_defect", "entry_id", "part_id", "slot_id"),
+    [
+        ("qualified", None, "entry_a", "part_a", "slot_qualified"),
+        ("missing", "missing", "entry_b", "part_b", "slot_missing"),
+    ],
+)
+def test_receipt_serializer_matches_student_sdk_schema(
+    decision: str,
+    expected_defect: str | None,
+    entry_id: str,
+    part_id: str,
+    slot_id: str,
+) -> None:
+    receipt = DefectSortReceipt(
+        run_id="run-v1-09",
+        plan_id="a" * 64,
+        entry_id=entry_id,
+        part_id=part_id,
+        decision=decision,
+        slot_id=slot_id,
+        status="COMPLETED",
+        evidence_id=f"post-{entry_id}",
+        evidence_sha256="b" * 64,
+        hardware_status="PENDING_HARDWARE",
+    )
+
+    payload = defect_sort_receipt_to_dict(receipt)
+
+    assert payload == {
+        "schema_version": 1,
+        "run_id": "run-v1-09",
+        "plan_id": "a" * 64,
+        "entry_id": entry_id,
+        "part_id": part_id,
+        "decision": decision,
+        "defect_type": expected_defect,
+        "slot_id": slot_id,
+        "status": "COMPLETED",
+        "evidence_id": f"post-{entry_id}",
+        "evidence_sha256": "b" * 64,
+        "hardware_status": "PENDING_HARDWARE",
+    }
+    json.dumps(payload, ensure_ascii=False, sort_keys=True, allow_nan=False)
+
+
+@pytest.mark.parametrize(
     ("status", "failure_code"),
     [("PARTIAL", "CANDIDATE_EMPTY"), ("NO_TARGETS", None), ("REJECTED", "INVALID_IMAGE")],
 )

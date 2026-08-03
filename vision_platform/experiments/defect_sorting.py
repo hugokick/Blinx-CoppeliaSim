@@ -541,6 +541,7 @@ def defect_sort_receipt_to_dict(receipt: DefectSortReceipt) -> dict[str, Any]:
         "entry_id": str(receipt.entry_id),
         "part_id": str(receipt.part_id),
         "decision": str(receipt.decision),
+        "defect_type": None if receipt.decision == "qualified" else str(receipt.decision),
         "slot_id": str(receipt.slot_id),
         "status": str(receipt.status),
         "evidence_id": str(receipt.evidence_id),
