@@ -1735,6 +1735,11 @@ class StudentExperimentGateway:
             raise VisionPlatformError(
                 "OCR_SORT_PLAN_NOT_ACTIVE", "OCR 分拣计划尚未激活"
             )
+        snapshot_id = context.get("snapshot_id")
+        if type(snapshot_id) is not str or not snapshot_id:
+            raise VisionPlatformError(
+                "OCR_SORT_PROBE_INVALID", "OCR 运行快照绑定无效"
+            )
         plan = context.get("plan")
         entries = getattr(plan, "entries", ())
         entry = next((item for item in entries if getattr(item, "entry_id", None) == entry_id), None)
@@ -1800,6 +1805,7 @@ class StudentExperimentGateway:
             f"{evidence_id}.json",
             {
                 **reference,
+                "snapshot_id": snapshot_id,
                 "status": "PASS",
                 "expected_xyz_mm": list(expected),
                 "actual_xyz_mm": list(actual),

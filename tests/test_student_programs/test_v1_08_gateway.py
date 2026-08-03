@@ -264,6 +264,45 @@ def test_gateway_final_probe_forwards_same_run_context(tmp_path, monkeypatch) ->
     assert captured["run_context"] == expected_context
 
 
+def test_gateway_entry_probe_artifact_binds_snapshot_id(tmp_path: Path) -> None:
+    gateway, _, application, evidence = _gateway(
+        tmp_path,
+        activate=lambda plan: None,
+    )
+
+    class Sim:
+        handle_world = -1
+
+        def getObject(self, path):
+            return path
+
+        def getObjectPosition(self, handle, relative_to):
+            assert relative_to == self.handle_world
+            expected = {
+                "/VisionOcrSortingLab/Parts/part_a": (0.116, -0.060, 0.022),
+                "/VisionOcrSortingLab/Parts/part_b": (0.128, -0.060, 0.022),
+                "/VisionOcrSortingLab/Parts/part_c": (0.116, 0.060, 0.022),
+                "/VisionOcrSortingLab/Parts/part_d": (0.128, 0.060, 0.022),
+            }
+            return expected[handle]
+
+    application.sim = Sim()
+    gateway._ocr_evidence = {
+        "plan": _plan(),
+        "snapshot_id": "frame-000001",
+    }
+
+    reference = gateway.collect_ocr_entry_probe(
+        "entry_a",
+        run_id="run-v1-08",
+    )
+
+    assert set(reference) == {
+        "run_id", "scene_hash", "part_id", "route_id", "slot_id", "evidence_id"
+    }
+    assert evidence.json_calls[-1][1]["snapshot_id"] == "frame-000001"
+
+
 def test_runner_captures_ocr_context_before_gateway_cleanup(tmp_path: Path) -> None:
     controller, _, _, evidence = _controller_for_private_ocr(tmp_path)
     controller._experiment_context = SimpleNamespace(scene_sha256="c" * 64)
@@ -277,6 +316,7 @@ def test_runner_captures_ocr_context_before_gateway_cleanup(tmp_path: Path) -> N
     assert context["snapshot_id"] == "frame-000001"
     assert context["consumed_entry_ids"] == ("entry_a",)
     assert context["entry_evidence"][0]["entry_id"] == "entry_a"
+    assert context["entry_evidence"][0]["snapshot_id"] == "frame-000001"
 
 
 @pytest.mark.parametrize("fail_home", [False, True])
@@ -297,6 +337,22 @@ def test_runner_home_fallback_requires_successful_cleanup(
     controller._cleanup()
 
     assert controller._ocr_robot_home_state() is (not fail_home)
+
+
+def test_runner_home_fallback_does_not_reuse_stale_cleanup_success(
+    tmp_path: Path,
+) -> None:
+    controller, robot, _, _ = _controller_for_private_ocr(tmp_path)
+    controller._cleanup()
+    assert controller._ocr_robot_home_state() is True
+
+    def fail_home() -> None:
+        raise RuntimeError("home-cleanup-failed")
+
+    robot.move_home = fail_home
+    controller._cleanup()
+
+    assert controller._ocr_robot_home_state() is False
 
 
 def test_gateway_rejects_result_geometry_before_guard_activation(tmp_path, monkeypatch) -> None:

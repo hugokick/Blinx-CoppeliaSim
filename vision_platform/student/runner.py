@@ -1887,6 +1887,7 @@ class StudentProgramController:
                 item = dict(raw_item)
                 reference = dict(item["reference"])
                 reference["entry_id"] = item["entry_id"]
+                reference["snapshot_id"] = snapshot_id
                 entry_evidence.append(reference)
         except (KeyError, TypeError, ValueError):
             return None
@@ -3801,6 +3802,9 @@ class StudentProgramController:
 
     def _cleanup(self) -> list[dict[str, Any]]:
         errors: list[dict[str, Any]] = []
+        # A cleanup attempt is a fresh safety observation.  Do not carry a
+        # previous successful home command into a later failed cleanup.
+        self._ocr_home_confirmed = False
 
         def record_quarantine(
             stage: str,
