@@ -3,6 +3,10 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
+import socket
+import subprocess
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -178,7 +182,7 @@ def test_cli_applies_timeout_to_remote_client_and_bounds_timeout_error(
             raise TimeoutError("bounded probe timeout")
 
         def close(self) -> None:
-            return None
+            self.resolver.close_owned()
 
     monkeypatch.setattr(cli, "RemoteAPIClient", fake_remote_client, raising=False)
     monkeypatch.setattr(cli, "CoppeliaRgbdCapture", TimeoutCapture)
@@ -199,12 +203,59 @@ def test_cli_applies_timeout_to_remote_client_and_bounds_timeout_error(
 
     assert result != 0
     client = seen["resolved_client"]
-    assert client is seen["client"]
     assert client.timeout == pytest.approx(0.1)
     assert client.initialTimeout == pytest.approx(0.1)
     assert client.socket.RCVTIMEO == 100
+    assert client.socket.SNDTIMEO == 100
+    assert client.socket.LINGER == 0
+    assert client.socket.IMMEDIATE == 1
+    assert seen["client"].initialTimeout == 0
+    assert "closed" in seen
     error = json.loads((output_dir / "error.json").read_text(encoding="utf-8"))
     assert error["status"] == "FAIL"
     assert error["code"] == "RGBD_SIM_CLI_RUNTIME_ERROR"
     assert "bounded probe timeout" in error["message"]
     assert len(error["message"]) <= 240
+
+
+def test_real_timeout_client_fails_and_exits_without_a_server(tmp_path: Path) -> None:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+    script = r'''
+import json
+import sys
+import time
+
+from tools.rgbd_lab.run_rgbd_probe import _make_timeout_client_factory
+
+port = int(sys.argv[1])
+started = time.monotonic()
+client = _make_timeout_client_factory(0.1)(host="127.0.0.1", port=port)
+try:
+    client.require("sim")
+except Exception as exc:
+    client.close()
+    client.close()
+    print(json.dumps({"error": str(exc), "elapsed_s": time.monotonic() - started}), flush=True)
+    raise SystemExit(0)
+raise SystemExit(2)
+'''
+    environment = os.environ.copy()
+    environment["PYTHONPATH"] = str(ROOT)
+    try:
+        completed = subprocess.run(
+            [sys.executable, "-c", script, str(port)],
+            cwd=str(ROOT),
+            env=environment,
+            capture_output=True,
+            text=True,
+            timeout=2.0,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        pytest.fail(f"real RemoteAPIClient child did not exit within 2 seconds: {exc}")
+    assert completed.returncode == 0, completed.stderr
+    payload = json.loads(completed.stdout.strip())
+    assert payload["error"]
+    assert payload["elapsed_s"] <= 2.0

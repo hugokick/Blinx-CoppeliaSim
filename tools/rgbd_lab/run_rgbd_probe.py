@@ -159,14 +159,55 @@ def _write_failure(output_dir: Path, code: str, message: str) -> None:
         return
 
 
+def _close_remote_client(client: object | None) -> None:
+    """Close a Remote API client without allowing ZMQ linger to block exit."""
+
+    if client is None:
+        return
+    socket = getattr(client, "socket", None)
+    context = getattr(client, "context", None)
+    if socket is not None:
+        try:
+            setattr(socket, "LINGER", 0)
+        except Exception:
+            pass
+        try:
+            socket.close(linger=0)
+        except TypeError:
+            try:
+                socket.close()
+            except Exception:
+                pass
+        except Exception:
+            pass
+    if context is not None:
+        try:
+            context.term()
+        except Exception:
+            pass
+    close = getattr(client, "close", None)
+    if callable(close):
+        try:
+            close()
+        except Exception:
+            pass
+
+
 def _configure_remote_client_timeout(client: object, timeout_s: float) -> object:
-    """Apply one bounded timeout to the local ZMQ client and its socket."""
+    """Apply bounded send/receive controls to the local ZMQ client."""
 
     try:
+        timeout_ms = max(1, int(round(float(timeout_s) * 1000.0)))
         setattr(client, "timeout", float(timeout_s))
-        setattr(client, "initialTimeout", float(timeout_s))
+        # The bundled client multiplies this value by 1000 as a socket option.
+        # Keep its first-recv branch disabled and install an exact integer option
+        # ourselves so sub-second values cannot become an unbounded float path.
+        setattr(client, "initialTimeout", 0)
         socket = getattr(client, "socket")
-        setattr(socket, "RCVTIMEO", max(1, int(round(float(timeout_s) * 1000.0))))
+        setattr(socket, "SNDTIMEO", timeout_ms)
+        setattr(socket, "RCVTIMEO", timeout_ms)
+        setattr(socket, "LINGER", 0)
+        setattr(socket, "IMMEDIATE", 1)
     except Exception as exc:
         raise RgbdSimContractError(
             "RGBD_SIM_CLI_TIMEOUT_INVALID",
@@ -175,10 +216,58 @@ def _configure_remote_client_timeout(client: object, timeout_s: float) -> object
     return client
 
 
+class _BoundedRemoteClient:
+    """Small owned wrapper that closes a failed or completed ZMQ client."""
+
+    def __init__(self, client: object, timeout_s: float) -> None:
+        self._client: object | None = client
+        self._closed = False
+        self.timeout = float(timeout_s)
+        self.initialTimeout = float(timeout_s)
+        self.socket = getattr(client, "socket")
+        self._configure_raw(client, timeout_s)
+
+    @staticmethod
+    def _configure_raw(client: object, timeout_s: float) -> None:
+        try:
+            _configure_remote_client_timeout(client, timeout_s)
+        except Exception:
+            _close_remote_client(client)
+            raise
+
+    @property
+    def raw_client(self) -> object | None:
+        return self._client
+
+    def require(self, name: str):
+        client = self._client
+        if client is None or self._closed:
+            raise RuntimeError("bounded Remote API client is closed")
+        try:
+            return client.require(name)
+        except Exception:
+            self.close()
+            raise
+
+    def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        client = self._client
+        self._client = None
+        _close_remote_client(client)
+
+    def __getattr__(self, name: str):
+        client = self._client
+        if client is None:
+            raise AttributeError(name)
+        return getattr(client, name)
+
+
 def _make_timeout_client_factory(timeout_s: float):
     def factory(*, host: str, port: int) -> object:
         client = RemoteAPIClient(host=host, port=port)
-        return _configure_remote_client_timeout(client, timeout_s)
+        return _BoundedRemoteClient(client, timeout_s)
 
     return factory
 
