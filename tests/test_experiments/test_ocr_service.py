@@ -158,3 +158,35 @@ def test_service_rejects_unhashable_scene_part_ids() -> None:
             scene_part_ids=[["part_a"], ["part_b"], ["part_c"], ["part_d"]],
         )
     assert exc.value.code == "OCR_SERVICE_SCENE_INVALID"
+
+
+def test_service_rejects_duplicate_scene_part_ids() -> None:
+    with pytest.raises(OcrServiceError) as exc:
+        OcrSortingService.from_manifest(
+            MANIFEST,
+            scene_part_ids=["part_a", "part_b", "part_c", "part_d", "part_c"],
+        )
+    assert exc.value.code == "OCR_SERVICE_SCENE_INVALID"
+
+
+def test_service_rejects_non_mapping_sort_config() -> None:
+    with pytest.raises(OcrServiceError) as exc:
+        OcrSortingService.from_manifest(MANIFEST, sort_config=object())
+    assert exc.value.code == "OCR_SERVICE_CONFIG_INVALID"
+
+
+def test_service_wraps_unexpected_recognizer_exception(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import vision_platform.experiments.ocr_service as module
+
+    service = OcrSortingService.from_manifest(MANIFEST)
+    frame, rois = _frame_and_rois()
+
+    def broken(*_args, **_kwargs):
+        raise RuntimeError("recognizer unavailable")
+
+    monkeypatch.setattr(module, "recognize_text", broken)
+    with pytest.raises(OcrServiceError) as exc:
+        service.analyze(frame, rois)
+    assert exc.value.code == "OCR_SORT_RESULT_INVALID"

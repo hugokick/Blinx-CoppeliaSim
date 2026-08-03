@@ -110,18 +110,25 @@ class OcrSortingService:
             raise _fail("OCR_SERVICE_CONFIG_INVALID", "minimum_accuracy must be finite") from None
         if not math.isfinite(minimum) or not 0.0 <= minimum <= 1.0:
             raise _fail("OCR_SERVICE_CONFIG_INVALID", "minimum_accuracy is outside [0, 1]")
+        if sort_config is not None and not isinstance(sort_config, Mapping):
+            raise _fail("OCR_SERVICE_CONFIG_INVALID", "sort_config must be a mapping")
         config = dict(_default_sort_config() if sort_config is None else sort_config)
         config["training_accuracy_min"] = minimum
+        expected_parts = {"part_a", "part_b", "part_c", "part_d"}
         try:
-            parts = frozenset(
-                {"part_a", "part_b", "part_c", "part_d"}
-                if scene_part_ids is None
-                else scene_part_ids
-            )
+            raw_parts = tuple(expected_parts if scene_part_ids is None else scene_part_ids)
+            if (
+                len(raw_parts) != len(expected_parts)
+                or any(type(part) is not str for part in raw_parts)
+                or len(set(raw_parts)) != len(raw_parts)
+                or set(raw_parts) != expected_parts
+            ):
+                raise _fail("OCR_SERVICE_SCENE_INVALID", "scene part IDs must be the four unique V1-08 parts")
+            parts = frozenset(raw_parts)
+        except OcrServiceError:
+            raise
         except (TypeError, ValueError) as exc:
-            raise _fail("OCR_SERVICE_SCENE_INVALID", "scene part IDs must be hashable") from exc
-        if parts != {"part_a", "part_b", "part_c", "part_d"}:
-            raise _fail("OCR_SERVICE_SCENE_INVALID", "scene part IDs must be the four V1-08 parts")
+            raise _fail("OCR_SERVICE_SCENE_INVALID", "scene part IDs must be unique hashable strings") from exc
         try:
             model = train_glyph_classifier(
                 assets.samples,
@@ -207,7 +214,12 @@ class OcrSortingService:
                 expanded_y : expanded_y + expanded_height,
                 expanded_x : expanded_x + expanded_width,
             ].copy()
-            result = recognize_text(crop, self._model, expected_text=identifier)
+            try:
+                result = recognize_text(crop, self._model, expected_text=identifier)
+            except OcrServiceError:
+                raise
+            except Exception as exc:
+                raise _fail("OCR_SORT_RESULT_INVALID", f"recognition failed for {identifier}") from exc
             if (
                 not isinstance(result, OCRResult)
                 or result.status != "PASS"

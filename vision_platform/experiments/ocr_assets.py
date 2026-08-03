@@ -18,6 +18,7 @@ from pathlib import Path
 from pathlib import PurePosixPath
 import re
 import stat
+import struct
 from types import MappingProxyType
 from typing import Any
 
@@ -34,6 +35,10 @@ EXPECTED_METHOD = "knn"
 EXPECTED_TEST_FRACTION = 0.25
 EXPECTED_SIZE_PX = (64, 96)
 EXPECTED_CHANNELS = 3
+_PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+_MAX_PNG_BYTES = 64 * 1024 * 1024
+_MAX_PNG_DIMENSION = 4096
+_MAX_PNG_PIXELS = 16_777_216
 _HEX64 = re.compile(r"^[0-9a-f]{64}$")
 _MANIFEST_KEYS = {
     "schema_version",
@@ -223,7 +228,50 @@ class OcrTrainingAssets:
         return IDENTIFIERS
 
 
+def _validate_png_header(payload: bytes, relative_path: str) -> tuple[int, int]:
+    """Validate bounded PNG bytes before OpenCV can allocate decoded pixels."""
+
+    if len(payload) > _MAX_PNG_BYTES:
+        raise _fail("OCR_ASSET_IMAGE_INVALID", f"asset exceeds 64 MiB: {relative_path}")
+    if len(payload) < 33 or not payload.startswith(_PNG_SIGNATURE):
+        raise _fail("OCR_ASSET_IMAGE_INVALID", f"asset is not a PNG: {relative_path}")
+    chunk_length = struct.unpack(">I", payload[8:12])[0]
+    if chunk_length != 13 or payload[12:16] != b"IHDR":
+        raise _fail("OCR_ASSET_IMAGE_INVALID", f"asset has an invalid PNG IHDR: {relative_path}")
+    width, height, bit_depth, color_type, compression, filtering, interlace = struct.unpack(
+        ">IIBBBBB", payload[16:29]
+    )
+    if (
+        width <= 0
+        or height <= 0
+        or width > _MAX_PNG_DIMENSION
+        or height > _MAX_PNG_DIMENSION
+        or width * height > _MAX_PNG_PIXELS
+    ):
+        raise _fail("OCR_ASSET_IMAGE_INVALID", f"asset dimensions exceed limits: {relative_path}")
+    if bit_depth != 8 or color_type != 2 or compression != 0 or filtering != 0 or interlace != 0:
+        raise _fail("OCR_ASSET_IMAGE_INVALID", f"asset PNG encoding is unsupported: {relative_path}")
+    return int(width), int(height)
+
+
+def _read_bounded_asset(file_path: Path, relative_path: str) -> bytes:
+    try:
+        with file_path.open("rb") as stream:
+            if os.fstat(stream.fileno()).st_size > _MAX_PNG_BYTES:
+                raise _fail("OCR_ASSET_FILE_INVALID", f"asset exceeds 64 MiB: {relative_path}")
+            payload = stream.read(_MAX_PNG_BYTES + 1)
+    except OcrAssetError:
+        raise
+    except OSError as exc:
+        raise _fail("OCR_ASSET_FILE_INVALID", f"asset cannot be read: {relative_path}") from exc
+    if len(payload) > _MAX_PNG_BYTES:
+        raise _fail("OCR_ASSET_FILE_INVALID", f"asset exceeds 64 MiB: {relative_path}")
+    return payload
+
+
 def _decode_png(payload: bytes, record: Mapping[str, Any]) -> np.ndarray:
+    relative_path = str(record.get("path"))
+    _validate_png_header(payload, relative_path)
     encoded = np.frombuffer(payload, dtype=np.uint8)
     try:
         image = cv2.imdecode(encoded, cv2.IMREAD_UNCHANGED)
@@ -375,10 +423,7 @@ def load_ocr_assets(
     labels: dict[str, np.ndarray] = {}
     for record, path in parsed_training:
         file_path = _require_regular_file(root, path)
-        try:
-            data = file_path.read_bytes()
-        except OSError as exc:
-            raise _fail("OCR_ASSET_FILE_INVALID", f"asset cannot be read: {path}") from exc
+        data = _read_bounded_asset(file_path, path)
         if hashlib.sha256(data).hexdigest() != record["sha256"]:
             raise _fail("OCR_ASSET_HASH_MISMATCH", f"asset bytes do not match the manifest: {path}")
         image = _decode_png(data, record)
@@ -390,10 +435,7 @@ def load_ocr_assets(
         record = by_identifier[identifier]
         path = _canonical_relative_path(record["path"])
         file_path = _require_regular_file(root, path)
-        try:
-            data = file_path.read_bytes()
-        except OSError as exc:
-            raise _fail("OCR_ASSET_FILE_INVALID", f"asset cannot be read: {path}") from exc
+        data = _read_bounded_asset(file_path, path)
         if hashlib.sha256(data).hexdigest() != record["sha256"]:
             raise _fail("OCR_ASSET_HASH_MISMATCH", f"asset bytes do not match the manifest: {path}")
         image = _decode_png(data, record)

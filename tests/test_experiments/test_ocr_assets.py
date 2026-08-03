@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
+import struct
 
 import cv2
 import numpy as np
@@ -148,6 +149,42 @@ def test_loader_rejects_non_integer_training_channels_before_asset_reads(
     with pytest.raises(OcrAssetError) as exc:
         load_ocr_assets(path)
     assert exc.value.code == "OCR_ASSET_CONFIG_INVALID"
+
+
+def test_loader_rejects_oversize_png_header_before_decode(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source_root = MANIFEST.parent
+    manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
+    copied_root = tmp_path / "assets"
+    copied_root.mkdir()
+    for record in manifest["training"] + manifest["labels"]:
+        destination = copied_root / record["path"]
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes((source_root / record["path"]).read_bytes())
+    path = copied_root / "ocr_assets_manifest.json"
+    first = manifest["training"][0]
+    malformed = (
+        b"\x89PNG\r\n\x1a\n"
+        + struct.pack(">I", 13)
+        + b"IHDR"
+        + struct.pack(">IIBBBBB", 5000, 96, 8, 2, 0, 0, 0)
+        + b"\x00\x00\x00\x00"
+    )
+    (copied_root / first["path"]).write_bytes(malformed)
+    first["sha256"] = hashlib.sha256(malformed).hexdigest()
+    path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    import vision_platform.experiments.ocr_assets as module
+
+    monkeypatch.setattr(
+        module.cv2,
+        "imdecode",
+        lambda *_args, **_kwargs: pytest.fail("oversize IHDR must fail before cv2.imdecode"),
+    )
+    with pytest.raises(OcrAssetError) as exc:
+        load_ocr_assets(path)
+    assert exc.value.code == "OCR_ASSET_IMAGE_INVALID"
 
 
 def test_loader_rejects_symlink_assets(tmp_path: Path) -> None:
