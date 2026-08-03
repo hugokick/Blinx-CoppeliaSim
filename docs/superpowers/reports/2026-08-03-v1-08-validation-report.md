@@ -25,7 +25,7 @@
 | Task 9 | `205ce3d17c233319c7cc93c4d0c9732e65346f08`、`57014b6c88d865a2ed8bd7d8d0a236997f96eba7`、`7d39d8a7241ec663a0406fb4a3a3fe24b94c4192`、`005997d2df81590d0c6cfb732b16eb5531078588`、`c9d1485f2a369a6e909710bb1db82196c7ae77c6`、`ed45774b6e2e6118bd96d991434631341426c2c7` | 同次运行证据、逐条目探针与最终占位 |
 | Task 10 | `257677c16917f37cdf92196991fefea5c33488bd` | PyQt 只读 OCR 结果面板与目录标签 |
 | Task 11 | `3dd652066579deef9a8de11b15789c5b34eb16e6`、`dc876d284bfd3dd4628f21d40c1b0a2039c33fcb` | 在线闭环、安全抬升修复、独立场景与受控几何布局 |
-| Task 12 | `55b8ad954c8821c61d7db132647416fe08716270`、本报告所在提交 | 独立复审、严格默认门禁、完整回归、发布合同与交付记录 |
+| Task 12 | `55b8ad954c8821c61d7db132647416fe08716270`、`327dc66`、`c58ecd9`、`41ca41c`、本报告所在提交 | 独立复审、严格默认门禁、每设备调用暂停/单步门禁、严格置信度响应合同、完整回归、发布合同与交付记录 |
 
 ## TDD 与安全门禁证据
 
@@ -33,23 +33,44 @@
 - 置信度默认门禁 RED：`test_release_default_confidence_gate_is_strict` 先观测到内部默认值 `0.4` 而预期为 `0.90`；GREEN 后服务和网关缺省也使用 `0.90`。
 - 未保留任何固定置信度抬升函数；原始 KNN 分数和 `confidence_method` 直接参与门禁。网关负向测试证明 raw `<0.90` 时返回 `OCR_SORT_RESULT_INVALID`，guard 不激活且 robot/tool 调用数为零。
 - runner 在第一次水平动作前执行安全抬升；所有动作仍由私有执行器逐步复用停止、暂停/单步、运动校验、探针和清理流程。
+- 本次复审 RED 证据保存在 `artifacts/vision_lab/v1-08-review-repair/red-sdk.txt` 和 `red-runner.txt`：SDK 的 `0.41/0.899999`、抬升后水平移动和暂停工具调用均按预期失败。
+- GREEN 后，`test_private_ocr_runner_requires_next_step_between_safety_lift_and_horizontal` 证明一次许可只执行抬升，下一次 `step()` 才执行水平移动；工具 `on/off` 均在各自实际调用前等待许可。SDK 字符级和条目级 `0.41/0.899999/0.90` 边界测试全部通过。
+- `test_private_ocr_runner_stop_releases_waiting_call_and_runs_cleanup` 证明停止会立即唤醒等待中的设备调用、使 guard 失效，并执行既有 `tool.off`、安全抬升和回零清理。
 
 ## 测试结果
 
-- V1-08 focused（含场景、服务、guard、gateway、SDK、探针、材料、UI、静态 acceptance）：`232 passed, 1 skipped, 1 deselected`。deselected 为显式排除的在线标记，不能视为在线通过。
-- 完整静态回归（`.venv-vision`）：`2210 passed, 21 skipped`，无失败。静态 skip 仍按 skip 记录，不改写为在线 PASS。
+- 本次复审后的可复制 focused 命令（`.venv-vision`，按计划 Task 8 文件集执行，并用 `-rs` 显示 skip 原因）：
+  ```powershell
+  .\.venv-vision\Scripts\python.exe -m pytest -q -rs `
+    tests/test_vision2d/test_ocr.py `
+    tests/test_experiments/test_ocr_sorting.py `
+    tests/test_experiments/test_ocr_assets.py `
+    tests/test_experiments/test_ocr_service.py `
+    tests/test_student_programs/test_v1_08_sort_guard.py `
+    tests/test_student_programs/test_v1_08_protocol_sdk.py `
+    tests/test_student_programs/test_v1_08_gateway.py `
+    tests/test_simulation/test_v1_08_ocr_assets.py `
+    tests/test_simulation/test_v1_08_scene_contract.py `
+    tests/test_vision_quality/test_v1_08_materials.py `
+    tests/test_experiments/test_v1_08_cli.py `
+    tests/test_experiments/test_v1_08_probe.py `
+    tests/test_vision_platform/test_v1_08_result_panel.py `
+    tests/test_acceptance/test_delivery_contract.py
+  ```
+  新鲜结果：`224 passed, 1 skipped`（无 deselected；完整输出保存在 `artifacts/vision_lab/v1-08-review-repair/focused-repair-final.txt`）。唯一 skip 为 `tests/test_experiments/test_ocr_assets.py:202` 的 Windows worker 不支持符号链接；该 skip 不计为在线 PASS。此前无法复现的 `232 passed, 1 skipped, 1 deselected` 口径已删除。
+- 完整静态回归（`.venv-vision`）：`2220 passed, 21 skipped`，无失败。静态 skip 仍按 skip 记录，不改写为在线 PASS。
 - 发布合同：`47 passed`（`tests/test_acceptance/test_delivery_contract.py`）。
 - UI 自动化：`5 passed`。Windows Qt 后端已检查 100% 和 125% 缩放截图，结果摘要、四行 OCR、只读证据、`PENDING_HARDWARE` 均可读。
 
 ## CoppeliaSim 在线验收
 
-仅将下面这次显式 `-m coppeliasim` 运行记为在线证据；此前布局调试失败运行不计为通过：
+仅将下面这次由专用 wrapper 启动并显式 `-m coppeliasim` 的运行记为在线证据；未启动监听器时直接运行的失败尝试不计为通过：
 
-- wrapper 摘要：`artifacts/vision_lab/v1-08-online-final-layout/v1-08-online-summary.json`
-- JUnit：`artifacts/vision_lab/v1-08-online-final-layout/v1-08-online.xml`
-- 真实运行目录：`C:\Users\yqzhe\AppData\Local\Temp\pytest-of-yqzhe\pytest-2575\test_v1_08_online_ocr_sorting_0\runs\20260803-041733-v1_08_ocr_sorting-54545d23`
+- wrapper 摘要：`artifacts/vision_lab/v1-08-online-review-repair/v1-08-online-summary.json`
+- JUnit：`artifacts/vision_lab/v1-08-online-review-repair/v1-08-online.xml`
+- 真实运行目录：`C:\Users\yqzhe\AppData\Local\Temp\pytest-of-yqzhe\pytest-2594\test_v1_08_online_ocr_sorting_0\runs\20260803-045143-v1_08_ocr_sorting-a614819f`
 - 结果：`1 passed, 0 skipped, 0 failures, 0 errors`，端口 `23008`，场景哈希 `3bd1cb20d78be81f5f1358d8601e384a5cd07ab346062d55e120e031c3b993c1`。
-- 四个字符均 PASS，原始字符级最低置信度约 `0.9082`，训练留出准确率 `1.0`；命令记录只有一个 `vision2d.ocr_sorting`、四个严格 `vision2d.ocr_sort_entry` 和 context 证据命令，没有 raw `robot.*`/`tool.*`。
+- wrapper `launch` 由本次脚本创建并准确回收 PID `7760`；四个字符均 PASS，原始字符级最低置信度约 `0.9082`，训练留出准确率 `1.0`，未做置信度映射；命令记录只有一个 `vision2d.ocr_sorting`、四个严格 `vision2d.ocr_sort_entry` 和 context 证据命令，没有 raw `robot.*`/`tool.*`。
 - `scene-final.json`：`matched=4/4`、同次运行证据为真、四槽位占位正确、`robot_home=true`、`tool_off=true`、`safety_violation_count=0`。
 
 ## UI 证据
