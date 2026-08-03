@@ -149,6 +149,8 @@ tests/test_rgbd_sim/test_preview.py
 vision_platform/rgbd_sim/scene_binding.py
 vision_platform/rgbd_sim/probe.py
 tests/test_rgbd_sim/test_scene_binding.py
+tests/test_rgbd_sim/test_scene_builder.py
+tests/test_rgbd_sim/test_scene_contract.py
 tests/test_rgbd_sim/test_probe.py
 tools/rgbd_lab/run_rgbd_probe.py
 tests/test_rgbd_sim/test_probe_cli.py
@@ -161,6 +163,7 @@ simulation/rgbd_lab/scene_spec.json
 tools/rgbd_lab/__init__.py
 tools/rgbd_lab/build_rgbd_scene.py
 tools/rgbd_lab/build_rgbd_scene.ps1
+tools/rgbd_lab/listener_identity.ps1
 simulation/rgbd_lab/scene_manifest.json
 simulation/rgbd_lab/BL23_rgbd_lab.ttt
 student_programs/README.md
