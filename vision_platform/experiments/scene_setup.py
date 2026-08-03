@@ -11,6 +11,7 @@ LOGISTICS_GROUPS = (
 INDEPENDENT_SCENE_GROUPS = (
     "/VisionCodeRoutingLab",
     "/VisionOcrSortingLab",
+    "/VisionDefectSortingLab",
 )
 
 _PARKED_Z = {

@@ -1446,16 +1446,21 @@ class StudentExperimentGateway:
             or any(character not in "0123456789abcdef" for character in binding["sha256"])
         ):
             raise VisionPlatformError("DEFECT_SORT_ASSET_INVALID", "缺陷资产清单绑定缺失或格式无效")
-        relative = Path(binding["path"])
-        root = self._definition.scene_manifest.parent.resolve()
-        if relative.is_absolute() or any(part in {".", ".."} for part in relative.parts):
-            raise VisionPlatformError("DEFECT_SORT_ASSET_INVALID", "缺陷资产清单路径不安全")
-        candidate = (root / relative).resolve(strict=True)
-        if candidate.parent != root and root not in candidate.parents:
-            raise VisionPlatformError("DEFECT_SORT_ASSET_INVALID", "缺陷资产清单越出实验目录")
-        if candidate.is_symlink() or _sha256_file(candidate) != binding["sha256"]:
-            raise VisionPlatformError("DEFECT_SORT_ASSET_INVALID", "缺陷资产清单哈希不匹配")
-        return candidate
+        try:
+            candidate = self._resolve_catalog_path(binding["path"])
+            if candidate.is_symlink() or _sha256_file(candidate) != binding["sha256"]:
+                raise ValueError("defect asset manifest hash mismatch")
+            if candidate.name != "defect_assets_manifest.json":
+                raise ValueError("defect asset manifest has an invalid name")
+            return candidate
+        except VisionPlatformError:
+            raise
+        except Exception as error:
+            raise VisionPlatformError(
+                "DEFECT_SORT_ASSET_INVALID",
+                "缺陷资产清单校验失败",
+                details={"error_type": type(error).__name__},
+            ) from error
 
     @staticmethod
     def _defect_result_public(result: Any, entry: Any) -> dict[str, Any]:
@@ -1534,7 +1539,11 @@ class StudentExperimentGateway:
             ]
             for entry_id in (f"entry_{letter}" for letter in "abcdef"):
                 layers.append(VisionImageLayer(f"candidate-{entry_id}", f"候选件 {entry_id}", output.candidate_crops[entry_id]))
-                layers.append(VisionImageLayer(f"mask-{entry_id}", "缺陷区域示意", output.finding_masks[entry_id]))
+                mask_bgr = cv2.cvtColor(
+                    output.finding_masks[entry_id],
+                    cv2.COLOR_GRAY2BGR,
+                )
+                layers.append(VisionImageLayer(f"mask-{entry_id}", "缺陷区域示意", mask_bgr))
             bundle_result = {"plan": plan_public, "entries": entries_public}
             bundle = VisionResultBundle(
                 schema_version=1,

@@ -303,6 +303,52 @@ V22_V1_08_REQUIRED_RELEASE_PATHS = frozenset(
     }
 )
 
+V22_V1_09_REQUIRED_RELEASE_PATHS = frozenset(
+    {
+        "config/experiments/V1-09.json",
+        "docs/experiments/V1-09.md",
+        "simulation/vision_defect_sorting_lab/BL23_vision_defect_sorting_lab.ttt",
+        "simulation/vision_defect_sorting_lab/acceptance_ground_truth.json",
+        "simulation/vision_defect_sorting_lab/defect_assets_manifest.json",
+        "simulation/vision_defect_sorting_lab/profiles.json",
+        "simulation/vision_defect_sorting_lab/scene_manifest.json",
+        "simulation/vision_defect_sorting_lab/scene_spec.json",
+        "simulation/vision_defect_sorting_lab/assets/reference.png",
+        "simulation/vision_defect_sorting_lab/assets/candidate_a.png",
+        "simulation/vision_defect_sorting_lab/assets/candidate_b.png",
+        "simulation/vision_defect_sorting_lab/assets/candidate_c.png",
+        "simulation/vision_defect_sorting_lab/assets/candidate_d.png",
+        "simulation/vision_defect_sorting_lab/assets/candidate_e.png",
+        "simulation/vision_defect_sorting_lab/assets/candidate_f.png",
+        "student_programs/templates/v1_09_surface_defects.py",
+        "tests/test_acceptance/test_coppeliasim_v1_09.py",
+        "tests/test_experiments/test_defect_assets.py",
+        "tests/test_experiments/test_defect_service.py",
+        "tests/test_experiments/test_defect_sorting.py",
+        "tests/test_experiments/test_defect_visualization.py",
+        "tests/test_experiments/test_v1_09_cli.py",
+        "tests/test_experiments/test_v1_09_probe.py",
+        "tests/test_simulation/test_v1_09_defect_assets.py",
+        "tests/test_simulation/test_v1_09_scene_builder.py",
+        "tests/test_simulation/test_v1_09_scene_contract.py",
+        "tests/test_student_programs/test_v1_09_defect_sort_guard.py",
+        "tests/test_student_programs/test_v1_09_evidence.py",
+        "tests/test_student_programs/test_v1_09_gateway.py",
+        "tests/test_student_programs/test_v1_09_protocol_sdk.py",
+        "tests/test_student_programs/test_v1_09_program.py",
+        "tests/test_student_programs/test_v1_09_runner.py",
+        "tests/test_vision_quality/test_v1_09_materials.py",
+        "tools/vision_lab/build_v1_09_scene.py",
+        "tools/vision_lab/build_v1_09_scene.ps1",
+        "tools/vision_lab/generate_v1_09_defect_assets.py",
+        "tools/vision_lab/run_v1_09_surface_defects.ps1",
+        "vision_platform/experiments/defect_assets.py",
+        "vision_platform/experiments/defect_service.py",
+        "vision_platform/experiments/defect_sorting.py",
+        "vision_platform/experiments/defect_visualization.py",
+    }
+)
+
 
 def _retained_release_paths() -> set[str]:
     return {
@@ -996,6 +1042,7 @@ def test_formal_experiment_catalog_resolves_every_delivery_path():
         "V1-06",
         "V1-07",
         "V1-08",
+        "V1-09",
     )
     for item in catalog.definitions:
         assert item.scene.is_file()
@@ -1066,6 +1113,15 @@ def test_retained_files_contains_complete_v1_08_delivery() -> None:
     )
 
 
+def test_retained_files_contains_complete_v1_09_delivery() -> None:
+    retained = _retained_release_paths()
+    missing = sorted(V22_V1_09_REQUIRED_RELEASE_PATHS - retained)
+    assert not missing, "missing V1-09 paths: " + ", ".join(missing)
+    assert all(
+        (ROOT / path).is_file() for path in V22_V1_09_REQUIRED_RELEASE_PATHS
+    )
+
+
 def test_formal_v1_definitions_stay_hardware_pending_without_grading_fields():
     import json
 
@@ -1089,6 +1145,7 @@ def test_formal_v1_definitions_stay_hardware_pending_without_grading_fields():
         "V1-06",
         "V1-07",
         "V1-08",
+        "V1-09",
     ):
         payload = json.loads(
             (ROOT / "config" / "experiments" / f"{experiment_id}.json")

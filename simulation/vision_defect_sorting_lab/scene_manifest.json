@@ -1,32 +1,200 @@
 {
   "schema_version": 1,
   "scene_id": "vision-defect-sorting-lab",
+  "generated_at": "2026-08-03T13:36:06.249993+00:00",
+  "generator": "simulation.training_scenes.build_scene",
+  "template": {
+    "path": "simulation/vision_lab/BL23_vision_lab.ttt",
+    "sha256": "5154dfc3132cd29aafcbe5de83c1a6b61960595681ac5c90d2d92a5b642bda55"
+  },
   "scene": {
     "path": "simulation/vision_defect_sorting_lab/BL23_vision_defect_sorting_lab.ttt",
-    "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
-    "size_bytes": 0
+    "sha256": "b86e8f565ff28251f2ec0b6c88bc40c3b7908c991509917e699545c7db58a18f",
+    "size_bytes": 14194112
   },
-  "required_paths": [],
+  "required_paths": [
+    "/BLX_base_link",
+    "/BLX_joint1",
+    "/BLX_joint2",
+    "/BLX_joint3",
+    "/BLX_joint4",
+    "/BLX_joint5",
+    "/BLX_joint6",
+    "/BLX_tool_suction",
+    "/VisionDefectSortingLab",
+    "/VisionDefectSortingLab/Workspace",
+    "/VisionDefectSortingLab/CameraRig",
+    "/VisionDefectSortingLab/CameraRig/Camera",
+    "/VisionDefectSortingLab/Lighting",
+    "/VisionDefectSortingLab/Lighting/KeyLight",
+    "/VisionDefectSortingLab/Lighting/FillLight",
+    "/VisionDefectSortingLab/Reference",
+    "/VisionDefectSortingLab/Reference/InspectionFace",
+    "/VisionDefectSortingLab/Parts",
+    "/VisionDefectSortingLab/Parts/part_a",
+    "/VisionDefectSortingLab/Parts/part_a/InspectionFace",
+    "/VisionDefectSortingLab/Parts/part_b",
+    "/VisionDefectSortingLab/Parts/part_b/InspectionFace",
+    "/VisionDefectSortingLab/Parts/part_c",
+    "/VisionDefectSortingLab/Parts/part_c/InspectionFace",
+    "/VisionDefectSortingLab/Parts/part_d",
+    "/VisionDefectSortingLab/Parts/part_d/InspectionFace",
+    "/VisionDefectSortingLab/Parts/part_e",
+    "/VisionDefectSortingLab/Parts/part_e/InspectionFace",
+    "/VisionDefectSortingLab/Parts/part_f",
+    "/VisionDefectSortingLab/Parts/part_f/InspectionFace",
+    "/VisionDefectSortingLab/Slots",
+    "/VisionDefectSortingLab/Slots/slot_qualified",
+    "/VisionDefectSortingLab/Slots/slot_missing",
+    "/VisionDefectSortingLab/Slots/slot_hole",
+    "/VisionDefectSortingLab/Slots/slot_foreign",
+    "/VisionDefectSortingLab/Slots/slot_broken",
+    "/VisionDefectSortingLab/Slots/slot_dimension"
+  ],
   "task_contracts": {},
   "protected_assets_unchanged": true,
   "profile_catalog": {
     "path": "simulation/vision_defect_sorting_lab/profiles.json",
-    "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+    "sha256": "3dcb02b240659ae83b455a156b929c4e45604cdf1dc7aa7858772e7871956406"
   },
   "defect_assets_manifest": {
     "path": "simulation/vision_defect_sorting_lab/defect_assets_manifest.json",
-    "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+    "sha256": "96799f00b4ffee96dc0d090977269fd3730c061897fd127a4f2b3f84dbd95282"
   },
   "defect_sorting": {
-    "part_ids": ["part_a", "part_b", "part_c", "part_d", "part_e", "part_f"],
+    "part_ids": [
+      "part_a",
+      "part_b",
+      "part_c",
+      "part_d",
+      "part_e",
+      "part_f"
+    ],
+    "reference_position_mm": [
+      85,
+      -57,
+      18
+    ],
+    "initial_positions_mm": {
+      "part_a": [
+        140,
+        -16,
+        18
+      ],
+      "part_b": [
+        85,
+        -16,
+        18
+      ],
+      "part_c": [
+        30,
+        -16,
+        18
+      ],
+      "part_d": [
+        140,
+        38,
+        18
+      ],
+      "part_e": [
+        85,
+        38,
+        18
+      ],
+      "part_f": [
+        30,
+        38,
+        18
+      ]
+    },
+    "calibration_plane_z_mm": 27.4,
+    "calibration_matrix": [
+      [
+        -0.16000295944756412,
+        0.0,
+        166.84151375742906
+      ],
+      [
+        0.0,
+        0.16000295944756412,
+        -81.84151375742906
+      ]
+    ],
     "rois": {
-      "reference": [416, 56, 192, 192],
-      "entry_a": [80, 320, 192, 192],
-      "entry_b": [416, 320, 192, 192],
-      "entry_c": [752, 320, 192, 192],
-      "entry_d": [80, 648, 192, 192],
-      "entry_e": [416, 648, 192, 192],
-      "entry_f": [752, 648, 192, 192]
+      "entry_a": [
+        80,
+        320,
+        192,
+        192
+      ],
+      "entry_b": [
+        416,
+        320,
+        192,
+        192
+      ],
+      "entry_c": [
+        752,
+        320,
+        192,
+        192
+      ],
+      "entry_d": [
+        80,
+        648,
+        192,
+        192
+      ],
+      "entry_e": [
+        416,
+        648,
+        192,
+        192
+      ],
+      "entry_f": [
+        752,
+        648,
+        192,
+        192
+      ],
+      "reference": [
+        416,
+        56,
+        192,
+        192
+      ]
+    },
+    "slot_positions_mm": {
+      "qualified": [
+        132,
+        -93,
+        22
+      ],
+      "missing": [
+        85,
+        -93,
+        22
+      ],
+      "hole": [
+        38,
+        -93,
+        22
+      ],
+      "foreign": [
+        132,
+        75,
+        22
+      ],
+      "broken": [
+        85,
+        75,
+        22
+      ],
+      "dimension": [
+        38,
+        75,
+        22
+      ]
     },
     "safe_z_mm": 110.0
   },

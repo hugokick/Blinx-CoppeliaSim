@@ -31,6 +31,8 @@ def require_expected_scene(sim, scene_path: str | Path) -> None:
         if expected_name == "bl23_vision_code_routing_lab.ttt"
         else "/VisionOcrSortingLab"
         if expected_name == "bl23_vision_ocr_sorting_lab.ttt"
+        else "/VisionDefectSortingLab"
+        if expected_name == "bl23_vision_defect_sorting_lab.ttt"
         else "/VisionLab"
     )
     for sentinel in (scene_root, "/BLX_base_link"):
