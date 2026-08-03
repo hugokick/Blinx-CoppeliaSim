@@ -11,7 +11,7 @@
 - 权威基线：`origin/main = 5c09695b764fa35915dd5ae486b5f13f9a4d8631`。
 - 分支：`codex/v2-2-d1-01-rgbd-sim-foundation`。
 - worktree：`C:\Users\yqzhe\.config\superpowers\worktrees\robot-vision-lab\v2-2-d1-01-rgbd-sim-foundation`。
-- 报告提交前 tip：`75a4f51f5ebe6e3bc5916a6510eeb677cd915584`。
+- 本轮修复代码验证 tip（文档更新前）：`b41aaf5d87e954dc827a2fa08d96a31f3f272635`。
 - 固定 D1-01 端口：`23009`；没有占用或清理 V1-08 的 `23008`。
 - `.venv-vision` 是指向已验证主线环境的 worktree-local junction，不在 Git 中。
 
@@ -26,6 +26,11 @@
 7. `60d16f0a9cc43ab044651b706b7d7e6cc98f9f2f` — `test(rgbd-sim): verify online metric RGB-D capture`
 8. `75a4f51f5ebe6e3bc5916a6510eeb677cd915584` — `fix(rgbd-sim): tighten manifest and process review contracts`
 9. `8c593b8d96277109843f3b04c64bb4e0811bf384` — `docs(rgbd-sim): publish foundation validation report`
+10. `418012b7430df6b22c2b1972f308ebfeb05c3204` — `fix(rgbd-sim): bind source-depth observations to measurements`
+11. `7f66e7b30782a0ac5dc3832e7a2209a32187d7d8` — `fix(rgbd-sim): verify owned listener before scene build`
+12. `92e857d0cbf161d0c91177f25d558d14f9c6cdbe` — `fix(rgbd-sim): enforce template and sensor manifest contracts`
+13. `8b0062a6164dc86f35599affa83d7d93e375568f` — `chore(rgbd-sim): retain scene contract and listener tests`
+14. `b41aaf5d87e954dc827a2fa08d96a31f3f272635` — `test(rgbd-sim): cover template binding in online tamper case`
 
 ## TDD RED/GREEN evidence
 
@@ -37,16 +42,19 @@
 - Task 7：CLI 测试先因模块缺失 RED；GREEN 后 `5 passed`，覆盖越界/仓内输出、固定端口、非数值、覆盖保护、错误 JSON 和成功三个输出文件。
 - Task 8：未加 marker 的在线文件明确 `3 skipped`，消息写明 skip 不等于在线 PASS。首次真实 opt-in 运行为 `1 failed, 2 passed`：发现 RGB/depth ignored 参数在本机 CoppeliaSim 返回 `None`；新增回归后仅在已取得两个 buffer 的同一事务中将该“旧参数不支持”映射为 enabled。第二次运行发现原 anchor 像素落入目标投影；按真实深度连通域改正 anchor/ROI 几何，而非放宽容差。最终真实运行 `3 passed`。
 - Task 9 独立复审先新增三项 manifest 安全断言，旧实现真实 `3 failed`；GREEN 后 `10 passed, 1 skipped`，补齐 template 额外键、固定传感器路径和非有限 anchor position 拒绝，并收紧在线进程监听 PID 必须等于自身 PID。
+- 本轮 P1-1：新增 source-depth 观测证明测试在旧实现上真实 `4 failed, 4 passed`；GREEN 后深度模型 `8 passed`，含相关 probe/CLI 回归 `15 passed`。证明绑定 scene SHA、source digest、sequence、anchor digest，并拒绝裸字符串、复制/伪造对象、跨帧/跨 source/跨 anchor 重放和 NaN/Inf 误差。
+- 本轮 P1-2：监听身份替换测试在旧 builder 合同上真实 `3 failed, 3 passed`；GREEN 后 `test_scene_builder.py` `6 passed`。PowerShell 在 readiness 之后、builder 之前重新核对 listener PID、可执行路径和 UTC 启动时间；替换 listener 场景实际以 identity mismatch 失败，清理复用精确归属合同。
+- 本轮 P1-3/P2：严格 template/sensor manifest 负向测试在旧实现上真实 `8 failed, 10 passed, 1 skipped`；GREEN 后 `test_scene_binding.py` `18 passed, 1 skipped`。template 路径、存在性、SHA、传感器有限位姿及单位四元数均绑定校验；symlink skip 保持单独计数。
 
 ## Focused, online and full results
 
-- `tests/test_rgbd_sim`（默认静态）：`69 passed, 4 skipped`。
-- `tests/test_rgbd`、`tests/test_vision_platform/test_coppeliasim_camera.py`、`tests/test_acceptance/test_delivery_contract.py`：`154 passed`。
-- 实际在线命令：`pytest -q -s -m coppeliasim tests/test_rgbd_sim/test_coppeliasim_rgbd_online.py` → `3 passed in 11.68s`。在线进程只启动并终止自身 PID，清理后 `23009` 无监听。
-- 全仓静态：`2093 passed, 23 skipped in 76.24s`。
+- `tests/test_rgbd_sim`（默认静态）：`87 passed, 4 skipped`。
+- `tests/test_rgbd`、`tests/test_vision_platform/test_coppeliasim_camera.py`：`108 passed`；`tests/test_acceptance/test_delivery_contract.py`：`46 passed`。
+- 实际在线命令：`pytest -q -s -m coppeliasim tests/test_rgbd_sim/test_coppeliasim_rgbd_online.py` → `3 passed in 11.99s`。在线进程只启动并终止自身 PID，清理后 `23009` 无监听。
+- 全仓静态：`2108 passed, 23 skipped in 77.01s`。
 - 全仓 23 个 skip 中，19 个为基线已有环境/静态门；本分支新增 3 个未启用在线测试 skip 和 1 个 Windows symlink 权限 skip。所有 skip 均单独计数，未解释为 PASS。
 - `git diff --check`：通过。
-- 512×512 CPU 纯内存测量/序列化回归：`0.023041s`，低于计划的 `2.0s` 上限；不代表仿真、相机或硬件吞吐。
+- 512×512 CPU 纯内存测量/序列化回归：`0.022522s`，低于计划的 `2.0s` 上限；`tests/test_rgbd/test_performance.py` `1 passed`。不代表仿真、相机或硬件吞吐。
 
 ## Real CoppeliaSim evidence
 
@@ -65,12 +73,13 @@
 - 允许新增/修改仅在 `vision_platform/rgbd_sim/**`、`tests/test_rgbd_sim/**`、`simulation/rgbd_lab/**`、`tools/rgbd_lab/**`、本报告、`.gitattributes` 和 `RETAINED_FILES.txt`。
 - `vision_platform/rgbd/**`、`vision_platform/cameras/coppeliasim.py`、V1-07/V1-08、正式场景、student/experiments/UI/SDK、机器人资产和依赖文件均未修改。
 - sim adapter 只复用只读的 `CoppeliaClientResolver`；OpenCV 只在 preview/CLI 边界使用；测试进程辅助中的 `socket/subprocess` 不进入共享 RGB-D 算法内核。
-- `RETAINED_FILES.txt` 当前 442 条、无重复；所有 D1-01 正式新增文件已列入。本分支未新增 runtime artifact 路径；现有的 4 条 `simulation/vision_lab/evidence/**` 条目均已存在于 `origin/main`，未被本分支新增或修改。
+- `RETAINED_FILES.txt` 当前 445 条文件记录、445 唯一、0 缺失；已补入 `tests/test_rgbd_sim/test_scene_builder.py`、`tests/test_rgbd_sim/test_scene_contract.py` 和 `tools/rgbd_lab/listener_identity.ps1`。本分支未新增 runtime artifact 路径；现有的 4 条 `simulation/vision_lab/evidence/**` 条目均已存在于 `origin/main`，未被本分支新增或修改。
+- ownership/dependency diff 审计通过：相对精确基线的修改均落在 D1-01 owned 路径；无 `vision_platform/rgbd`、`vision_platform/cameras/coppeliasim.py`、V1-07/V1-08、正式机器人资产、student/experiments/UI/SDK 或依赖文件改动。
 - 未注册 `config/experiments/D1-01.json`，未接入正式课程、SDK/UI 或机器人动作。
 
 ## Review conclusion and remaining PENDING items
 
-独立复审未发现尚未修复的 P0/P1/P2。修复后的底座已验证“仿真 RGB-D source capture → source model 观测 → optical-Z frame → ROI/JSON evidence”这一范围；真实在线结果不能外推为真实深度相机精度、课程教学效果、机器人闭环或硬件验收。
+本轮独立复审提出的 P1-1 source-depth 观测门、P1-2 listener 归属、P1-3 retained 清单和 P2 manifest 严格绑定均已按 RED→GREEN 修复并回归。修复后的底座已验证“仿真 RGB-D source capture → source model 观测 → optical-Z frame → ROI/JSON evidence”这一范围；真实在线结果不能外推为真实深度相机精度、课程教学效果、机器人闭环或硬件验收。
 
 - Teaching: `PENDING_HUMAN_ACCEPTANCE`。
 - Hardware: `PENDING_HARDWARE`（真实深度相机、机械臂、急停、气路、抓取均未验收）。
