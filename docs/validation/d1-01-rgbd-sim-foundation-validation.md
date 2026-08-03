@@ -84,20 +84,21 @@
 - 新主线基线：`origin/main = 1c11302811a070d62c4d440a012a0399027a1683`。
 - 原 D1-01 输入：`origin/codex/v2-2-d1-01-rgbd-sim-foundation = dd17f74a6bc34bc4a90dc9202692a5ba69f239d2`；共同基线仍为 `5c09695b764fa35915dd5ae486b5f13f9a4d8631`。
 - 集成分支/worktree：`codex/v2-2-d1-01-main-integration` / `C:\Users\yqzhe\.config\superpowers\worktrees\robot-vision-lab\v2-2-d1-01-main-integration`。
-- 修复前候选 tip：`9ab5655bd40ac6279726ae02658738b811c926da`；本轮开发端修复提交依次为 `4de7e37`（观测证明门）、`762a334`（CLI 有界客户端超时）、`3537f29`（替换监听者下清理自有进程）；本报告提交前 tip 为 `3537f29`。
+- 修复前候选 tip：`9ab5655bd40ac6279726ae02658738b811c926da`；本轮开发端修复提交依次为 `4de7e37`（观测证明门）、`762a334`（CLI 有界客户端超时）、`3537f29`（替换监听者下清理自有进程）、`c820187`（真实 RemoteAPIClient 生命周期与 ZMQ 超时）；本报告提交前 tip 为 `c820187`。
 - 可复制重放命令：`git fetch origin --prune`；`git worktree add C:\Users\yqzhe\.config\superpowers\worktrees\robot-vision-lab\v2-2-d1-01-main-integration -b codex/v2-2-d1-01-main-integration origin/main`；按 `git rev-list --reverse 5c09695b764fa35915dd5ae486b5f13f9a4d8631..dd17f74a6bc34bc4a90dc9202692a5ba69f239d2` 输出的顺序逐个 `git cherry-pick`，共 17 个提交。
 - 冲突记录：仅 `.gitattributes` 发生内容冲突；已并集保留 V1-08 的 4 条 OCR 规则与 D1-01 的 `simulation/rgbd_lab/*.json` 规则。`RETAINED_FILES.txt` 无冲突，未删除、重排或覆盖任一端条目。
 - 保护范围审计：相对新 `origin/main` 的差异仅为 D1-01 owned 路径、`.gitattributes`、`RETAINED_FILES.txt` 和本报告；V1-08、student/experiments/UI/SDK、正式 `.ttt`、URDF/STL/网格/机器人资产及 `vision_platform/rgbd/**`、`vision_platform/cameras/coppeliasim.py` 均无差异。
-- 本轮定向修复 RED/GREEN：旧实现上观测门新增回归 `3 failed`，CLI 超时注入回归和替换监听者清理回归各真实失败；GREEN 后聚焦 `46 passed`。新增证明绑定 scene SHA、source/frame digest、sequence、anchor digest；CLI 将 `timeout_s` 写入 Remote API client 的 request/initial/socket receive timeout；替换 listener 存在时先只清理自有 PID，再报告精确 replacement 错误。
-- 集成专项：`pytest -q -rs tests/test_rgbd_sim` → `94 passed, 4 skipped`；`pytest -q tests/test_rgbd tests/test_vision_platform/test_coppeliasim_camera.py` → `108 passed`；`pytest -q tests/test_acceptance/test_delivery_contract.py` → `47 passed`。
-- 全仓静态：`pytest -q` → `2314 passed, 25 skipped in 93.48s`。D1-01 默认在线测试 3 项保持 skip，另有 1 项 Windows symlink 权限 skip；其余 skip 为既有环境/静态门，均单独计数，未写作 PASS。
-- 显式在线：先确认 `23008`、`23009` 均无 listener；`pytest -q -s -m coppeliasim tests/test_rgbd_sim/test_coppeliasim_rgbd_online.py` → `3 passed, 0 skipped in 12.46s`；固定端口 `23009`，进程精确归属并清理，结束复核 `23008`、`23009` 均无 listener。在线合同验证 source model=`optical_z`、显式处理和 optical-Z 输出。
+- 本轮定向修复 RED/GREEN：旧实现观测门回归真实 `3 failed`，替换监听者清理回归真实失败；本次新增真实 RemoteAPIClient 无服务端口子进程回归也真实失败（2 秒内未正常退出）。GREEN 后聚焦 `48 passed`：wrapper 以整数毫秒设置 send/receive timeout、`IMMEDIATE=1`、`LINGER=0`，绕过外部客户端的浮点初连路径，并在 `require` 失败/正常关闭时幂等清理 socket/context；错误 JSON 仍有界。
+- 集成专项：`pytest -q -rs tests/test_rgbd_sim` → `95 passed, 4 skipped`；`pytest -q tests/test_rgbd tests/test_vision_platform/test_coppeliasim_camera.py` → `108 passed`；`pytest -q tests/test_acceptance/test_delivery_contract.py` → `47 passed`。
+- 全仓静态：`pytest -q` → `2315 passed, 25 skipped in 91.06s`。D1-01 默认在线测试 3 项保持 skip，另有 1 项 Windows symlink 权限 skip；其余 skip 为既有环境/静态门，均单独计数，未写作 PASS。
+- 显式在线：先确认 `23008`、`23009` 均无 listener；`pytest -q -s -m coppeliasim tests/test_rgbd_sim/test_coppeliasim_rgbd_online.py` → `3 passed, 0 skipped in 15.87s`；固定端口 `23009`，进程精确归属并清理，结束复核 `23008`、`23009` 均无 listener。在线合同验证 source model=`optical_z`、显式处理和 optical-Z 输出。
+- 真实 CLI 成功路径：在自有 CoppeliaSim 进程/23009 上运行 `run_rgbd_probe`（`--timeout-s 5 --overwrite`）返回 `0`，`report.json` 为 `PASS`，生成 `rgb.png`、`depth.png`、`report.json`；退出后 `23008`、`23009` 均无 listener。
 - 集成清单审计原始输出：`RETAINED_FILES.txt` 共 `530 raw lines`（2 comment/blank + 528 valid paths）、`528 valid unique`、`0 missing`；`origin/main` 为 `497 raw lines`（2 + 495 valid paths），所有主线条目保留。`git diff --check` 通过；相对 `origin/main` 的 changed paths `35`、unexpected `0`、protected `0`。
 - 开发端已完成定向修复与自测，协调端最终独立复审待定。
 
 ## Review conclusion and remaining PENDING items
 
-开发端已完成本轮 P1-1 source-depth 观测门、P1-2 CLI 有界超时、P1-3 replacement-listener 清理的定向修复与自测；协调端最终独立复审待定。现有测试/在线证据仅覆盖“仿真 RGB-D source capture → source model 观测 → optical-Z frame → ROI/JSON evidence”范围；真实在线结果不能外推为真实深度相机精度、课程教学效果、机器人闭环或硬件验收。
+开发端已完成本轮 P1-1 source-depth 观测门、P1-2 CLI 有界超时、P1-3 replacement-listener 清理及本次真实 RemoteAPIClient 生命周期定向修复与自测；协调端最终独立复审待定。现有测试/在线证据仅覆盖“仿真 RGB-D source capture → source model 观测 → optical-Z frame → ROI/JSON evidence”范围；真实在线结果不能外推为真实深度相机精度、课程教学效果、机器人闭环或硬件验收。
 
 - Teaching: `PENDING_HUMAN_ACCEPTANCE`。
 - Hardware: `PENDING_HARDWARE`（真实深度相机、机械臂、急停、气路、抓取均未验收）。
