@@ -22,6 +22,8 @@ _CAPABILITY_LABELS = {
     "camera.profile": "相机配置",
     "lighting.profile": "光照配置",
     "vision2d.analysis": "二维视觉分析",
+    "vision2d.template_matching": "模板匹配",
+    "vision2d.ocr_sorting": "OCR 编号分拣",
     "experiment.info": "实验参数",
     "scene.probe": "场景探针",
 }

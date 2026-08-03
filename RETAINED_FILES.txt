@@ -251,6 +251,7 @@ tests/test_vision_platform/test_student_program_panel.py
 tests/test_vision_platform/test_view_model.py
 tests/test_vision_platform/test_vision_result_panel.py
 tests/test_vision_platform/test_v1_06_result_panel.py
+tests/test_vision_platform/test_v1_08_result_panel.py
 tests/test_vision_quality/__init__.py
 tests/test_vision_quality/test_catalog.py
 tests/test_vision_quality/test_controller.py

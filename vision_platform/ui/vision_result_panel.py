@@ -95,6 +95,11 @@ class VisionResultPanel(QWidget):
         metadata_layout.addWidget(self.metrics_label, 1, 0, 1, 2)
         root.addWidget(metadata)
 
+        self.evidence_paths_label = QLabel("证据图层：—")
+        self.evidence_paths_label.setWordWrap(True)
+        self.evidence_paths_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        root.addWidget(self.evidence_paths_label)
+
         self.route_summary_label = QLabel("代码路由：—")
         self.route_summary_label.setObjectName("visionRouteSummary")
         self.route_summary_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
@@ -105,6 +110,17 @@ class VisionResultPanel(QWidget):
         self.route_text.setMaximumBlockCount(400)
         self.route_text.setMinimumHeight(150)
         root.addWidget(self.route_text)
+
+        self.ocr_summary_label = QLabel("OCR 分拣：—")
+        self.ocr_summary_label.setObjectName("visionOcrSummary")
+        self.ocr_summary_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        root.addWidget(self.ocr_summary_label)
+        self.ocr_text = QPlainTextEdit()
+        self.ocr_text.setObjectName("visionOcrDetails")
+        self.ocr_text.setReadOnly(True)
+        self.ocr_text.setMaximumBlockCount(240)
+        self.ocr_text.setMinimumHeight(150)
+        root.addWidget(self.ocr_text)
 
         layer_row = QHBoxLayout()
         layer_row.addWidget(QLabel("显示图层"))
@@ -177,6 +193,10 @@ class VisionResultPanel(QWidget):
                 border-radius: 3px;
                 padding: 7px 9px;
             }
+            QLabel#visionOcrSummary {
+                color: #315a78;
+                font-weight: 600;
+            }
             """
         )
 
@@ -216,8 +236,11 @@ class VisionResultPanel(QWidget):
         self.status_label.setText(message)
         self.profile_label.setText("配置档：—")
         self.metrics_label.setText("结果状态：—　图层：0")
+        self.evidence_paths_label.setText("证据图层：—")
         self.route_summary_label.setText("代码路由：—")
         self.route_text.clear()
+        self.ocr_summary_label.setText("OCR 分拣：—")
+        self.ocr_text.clear()
         self.preview_label.clear()
         self.preview_label.setText("等待视觉结果")
         self.result_text.clear()
@@ -337,8 +360,26 @@ class VisionResultPanel(QWidget):
                 f"　模板：{template_id}　分数：{score}"
                 f"　框：{bbox_text}　中心：{center_text}"
             )
+        training = result.get("training") if isinstance(result, dict) else None
+        if isinstance(training, dict):
+            accuracy = self._format_number(
+                training.get("held_out_accuracy"),
+                digits=3,
+                suffix="",
+            )
+            if accuracy != "—":
+                metrics += f"　OCR训练准确率：{accuracy}"
         self.metrics_label.setText(metrics)
+        self.evidence_paths_label.setText(
+            "证据图层："
+            + "　".join(
+                f"{layer.get('layer_id', '—')}: {layer.get('path', '—')}"
+                for layer in layers
+                if isinstance(layer, dict)
+            )
+        )
         self._show_code_routes(result)
+        self._show_ocr_sorting(result)
         public_bundle = {
             key: value
             for key, value in bundle.items()
@@ -360,6 +401,63 @@ class VisionResultPanel(QWidget):
         self.layer_combo.setCurrentIndex(0)
         self.layer_combo.blockSignals(False)
         self._render_selected_layer()
+
+    def _show_ocr_sorting(self, result: Any) -> None:
+        if (
+            not isinstance(result, dict)
+            or not isinstance(result.get("training"), dict)
+            or not isinstance(result.get("results"), list)
+        ):
+            self.ocr_summary_label.setText("OCR 分拣：—")
+            self.ocr_text.clear()
+            return
+
+        plan_id = result.get("plan_id", "—")
+        plan_text = str(plan_id)
+        if len(plan_text) > 24:
+            plan_text = f"{plan_text[:12]}…{plan_text[-8:]}"
+        status = result.get("status", "—")
+        self.ocr_summary_label.setText(
+            f"OCR 分拣：{status}　计划：{plan_text}"
+        )
+        training = result["training"]
+        accuracy = self._format_number(
+            training.get("held_out_accuracy"),
+            digits=3,
+            suffix="",
+        )
+        lines = [
+            f"training_accuracy={accuracy}",
+            f"train_count={training.get('train_count', '—')} "
+            f"test_count={training.get('test_count', '—')}",
+        ]
+        for item in result["results"]:
+            if not isinstance(item, dict):
+                continue
+            confidence = self._format_number(
+                item.get("confidence"),
+                digits=3,
+                suffix="",
+            )
+            lines.append(
+                f"{item.get('identifier', '—')} | confidence={confidence} | "
+                f"route={item.get('route_id', '—')} | "
+                f"entry={item.get('entry_id', '—')} | "
+                f"status={item.get('status', '—')}"
+            )
+        lines.extend(
+            (
+                f"motion_status={result.get('motion_status', '—')}",
+                f"final_occupancy={result.get('final_occupancy', '—')}",
+                f"same_run_evidence={result.get('same_run_evidence', '—')}",
+                f"robot_home={result.get('robot_home', '—')} "
+                f"tool_off={result.get('tool_off', '—')}",
+                f"error={str(result.get('error', '—'))[:1800]}",
+                f"human_acceptance={result.get('human_acceptance', '—')}",
+                f"hardware_status={result.get('hardware_status', '—')}",
+            )
+        )
+        self.ocr_text.setPlainText("\n".join(lines))
 
     def _show_code_routes(self, result: Any) -> None:
         required = {
