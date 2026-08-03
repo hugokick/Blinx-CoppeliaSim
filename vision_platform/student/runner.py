@@ -2937,7 +2937,6 @@ class StudentProgramController:
             actions = self._ocr_guard.begin_entry(entry_id)
             entry_started = True
             for action in actions:
-                self._ocr_action_permission()
                 self._execute_ocr_action(action)
                 evidence = self._evidence
                 if evidence is not None:
@@ -2989,7 +2988,15 @@ class StudentProgramController:
             self._ocr_fail_cleanup(error)
             raise VisionPlatformError("OCR_SORT_EXECUTION_FAILED", _safe_text(command_error)) from None
 
-    def _ocr_action_permission(self) -> None:
+    def _ocr_device_permission(self) -> None:
+        """Gate one private OCR device call at the point of execution.
+
+        An OCR action may expand into more than one waypoint (for example, a
+        safety lift followed by a horizontal move).  Pausing and single-step
+        therefore belong immediately before each concrete robot/tool call,
+        rather than once around the logical action.
+        """
+
         self._raise_if_stopping()
         with self._condition:
             paused = self._state is RunState.PAUSED
@@ -3020,7 +3027,7 @@ class StudentProgramController:
                     lift,
                     speed=speed,
                 )
-                self._raise_if_stopping()
+                self._ocr_device_permission()
                 self._application.robot.move_world(
                     lift_target[0], lift_target[1], lift_target[2], speed=float(speed)
                 )
@@ -3041,7 +3048,7 @@ class StudentProgramController:
                 speed=speed,
                 horizontal_tolerance_mm=feedback_tolerance,
             )
-            self._raise_if_stopping()
+            self._ocr_device_permission()
             self._application.robot.move_world(
                 target[0], target[1], target[2], speed=float(speed)
             )
@@ -3050,11 +3057,11 @@ class StudentProgramController:
         if action.kind == "tool_on":
             pose = self._read_pose()
             self._guard.validate_tool_on(pose)
-            self._raise_if_stopping()
+            self._ocr_device_permission()
             self._application.tool.on()
             return
         if action.kind == "tool_off":
-            self._raise_if_stopping()
+            self._ocr_device_permission()
             self._application.tool.off()
             return
         raise VisionPlatformError(

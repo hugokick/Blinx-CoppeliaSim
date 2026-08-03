@@ -5,6 +5,8 @@ import hashlib
 import json
 from pathlib import Path
 from types import SimpleNamespace
+import threading
+import time
 
 import cv2
 import numpy as np
@@ -566,6 +568,74 @@ def test_private_ocr_runner_lifts_before_first_horizontal_move(tmp_path: Path) -
     assert tool.events == ["on", "off"]
     assert controller._ocr_guard.consumed_entry_ids == ("entry_a",)
     assert len(evidence.events) == 9
+
+
+def test_private_ocr_runner_requires_next_step_between_safety_lift_and_horizontal(
+    tmp_path: Path,
+) -> None:
+    controller, robot, _, _ = _controller_for_private_ocr(tmp_path)
+    controller._evidence.directory = tmp_path
+    robot.pose[2] = 100.0
+    controller._state = RunState.PAUSED
+    action = controller._ocr_guard.begin_entry("entry_a")[0]
+    controller.step()
+
+    errors: list[BaseException] = []
+
+    def execute() -> None:
+        try:
+            controller._execute_ocr_action(action)
+        except BaseException as error:  # pragma: no cover - diagnostic only
+            errors.append(error)
+
+    worker = threading.Thread(target=execute)
+    worker.start()
+    deadline = time.monotonic() + 1.0
+    while len(robot.moves) < 1 and time.monotonic() < deadline:
+        time.sleep(0.01)
+
+    assert robot.moves[:1] == [(100.0, 0.0, 110.0, 15.0)]
+    assert len(robot.moves) == 1
+    assert worker.is_alive()
+    assert errors == []
+
+    controller.step()
+    worker.join(timeout=1.0)
+    assert not worker.is_alive()
+    assert errors == []
+    assert robot.moves[1][:3] == (35.0, -55.0, 110.0)
+
+
+@pytest.mark.parametrize("action_index", [2, 6])
+def test_private_ocr_runner_gates_each_tool_device_call(
+    tmp_path: Path,
+    action_index: int,
+) -> None:
+    controller, robot, tool, _ = _controller_for_private_ocr(tmp_path)
+    controller._evidence.directory = tmp_path
+    if action_index == 2:
+        robot.pose[:] = [35.0, -55.0, 18.0]
+    controller._state = RunState.PAUSED
+    action = controller._ocr_guard.begin_entry("entry_a")[action_index]
+    errors: list[BaseException] = []
+
+    def execute() -> None:
+        try:
+            controller._execute_ocr_action(action)
+        except BaseException as error:  # pragma: no cover - diagnostic only
+            errors.append(error)
+
+    worker = threading.Thread(target=execute)
+    worker.start()
+    time.sleep(0.05)
+    assert worker.is_alive()
+    assert tool.events == []
+
+    controller.step()
+    worker.join(timeout=1.0)
+    assert not worker.is_alive()
+    assert errors == []
+    assert tool.events == (["on"] if action_index == 2 else ["off"])
 
 
 def test_unknown_or_duplicate_entry_fails_before_any_cleanup_device_call(tmp_path: Path) -> None:
