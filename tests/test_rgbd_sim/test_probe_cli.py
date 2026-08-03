@@ -139,3 +139,72 @@ def test_cli_failure_writes_bounded_error(tmp_path: Path, monkeypatch) -> None:
     assert error["status"] == "FAIL"
     assert error["code"] == "RGBD_SIM_CLI_RUNTIME_ERROR"
     assert len(error["message"]) <= 240
+
+
+def test_cli_applies_timeout_to_remote_client_and_bounds_timeout_error(
+    tmp_path: Path, monkeypatch
+) -> None:
+    seen: dict[str, object] = {}
+
+    class FakeSocket:
+        RCVTIMEO = None
+
+    class FakeClient:
+        def __init__(self) -> None:
+            self.timeout = 600
+            self.initialTimeout = 5
+            self.socket = FakeSocket()
+
+        def require(self, name: str):
+            assert name == "sim"
+            return object()
+
+        def close(self) -> None:
+            seen["closed"] = True
+
+    def fake_remote_client(**kwargs):
+        seen["constructor"] = kwargs
+        client = FakeClient()
+        seen["client"] = client
+        return client
+
+    class TimeoutCapture:
+        def __init__(self, **kwargs) -> None:
+            self.resolver = kwargs["resolver"]
+
+        def read_source(self):
+            connection = self.resolver.resolve()
+            seen["resolved_client"] = connection.client
+            raise TimeoutError("bounded probe timeout")
+
+        def close(self) -> None:
+            return None
+
+    monkeypatch.setattr(cli, "RemoteAPIClient", fake_remote_client, raising=False)
+    monkeypatch.setattr(cli, "CoppeliaRgbdCapture", TimeoutCapture)
+    output_dir = tmp_path / "probe-output"
+
+    result = cli.main(
+        [
+            "--scene",
+            str(MANIFEST),
+            "--output-dir",
+            str(output_dir),
+            "--timeout-s",
+            "0.1",
+            "--overwrite",
+        ],
+        repository_root=ROOT,
+    )
+
+    assert result != 0
+    client = seen["resolved_client"]
+    assert client is seen["client"]
+    assert client.timeout == pytest.approx(0.1)
+    assert client.initialTimeout == pytest.approx(0.1)
+    assert client.socket.RCVTIMEO == 100
+    error = json.loads((output_dir / "error.json").read_text(encoding="utf-8"))
+    assert error["status"] == "FAIL"
+    assert error["code"] == "RGBD_SIM_CLI_RUNTIME_ERROR"
+    assert "bounded probe timeout" in error["message"]
+    assert len(error["message"]) <= 240

@@ -10,6 +10,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
 
+from coppeliasim_zmqremoteapi_client import RemoteAPIClient
+
+from vision_platform.coppelia import CoppeliaClientResolver
 from vision_platform.rgbd_sim import (
     CoppeliaRgbdCapture,
     RgbdSimContractError,
@@ -156,17 +159,51 @@ def _write_failure(output_dir: Path, code: str, message: str) -> None:
         return
 
 
+def _configure_remote_client_timeout(client: object, timeout_s: float) -> object:
+    """Apply one bounded timeout to the local ZMQ client and its socket."""
+
+    try:
+        setattr(client, "timeout", float(timeout_s))
+        setattr(client, "initialTimeout", float(timeout_s))
+        socket = getattr(client, "socket")
+        setattr(socket, "RCVTIMEO", max(1, int(round(float(timeout_s) * 1000.0))))
+    except Exception as exc:
+        raise RgbdSimContractError(
+            "RGBD_SIM_CLI_TIMEOUT_INVALID",
+            "the local Remote API client does not expose bounded timeout controls",
+        ) from exc
+    return client
+
+
+def _make_timeout_client_factory(timeout_s: float):
+    def factory(*, host: str, port: int) -> object:
+        client = RemoteAPIClient(host=host, port=port)
+        return _configure_remote_client_timeout(client, timeout_s)
+
+    return factory
+
+
+def _make_timeout_resolver(options: CliOptions) -> CoppeliaClientResolver:
+    return CoppeliaClientResolver(
+        host=options.host,
+        port=options.port,
+        client_factory=_make_timeout_client_factory(options.timeout_s),
+    )
+
+
 def run_probe(options: CliOptions, *, repository_root: Path = PROJECT_ROOT) -> None:
     import cv2
 
     binding = load_scene_binding(options.scene, repository_root=repository_root)
     if binding.sensor_path != options.sensor_path:
         raise RgbdSimContractError("RGBD_SIM_CLI_SENSOR_INVALID", "scene sensor does not match requested sensor")
+    resolver = _make_timeout_resolver(options)
     capture_adapter = CoppeliaRgbdCapture(
         sensor_path=options.sensor_path,
         scene_binding=binding,
         host=options.host,
         port=options.port,
+        resolver=resolver,
     )
     try:
         source = capture_adapter.read_source()
