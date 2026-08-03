@@ -638,6 +638,39 @@ def test_private_ocr_runner_gates_each_tool_device_call(
     assert tool.events == (["on"] if action_index == 2 else ["off"])
 
 
+def test_private_ocr_runner_stop_releases_waiting_call_and_runs_cleanup(
+    tmp_path: Path,
+) -> None:
+    controller, robot, tool, _ = _controller_for_private_ocr(tmp_path)
+    controller._evidence.directory = tmp_path
+    robot.pose[2] = 100.0
+    controller._state = RunState.PAUSED
+    errors: list[BaseException] = []
+
+    def execute() -> None:
+        try:
+            controller._command_ocr_sort_entry({"entry_id": "entry_a"})
+        except BaseException as error:
+            errors.append(error)
+
+    worker = threading.Thread(target=execute)
+    worker.start()
+    time.sleep(0.05)
+    assert worker.is_alive()
+    assert robot.moves == []
+    assert tool.events == []
+
+    controller.cancel()
+    worker.join(timeout=1.0)
+
+    assert not worker.is_alive()
+    assert errors and isinstance(errors[0], VisionPlatformError)
+    assert controller._ocr_guard.state == "INVALIDATED"
+    assert tool.events == ["off"]
+    assert robot.moves[0][:3] == (100.0, 0.0, 110.0)
+    assert robot.moves[-1] == ("home",)
+
+
 def test_unknown_or_duplicate_entry_fails_before_any_cleanup_device_call(tmp_path: Path) -> None:
     controller, robot, tool, _ = _controller_for_private_ocr(tmp_path)
     with pytest.raises(VisionPlatformError) as captured:
