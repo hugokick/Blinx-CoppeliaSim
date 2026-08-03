@@ -1905,8 +1905,80 @@ class StudentExperimentGateway:
         if self._route_evidence is not None:
             self._route_completion_before_reset = self.route_guard.completion()
         self._ocr_evidence = None
+        self._defect_evidence = None
         self.route_guard.reset()
         return result
+
+    def _collect_defect_entry_probe(
+        self,
+        entry_id: str,
+        *,
+        run_id: str,
+        phase: str,
+    ) -> dict[str, Any]:
+        context = self._defect_evidence
+        if not isinstance(context, Mapping):
+            raise VisionPlatformError("DEFECT_SORT_PLAN_NOT_ACTIVE", "缺陷分拣计划尚未激活")
+        plan = context.get("plan")
+        entry = next((item for item in getattr(plan, "entries", ()) if getattr(item, "entry_id", None) == entry_id), None)
+        if entry is None:
+            raise VisionPlatformError("DEFECT_SORT_ENTRY_INVALID", "entry_id 不在当前缺陷分拣计划中")
+        if type(run_id) is not str or not run_id:
+            raise VisionPlatformError("DEFECT_SORT_PROBE_INVALID", "run_id 无效")
+        if phase not in {"pre", "post"}:
+            raise VisionPlatformError("DEFECT_SORT_PROBE_INVALID", "探针阶段无效")
+        target = tuple(float(value) for value in (entry.pick_xyz_mm if phase == "pre" else entry.drop_xyz_mm))
+        sim = self.application.sim
+        get_object = getattr(sim, "getObject", None)
+        get_position = getattr(sim, "getObjectPosition", None)
+        if not callable(get_object) or not callable(get_position):
+            raise VisionPlatformError("DEFECT_SORT_PROBE_FAILED", "CoppeliaSim 不支持缺陷条目探针")
+        path = f"/VisionDefectSortingLab/Parts/{entry.part_id}"
+        try:
+            handle = get_object(path)
+            raw = get_position(handle, getattr(sim, "handle_world", -1))
+            actual = tuple(float(value) * 1000.0 for value in raw)
+            if len(actual) != 3 or not all(math.isfinite(value) for value in actual):
+                raise ValueError("scene position is invalid")
+            distance = math.dist(actual, target)
+        except VisionPlatformError:
+            raise
+        except Exception as error:
+            raise VisionPlatformError("DEFECT_SORT_PROBE_FAILED", "读取缺陷条目场景位置失败", details={"error_type": type(error).__name__}) from error
+        if distance > 6.0:
+            raise VisionPlatformError("DEFECT_SORT_PROBE_FAILED", "缺陷条目未处于绑定位置", details={"phase": phase, "distance_mm": distance, "tolerance_mm": 6.0})
+        evidence_id = f"defect-entry-{entry_id}-{phase}-{len(getattr(self, '_defect_probe_ids', [])) + 1:03d}"
+        self._defect_probe_ids = [*getattr(self, "_defect_probe_ids", []), evidence_id]
+        reference = {
+            "run_id": run_id,
+            "scene_sha256": self.context.scene_sha256,
+            "frame_id": plan.frame_id,
+            "plan_id": plan.plan_id,
+            "entry_id": entry.entry_id,
+            "part_id": entry.part_id,
+            "slot_id": entry.slot_id,
+            "evidence_id": evidence_id,
+        }
+        self.evidence.record_json_artifact(
+            f"{evidence_id}.json",
+            {
+                **reference,
+                "phase": phase,
+                "path": path,
+                "expected_xyz_mm": list(target),
+                "actual_xyz_mm": list(actual),
+                "distance_mm": distance,
+                "status": "PASS",
+                "hardware_status": "PENDING_HARDWARE",
+            },
+        )
+        return _copy_json_native(reference, path=f"defect-sort-{phase}-probe")
+
+    def collect_defect_entry_pre_probe(self, entry_id: str, *, run_id: str) -> dict[str, Any]:
+        return self._collect_defect_entry_probe(entry_id, run_id=run_id, phase="pre")
+
+    def collect_defect_entry_post_probe(self, entry_id: str, *, run_id: str) -> dict[str, Any]:
+        return self._collect_defect_entry_probe(entry_id, run_id=run_id, phase="post")
 
     def collect_ocr_entry_probe(
         self,

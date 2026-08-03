@@ -31,6 +31,12 @@ from vision_platform.student.ocr_sort_guard import (
     OcrSortGuard,
     OcrSortGuardError,
 )
+from vision_platform.student.defect_sort_guard import (
+    DefectSortAction,
+    DefectSortGuard,
+    DefectSortGuardError,
+)
+from vision_platform.experiments.defect_sorting import defect_sort_receipt_to_dict, DefectSortReceipt
 from vision_platform.student.protocol import (
     CommandMessage,
     ResponseMessage,
@@ -568,6 +574,7 @@ class StudentProgramController:
         self._application = session.application
         self._guard = self._new_guard(self._application)
         self._ocr_guard = OcrSortGuard()
+        self._defect_guard = DefectSortGuard()
         # The BLX RobotAdapter deliberately exposes only a position-only
         # contract and therefore may not provide an ``is_home`` getter.  This
         # marker is set only after the bounded cleanup home action returns
@@ -785,6 +792,7 @@ class StudentProgramController:
             self._application = application
             self._guard = guard
             self._ocr_guard.reset()
+            self._defect_guard.reset()
             self._program_path = snapshot.program_path
             self._validation = snapshot.validation
             self._evidence = snapshot.evidence
@@ -1032,6 +1040,7 @@ class StudentProgramController:
                         definition=self._experiment_definition,
                         scene_manifest=validated_scene_manifest,
                         ocr_guard_activator=self._ocr_guard.activate,
+                        defect_guard_activator=self._defect_guard.activate,
                     ),
                     thread_name="StudentVisionProfileController",
                     action_name="vision.profile.controller",
@@ -1820,6 +1829,7 @@ class StudentProgramController:
 
     def _prepare_run_locked(self, evidence: StudentRunEvidence) -> None:
         self._ocr_guard.reset()
+        self._defect_guard.reset()
         self._ocr_home_confirmed = False
         self._evidence = evidence
         self._result = None
@@ -2106,6 +2116,7 @@ class StudentProgramController:
             self._stop_requested = True
             self._condition.notify_all()
         self._invalidate_ocr_guard()
+        self._invalidate_defect_guard()
 
     def _invalidate_ocr_guard(self) -> None:
         """Make an OCR plan non-executable at every controller stop boundary."""
@@ -2115,6 +2126,14 @@ class StudentProgramController:
         except BaseException:
             # The runner's stop/error state is authoritative; a guard cleanup
             # failure must never replace the first stop or execution error.
+            pass
+
+    def _invalidate_defect_guard(self) -> None:
+        """Make a V1-09 plan non-executable at every controller stop boundary."""
+
+        try:
+            self._defect_guard.stop()
+        except BaseException:
             pass
 
     def _requested_outcome(self) -> tuple[str, dict[str, Any] | None] | None:
@@ -2253,10 +2272,17 @@ class StudentProgramController:
                 _protocol_exception_error(protocol_error),
             )
 
-        try:
-            self._await_command_permission()
-        except _StopCommandLoop:
-            return self._requested_outcome()
+        # V1-09 entry execution owns the pause/single-step permit at each
+        # concrete robot/tool call.  Consuming a permit here would allow a
+        # single logical command to run one device action too many.
+        if not (
+            self._is_v1_09_experiment()
+            and command.name == "vision2d.defect_sort_entry"
+        ):
+            try:
+                self._await_command_permission()
+            except _StopCommandLoop:
+                return self._requested_outcome()
 
         if self._elapsed() >= self._policy.max_runtime_s:
             error = _error(
@@ -2743,7 +2769,7 @@ class StudentProgramController:
         return recorded_report
 
     def _dispatch(self, command: CommandMessage) -> Any:
-        if self._is_v1_08_experiment() and command.name in {
+        if (self._is_v1_08_experiment() or self._is_v1_09_experiment()) and command.name in {
             "robot.home",
             "robot.move_world",
             "robot.pose",
@@ -2752,7 +2778,7 @@ class StudentProgramController:
         }:
             raise VisionPlatformError(
                 "COMMAND_NOT_ALLOWED",
-                "V1-08 不公开机器人或吸盘原始命令",
+                "V1-08/V1-09 不公开机器人或吸盘原始命令",
             )
         if command.name in {
             "camera.capture",
@@ -2764,6 +2790,7 @@ class StudentProgramController:
             "vision2d.template_match",
             "vision2d.code_routes",
             "vision2d.ocr_sorting",
+            "vision2d.surface_defects",
         }:
             gateway = self._experiment_gateway
             if gateway is None:
@@ -2774,6 +2801,8 @@ class StudentProgramController:
             return gateway.dispatch(command.name, command.args)
         if command.name == "vision2d.ocr_sort_entry":
             return self._command_ocr_sort_entry(command.args)
+        if command.name == "vision2d.defect_sort_entry":
+            return self._command_defect_sort_entry(command.args)
         dispatch: dict[str, Callable[[Mapping[str, Any]], Any]] = {
             "context.log": self._command_log,
             "context.sleep": self._command_sleep,
@@ -2790,6 +2819,11 @@ class StudentProgramController:
         definition = self._experiment_definition
         capabilities = getattr(definition, "capabilities", ())
         return "vision2d.ocr_sorting" in capabilities
+
+    def _is_v1_09_experiment(self) -> bool:
+        definition = self._experiment_definition
+        capabilities = getattr(definition, "capabilities", ())
+        return "vision2d.surface_defects" in capabilities
 
     @staticmethod
     def _require_args(
@@ -3067,6 +3101,150 @@ class StudentProgramController:
         raise VisionPlatformError(
             "OCR_SORT_ACTION_INVALID", "OCR 守卫返回了未知动作类型"
         )
+
+    def _command_defect_sort_entry(self, args: Mapping[str, Any]) -> dict[str, Any]:
+        """Run one V1-09 entry through the private guarded executor only."""
+
+        self._require_args(args, ("entry_id",))
+        entry_id = args["entry_id"]
+        if type(entry_id) is not str:
+            raise VisionPlatformError("DEFECT_SORT_ENTRY_INVALID", "entry_id 必须是已发布字符串")
+        gateway = self._experiment_gateway
+        if gateway is None or not self._is_v1_09_experiment():
+            raise VisionPlatformError("DEFECT_SORT_PLAN_NOT_ACTIVE", "当前运行没有激活 V1-09 缺陷分拣计划")
+        entry_started = False
+        try:
+            actions = self._defect_guard.begin_entry(entry_id)
+            entry_started = True
+            evidence = self._evidence
+            if evidence is None:
+                raise VisionPlatformError("DEFECT_SORT_EVIDENCE_INVALID", "缺陷分拣证据上下文不可用")
+            pre_probe_method = getattr(gateway, "collect_defect_entry_pre_probe", None)
+            post_probe_method = getattr(gateway, "collect_defect_entry_post_probe", None)
+            if not callable(pre_probe_method) or not callable(post_probe_method):
+                raise VisionPlatformError("DEFECT_SORT_PROBE_INVALID", "缺陷分拣探针不可用")
+            pre_probe = pre_probe_method(entry_id, run_id=evidence.run_id)
+            if not isinstance(pre_probe, Mapping):
+                raise VisionPlatformError("DEFECT_SORT_PROBE_INVALID", "缺陷分拣前置探针返回无效")
+            for action in actions:
+                self._execute_defect_action(action)
+                evidence.record_event(
+                    "DEFECT_SORT_ACTION",
+                    "V1-09 缺陷分拣动作完成",
+                    entry_id=action.entry_id,
+                    action_id=action.action_id,
+                    action_kind=action.kind,
+                )
+                self._defect_guard.confirm_action(action.action_id)
+            post_probe = post_probe_method(entry_id, run_id=evidence.run_id)
+            if not isinstance(post_probe, Mapping):
+                raise VisionPlatformError("DEFECT_SORT_PROBE_INVALID", "缺陷分拣后置探针返回无效")
+            self._defect_guard.confirm_entry_probe(entry_id, post_probe)
+            plan_context = getattr(gateway, "_defect_evidence", None)
+            plan = plan_context.get("plan") if isinstance(plan_context, Mapping) else None
+            entry = next((item for item in getattr(plan, "entries", ()) if item.entry_id == entry_id), None)
+            if entry is None:
+                raise VisionPlatformError("DEFECT_SORT_ENTRY_INVALID", "条目不在当前缺陷分拣计划")
+            evidence_id = str(post_probe["evidence_id"])
+            evidence_sha = hashlib.sha256(
+                json.dumps(dict(post_probe), ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
+            ).hexdigest()
+            receipt = DefectSortReceipt(
+                run_id=evidence.run_id,
+                plan_id=str(plan.plan_id),
+                entry_id=entry.entry_id,
+                part_id=entry.part_id,
+                decision=entry.decision,
+                slot_id=entry.slot_id,
+                status="COMPLETED",
+                evidence_id=evidence_id,
+                evidence_sha256=evidence_sha,
+                hardware_status="PENDING_HARDWARE",
+            )
+            return defect_sort_receipt_to_dict(receipt)
+        except DefectSortGuardError as guard_error:
+            error = _error(guard_error.code, _safe_text(guard_error))
+            if entry_started:
+                self._defect_fail_cleanup(error)
+            raise VisionPlatformError(guard_error.code, _safe_text(guard_error)) from None
+        except VisionPlatformError as command_error:
+            if entry_started:
+                self._defect_fail_cleanup(_error(command_error.code, _safe_text(command_error), details=command_error.details))
+            raise
+        except BaseException as command_error:
+            error = _error("DEFECT_SORT_EXECUTION_FAILED", _safe_text(command_error), type=_safe_type_name(command_error))
+            if entry_started:
+                self._defect_fail_cleanup(error)
+            raise VisionPlatformError("DEFECT_SORT_EXECUTION_FAILED", _safe_text(command_error)) from None
+
+    def _defect_device_permission(self) -> None:
+        """Gate one and only one concrete V1-09 device call."""
+
+        self._raise_if_stopping()
+        if self._defect_guard.state != "ENTRY_ACTIVE" or self._defect_guard.current_action is None:
+            raise VisionPlatformError("DEFECT_SORT_ACTION_INVALID", "缺陷动作不在当前守卫状态")
+        with self._condition:
+            paused = self._state is RunState.PAUSED
+        if paused:
+            self._await_command_permission()
+        self._raise_if_stopping()
+
+    def _execute_defect_action(self, action: DefectSortAction) -> None:
+        if not isinstance(action, DefectSortAction):
+            raise VisionPlatformError("DEFECT_SORT_ACTION_INVALID", "缺陷守卫返回了无效动作")
+        context = getattr(self._experiment_gateway, "_defect_evidence", None)
+        plan = context.get("plan") if isinstance(context, Mapping) else None
+        speed = getattr(plan, "speed_mm_s", self._policy.min_speed)
+        if action.kind in {"move_safe_pick", "move_pick", "move_safe_drop", "move_drop"}:
+            current = self._read_pose()
+            safe_z = float(getattr(plan, "safe_z_mm", self._application.workspace.safe_z_mm))
+            horizontal = abs(current[0] - action.target_xyz_mm[0]) > 1.0 or abs(current[1] - action.target_xyz_mm[1]) > 1.0
+            if current[2] < safe_z and horizontal:
+                lift = self._guard.validate_move(current, (current[0], current[1], safe_z), speed=speed)
+                self._defect_device_permission()
+                self._application.robot.move_world(lift[0], lift[1], lift[2], speed=float(speed))
+                self._last_pose = lift
+                current = lift
+            target = self._guard.validate_move(current, action.target_xyz_mm, speed=speed, horizontal_tolerance_mm=1.0)
+            self._defect_device_permission()
+            self._application.robot.move_world(target[0], target[1], target[2], speed=float(speed))
+            self._last_pose = target
+            return
+        if action.kind == "tool_on":
+            pose = self._read_pose()
+            self._guard.validate_tool_on(pose)
+            self._defect_device_permission()
+            self._application.tool.on()
+            return
+        if action.kind == "tool_off":
+            self._defect_device_permission()
+            self._application.tool.off()
+            return
+        raise VisionPlatformError("DEFECT_SORT_ACTION_INVALID", "缺陷守卫返回了未知动作")
+
+    def _defect_fail_cleanup(self, primary_error: Mapping[str, Any]) -> None:
+        try:
+            self._defect_guard.fail(primary_error)
+        except BaseException:
+            pass
+        evidence = self._evidence
+        if evidence is not None:
+            try:
+                evidence.record_event("DEFECT_SORT_FAILED", "V1-09 缺陷分拣失败，开始受控清理", error=_json_safe(primary_error))
+            except BaseException:
+                pass
+        try:
+            self._application.tool.off()
+        except BaseException:
+            pass
+        try:
+            pose = self._read_pose()
+            if pose[2] < float(self._application.workspace.safe_z_mm):
+                target = self._guard.validate_move(pose, (pose[0], pose[1], float(self._application.workspace.safe_z_mm)), speed=self._policy.min_speed)
+                self._application.robot.move_world(target[0], target[1], target[2], speed=self._policy.min_speed)
+            self._application.robot.move_home()
+        except BaseException:
+            pass
 
     def _ocr_fail_cleanup(self, primary_error: Mapping[str, Any]) -> None:
         try:
