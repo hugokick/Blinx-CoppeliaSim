@@ -103,14 +103,20 @@ def test_v1_05_definition_publishes_appearance_without_physical_scale():
 def test_v1_05_is_registered_after_v1_04_and_loads_strictly():
     catalog = ExperimentCatalog.load(CATALOG, project_root=ROOT)
 
-    assert catalog.ids[-8:-3] == (
+    v1_start = catalog.ids.index("V1-01")
+    assert catalog.ids[v1_start : v1_start + 5] == (
         "V1-01",
         "V1-02",
         "V1-03",
         "V1-04",
         "V1-05",
     )
-    assert catalog.ids[-3:] == ("V1-06", "V1-07", "V1-08")
+    assert catalog.ids[v1_start + 5 :] == (
+        "V1-06",
+        "V1-07",
+        "V1-08",
+        "V1-09",
+    )
     assert catalog.require("V1-05").student_template == TEMPLATE.resolve()
 
 

@@ -35,7 +35,8 @@ def test_v1_08_definition_is_catalogued_with_fixed_scene_profile_and_assets() ->
         ROOT / "config" / "experiments" / "catalog.json",
         project_root=ROOT,
     )
-    assert catalog.ids[-1] == "V1-08"
+    v1_08_index = catalog.ids.index("V1-08")
+    assert catalog.ids[v1_08_index : v1_08_index + 2] == ("V1-08", "V1-09")
     definition = catalog.require("V1-08")
 
     payload = _definition()
