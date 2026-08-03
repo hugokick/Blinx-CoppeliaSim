@@ -366,6 +366,7 @@ def test_experiment_list_prints_formal_items(capsys):
         "V1-06",
         "V1-07",
         "V1-08",
+        "V1-09",
     ]
     assert all(
         item["hardware_status"] == "PENDING_HARDWARE"
@@ -377,10 +378,10 @@ def test_experiment_list_and_show_include_v1_labs(capsys):
     assert main(["experiment-list"]) == 0
     listed = json.loads(capsys.readouterr().out)
     assert [
-        item["experiment_id"] for item in listed["experiments"][-8:]
+        item["experiment_id"] for item in listed["experiments"][-9:]
     ] == [
         "V1-01", "V1-02", "V1-03", "V1-04",
-        "V1-05", "V1-06", "V1-07", "V1-08",
+        "V1-05", "V1-06", "V1-07", "V1-08", "V1-09",
     ]
     expected_templates = {
         "V1-01": "v1_01_virtual_vision.py",
@@ -391,6 +392,7 @@ def test_experiment_list_and_show_include_v1_labs(capsys):
         "V1-06": "v1_06_template_matching.py",
         "V1-07": "v1_07_code_routing.py",
         "V1-08": "v1_08_ocr_sorting.py",
+        "V1-09": "v1_09_surface_defects.py",
     }
     for experiment_id, template in expected_templates.items():
         assert main(

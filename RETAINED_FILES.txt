@@ -526,3 +526,15 @@ tests/test_experiments/test_defect_visualization.py
 tests/test_student_programs/test_v1_09_protocol_sdk.py
 tests/test_student_programs/test_v1_09_gateway.py
 tests/test_student_programs/test_v1_09_runner.py
+config/experiments/V1-09.json
+config/experiments/catalog.json
+student_programs/templates/v1_09_surface_defects.py
+docs/experiments/V1-09.md
+simulation/vision_defect_sorting_lab/scene_manifest.json
+vision_platform/experiments/catalog.py
+vision_platform/ui/experiment_catalog_panel.py
+tests/test_vision_quality/test_v1_09_materials.py
+tests/test_student_programs/test_v1_09_program.py
+tests/test_experiments/test_formal_catalog.py
+tests/test_experiments/test_cli.py
+tests/test_vision_platform/test_experiment_catalog_panel.py

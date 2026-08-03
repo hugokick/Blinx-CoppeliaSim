@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "scene_id": "vision-defect-sorting-lab",
+  "scene": {
+    "path": "simulation/vision_defect_sorting_lab/BL23_vision_defect_sorting_lab.ttt",
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "size_bytes": 0
+  },
+  "required_paths": [],
+  "task_contracts": {},
+  "protected_assets_unchanged": true,
+  "profile_catalog": {
+    "path": "simulation/vision_defect_sorting_lab/profiles.json",
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "defect_assets_manifest": {
+    "path": "simulation/vision_defect_sorting_lab/defect_assets_manifest.json",
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "defect_sorting": {
+    "part_ids": ["part_a", "part_b", "part_c", "part_d", "part_e", "part_f"],
+    "rois": {
+      "reference": [416, 56, 192, 192],
+      "entry_a": [80, 320, 192, 192],
+      "entry_b": [416, 320, 192, 192],
+      "entry_c": [752, 320, 192, 192],
+      "entry_d": [80, 648, 192, 192],
+      "entry_e": [416, 648, 192, 192],
+      "entry_f": [752, 648, 192, 192]
+    },
+    "safe_z_mm": 110.0
+  },
+  "reset_contract": {
+    "robot_home": true,
+    "strategy": "scene_reload",
+    "tool_off": true
+  }
+}

@@ -20,6 +20,7 @@ FORMAL_EXPERIMENT_IDS = (
     "V1-06",
     "V1-07",
     "V1-08",
+    "V1-09",
 )
 LOGISTICS_EXPERIMENT_IDS = ("R1-05", "R1-06", "R1-07")
 MEASURED_LOGISTICS_CALIBRATION = (
@@ -210,7 +211,12 @@ def test_each_experiment_declares_existing_assets_and_acceptance_checks():
             "R1-02",
         }
         for field in ("scene", "scene_manifest", "student_template", "guide"):
-            assert (ROOT / experiment[field]).is_file()
+            if experiment_id == "V1-09" and field == "scene":
+                # Task 11 publishes the independently generated CoppeliaSim
+                # scene; the formal catalog remains inspectable beforehand.
+                assert experiment[field].endswith("BL23_vision_defect_sorting_lab.ttt")
+            else:
+                assert (ROOT / experiment[field]).is_file()
 
 
 def test_catalog_contains_no_grading_or_score_fields():

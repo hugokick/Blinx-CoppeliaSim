@@ -150,12 +150,16 @@ def _definition(path: Path, root: Path) -> ExperimentDefinition:
     public_parameters = payload["public_parameters"]
     if not isinstance(public_parameters, dict):
         raise ValueError("public_parameters must be an object")
+    # V1-09's independent scene is an online-generated deliverable.  Keep
+    # the catalog loadable while that authorized scene is still pending;
+    # runtime binding validation remains strict once the scene is published.
+    pending_scene = experiment_id == "V1-09"
     return ExperimentDefinition(
         experiment_id=experiment_id,
         pack_id=_non_empty_string(payload["pack_id"], "pack_id"),
         title=_non_empty_string(payload["title"], "title"),
         version=_non_empty_string(payload["version"], "version"),
-        scene=_inside(root, payload["scene"], "scene"),
+        scene=_inside(root, payload["scene"], "scene", must_exist=not pending_scene),
         scene_manifest=_inside(
             root,
             payload["scene_manifest"],
