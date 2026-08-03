@@ -31,6 +31,8 @@ def main(ctx):
     if type(selected_order) not in (tuple, list) or len(selected_order) != len(EXPECTED_ENTRY_IDS):
         raise RuntimeError("选择的分拣顺序必须包含四个 entry_id")
     selected_order = tuple(selected_order)
+    if any(type(entry_id) is not str for entry_id in selected_order):
+        raise RuntimeError("选择的分拣顺序只能包含字符串 entry_id")
     if len(set(selected_order)) != len(EXPECTED_ENTRY_IDS) or set(selected_order) != set(approved):
         raise RuntimeError("选择的分拣顺序只能是四个已批准 entry_id 的排列")
 

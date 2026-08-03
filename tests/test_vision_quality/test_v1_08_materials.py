@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from vision_platform.experiments.catalog import ExperimentCatalog
 
 
@@ -211,6 +213,9 @@ def test_v1_08_template_allows_only_a_permutation_of_approved_entry_ids() -> Non
     namespace["main"](context)
     assert calls == ["ocr_sorting", *chosen_order]
     assert "SELECTED_ENTRY_ORDER" in source
+    namespace["SELECTED_ENTRY_ORDER"] = (["entry_a"], "entry_b", "entry_c", "entry_d")
+    with pytest.raises(RuntimeError, match="entry_id"):
+        namespace["main"](context)
 
 
 def test_v1_08_guide_is_chinese_and_preserves_pending_acceptance_boundaries() -> None:
