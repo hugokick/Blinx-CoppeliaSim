@@ -369,6 +369,7 @@ tests/test_experiments/test_code_routing.py
 tests/test_experiments/test_defect_sorting.py
 tests/test_student_programs/test_v1_07_protocol_sdk.py
 vision_platform/student/code_route_guard.py
+vision_platform/student/defect_sort_guard.py
 tests/test_student_programs/test_v1_07_route_guard.py
 tests/test_student_programs/test_v1_07_gateway.py
 tools/vision_lab/generate_v1_07_code_assets.py
@@ -495,5 +496,6 @@ tests/test_experiments/test_ocr_assets.py
 tests/test_experiments/test_ocr_service.py
 vision_platform/student/ocr_sort_guard.py
 tests/test_student_programs/test_v1_08_sort_guard.py
+tests/test_student_programs/test_v1_09_defect_sort_guard.py
 tests/test_student_programs/test_v1_08_protocol_sdk.py
 tests/test_student_programs/test_v1_08_gateway.py
