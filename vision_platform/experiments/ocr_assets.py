@@ -117,6 +117,16 @@ def _safe_text(value: Any, name: str) -> str:
     return value
 
 
+def _freeze_metadata(value: Any) -> Any:
+    """Recursively copy JSON metadata into immutable host-owned values."""
+
+    if isinstance(value, Mapping):
+        return MappingProxyType({key: _freeze_metadata(item) for key, item in value.items()})
+    if isinstance(value, (list, tuple)):
+        return tuple(_freeze_metadata(item) for item in value)
+    return value
+
+
 def _canonical_relative_path(value: Any) -> str:
     if type(value) is not str or not value or "\\" in value:
         raise _fail("OCR_ASSET_PATH_INVALID", "asset path is not canonical")
@@ -196,7 +206,7 @@ class OcrTrainingAssets:
         object.__setattr__(self, "manifest_path", Path(self.manifest_path))
         object.__setattr__(self, "asset_root", Path(self.asset_root))
         object.__setattr__(self, "alphabet", tuple(self.alphabet))
-        object.__setattr__(self, "training_parameters", MappingProxyType(dict(self.training_parameters)))
+        object.__setattr__(self, "training_parameters", _freeze_metadata(self.training_parameters))
         object.__setattr__(self, "samples", MappingProxyType(dict(self.samples)))
         object.__setattr__(self, "labels_images", MappingProxyType(dict(self.labels_images)))
 
@@ -304,10 +314,10 @@ def load_ocr_assets(
         raise _fail("OCR_ASSET_MANIFEST_INVALID", "manifest must be UTF-8 JSON") from exc
     if not isinstance(payload, Mapping) or set(payload) != _MANIFEST_KEYS:
         raise _fail("OCR_ASSET_SCHEMA_INVALID", "manifest schema is invalid")
-    if payload["schema_version"] != 1 or payload["generator"] != EXPECTED_GENERATOR:
+    if type(payload["schema_version"]) is not int or payload["schema_version"] != 1 or payload["generator"] != EXPECTED_GENERATOR:
         raise _fail("OCR_ASSET_CONFIG_INVALID", "manifest generator/schema is not the V1-08 generator")
     generator_version = _safe_text(payload["generator_version"], "generator_version")
-    if payload["seed"] != EXPECTED_SEED:
+    if type(payload["seed"]) is not int or payload["seed"] != EXPECTED_SEED:
         raise _fail("OCR_ASSET_CONFIG_INVALID", "manifest seed is not the fixed V1-08 seed")
     if payload["alphabet"] != list(ALPHABET):
         raise _fail("OCR_ASSET_CONFIG_INVALID", "manifest alphabet is not the fixed V1-08 alphabet")
@@ -318,7 +328,9 @@ def load_ocr_assets(
     if not isinstance(parameters, Mapping) or set(parameters) != _TRAINING_PARAMETERS:
         raise _fail("OCR_ASSET_CONFIG_INVALID", "training parameters schema is invalid")
     if (
-        parameters["method"] != EXPECTED_METHOD
+        type(parameters["method"]) is not str
+        or parameters["method"] != EXPECTED_METHOD
+        or type(parameters["seed"]) is not int
         or parameters["seed"] != EXPECTED_SEED
         or parameters["test_fraction"] != EXPECTED_TEST_FRACTION
         or not _is_builtin_int(parameters["variants_per_glyph"], positive=True)

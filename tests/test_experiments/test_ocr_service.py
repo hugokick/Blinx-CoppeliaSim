@@ -6,6 +6,7 @@ import cv2
 import numpy as np
 import pytest
 
+from vision_platform.vision2d.ocr import OCRCharacter, OCRResult
 from vision_platform.experiments.ocr_service import (
     OcrServiceError,
     OcrSortingService,
@@ -33,9 +34,9 @@ def _frame_and_rois() -> tuple[np.ndarray, dict[str, tuple[int, int, int, int]]]
         image = labels[identifier]
         x = 10 + (index % 2) * 150
         y = 10 + (index // 2) * 110
-        height, width = image.shape[:2]
-        frame[y : y + height, x : x + width] = image
-        rois[identifier] = (x, y, width, height)
+        image_height, image_width = image.shape[:2]
+        frame[y : y + image_height, x : x + image_width] = image
+        rois[identifier] = (x, y, image_width, image_height)
     return frame, rois
 
 
@@ -52,6 +53,16 @@ def test_service_trains_once_and_returns_four_whitelisted_results() -> None:
     assert output.annotated_frame.shape == frame.shape
     assert not output.annotated_frame.flags.writeable
     assert not hasattr(output, "classifier")
+    for identifier, observation in zip(("A1", "A2", "B1", "B2"), output.observations):
+        x, y, width, height = rois[identifier]
+        assert observation.roi_px == (x - 8, y - 8, width + 16, height + 16)
+        assert observation.result.image_size == (width + 16, height + 16)
+        assert all(
+            0 <= bx and 0 <= by and bw > 0 and bh > 0
+            and bx + bw <= width + 16 and by + bh <= height + 16
+            for character in observation.result.characters
+            for bx, by, bw, bh in (character.bbox_px,)
+        )
 
 
 def test_service_does_not_retrain_when_analyzing_again(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -96,3 +107,54 @@ def test_service_requires_bgr_uint8_frame() -> None:
     with pytest.raises(OcrServiceError) as exc:
         service.analyze(np.zeros((96, 64), dtype=np.uint8), {})
     assert exc.value.code == "OCR_SERVICE_FRAME_INVALID"
+
+
+@pytest.mark.parametrize(
+    "bbox",
+    [(-1, 28, 30, 40), (2, 28, 100, 40)],
+)
+def test_service_rejects_out_of_bounds_kernel_geometry_without_plan(
+    monkeypatch: pytest.MonkeyPatch, bbox: tuple[int, int, int, int]
+) -> None:
+    import vision_platform.experiments.ocr_service as module
+
+    service = OcrSortingService.from_manifest(MANIFEST)
+    frame, rois = _frame_and_rois()
+    original = module.recognize_text
+
+    def malformed(image, model, *, expected_text=None):
+        result = original(image, model, expected_text=expected_text)
+        character = result.characters[0]
+        malformed_character = OCRCharacter(
+            character=character.character,
+            bbox_px=bbox,
+            confidence=character.confidence,
+            failure_code=character.failure_code,
+            confidence_method=character.confidence_method,
+        )
+        return OCRResult(
+            status=result.status,
+            text=result.text,
+            characters=(malformed_character, result.characters[1]),
+            image_size=result.image_size,
+            threshold_method=result.threshold_method,
+            character_count=result.character_count,
+            failure_code=result.failure_code,
+            processing_ms=result.processing_ms,
+            schema_version=result.schema_version,
+            confidence_method=result.confidence_method,
+        )
+
+    monkeypatch.setattr(module, "recognize_text", malformed)
+    with pytest.raises(OcrServiceError) as exc:
+        service.analyze(frame, rois)
+    assert exc.value.code == "OCR_SORT_RESULT_INVALID"
+
+
+def test_service_rejects_unhashable_scene_part_ids() -> None:
+    with pytest.raises(OcrServiceError) as exc:
+        OcrSortingService.from_manifest(
+            MANIFEST,
+            scene_part_ids=[["part_a"], ["part_b"], ["part_c"], ["part_d"]],
+        )
+    assert exc.value.code == "OCR_SERVICE_SCENE_INVALID"

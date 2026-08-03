@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Collection, Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 import math
 from pathlib import Path
 from types import MappingProxyType
@@ -112,11 +112,14 @@ class OcrSortingService:
             raise _fail("OCR_SERVICE_CONFIG_INVALID", "minimum_accuracy is outside [0, 1]")
         config = dict(_default_sort_config() if sort_config is None else sort_config)
         config["training_accuracy_min"] = minimum
-        parts = frozenset(
-            {"part_a", "part_b", "part_c", "part_d"}
-            if scene_part_ids is None
-            else scene_part_ids
-        )
+        try:
+            parts = frozenset(
+                {"part_a", "part_b", "part_c", "part_d"}
+                if scene_part_ids is None
+                else scene_part_ids
+            )
+        except (TypeError, ValueError) as exc:
+            raise _fail("OCR_SERVICE_SCENE_INVALID", "scene part IDs must be hashable") from exc
         if parts != {"part_a", "part_b", "part_c", "part_d"}:
             raise _fail("OCR_SERVICE_SCENE_INVALID", "scene part IDs must be the four V1-08 parts")
         try:
@@ -189,36 +192,58 @@ class OcrSortingService:
             x, y, width, height = (int(value) for value in roi)
             if x < 0 or y < 0 or width <= 0 or height <= 0 or x + width > frame_width or y + height > frame_height:
                 raise _fail("OCR_SERVICE_ROI_INVALID", f"ROI for {identifier} is outside the frame")
-            crop = captured_frame[y : y + height, x : x + width].copy()
+            # The caller supplies the fixed inner ROI around the glyph.  The
+            # kernel may report a small deskew/interpolation fringe outside
+            # that inner rectangle, so recognize against one deterministic
+            # host-owned padded crop.  The padded ROI and its local coordinate
+            # frame are retained in the observation; no clipping or
+            # translation can turn malformed geometry into accepted evidence.
+            pad = 8
+            if x < pad or y < pad or x + width + pad > frame_width or y + height + pad > frame_height:
+                raise _fail("OCR_SERVICE_ROI_INVALID", f"ROI for {identifier} cannot be padded inside the frame")
+            expanded_roi = (x - pad, y - pad, width + 2 * pad, height + 2 * pad)
+            expanded_x, expanded_y, expanded_width, expanded_height = expanded_roi
+            crop = captured_frame[
+                expanded_y : expanded_y + expanded_height,
+                expanded_x : expanded_x + expanded_width,
+            ].copy()
             result = recognize_text(crop, self._model, expected_text=identifier)
-            if not isinstance(result, OCRResult) or result.status != "PASS" or result.text != identifier or result.failure_code is not None or result.character_count != 2 or len(result.characters) != 2:
+            if (
+                not isinstance(result, OCRResult)
+                or result.status != "PASS"
+                or result.text != identifier
+                or result.failure_code is not None
+                or result.character_count != 2
+                or len(result.characters) != 2
+                or result.image_size != (expanded_width, expanded_height)
+            ):
                 raise _fail("OCR_SORT_RESULT_INVALID", f"recognition failed for {identifier}")
-            # The kernel maps a deskewed box back to the original ROI.  A
-            # one-pixel interpolation fringe may therefore extend outside the
-            # fixed crop.  Normalize only that geometry in the host adapter;
-            # text, confidence and failure state remain kernel-owned.
-            normalized_characters = []
             for character in result.characters:
-                if type(character.bbox_px) is not tuple or len(character.bbox_px) != 4 or any(type(value) is not int for value in character.bbox_px):
+                bbox = getattr(character, "bbox_px", None)
+                if (
+                    type(bbox) is not tuple
+                    or len(bbox) != 4
+                    or any(type(value) is not int for value in bbox)
+                ):
                     raise _fail("OCR_SORT_RESULT_INVALID", f"recognition geometry is invalid for {identifier}")
-                bx, by, bw, bh = character.bbox_px
-                left = max(0, int(bx))
-                top = max(0, int(by))
-                right = min(width, int(bx) + int(bw))
-                bottom = min(height, int(by) + int(bh))
-                if right <= left or bottom <= top:
+                bx, by, bw, bh = bbox
+                if (
+                    bx < 0
+                    or by < 0
+                    or bw <= 0
+                    or bh <= 0
+                    or bx + bw > expanded_width
+                    or by + bh > expanded_height
+                ):
                     raise _fail("OCR_SORT_RESULT_INVALID", f"recognition geometry is outside {identifier}")
-                normalized_characters.append(
-                    replace(character, bbox_px=(left, top, right - left, bottom - top))
-                )
-            result = replace(result, characters=tuple(normalized_characters))
+            observation_roi = expanded_roi
             try:
-                observation = OcrObservation(identifier=identifier, result=result, roi_px=(x, y, width, height))
+                observation = OcrObservation(identifier=identifier, result=result, roi_px=observation_roi)
             except Exception as exc:
                 raise _fail("OCR_SORT_RESULT_INVALID", f"recognition geometry is invalid for {identifier}") from exc
             observations.append(observation)
-            cv2.rectangle(annotated, (x, y), (x + width - 1, y + height - 1), (0, 180, 0), 2)
-            cv2.putText(annotated, identifier, (x + 2, max(16, y + 16)), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 120, 0), 1, cv2.LINE_AA)
+            cv2.rectangle(annotated, (expanded_x, expanded_y), (expanded_x + expanded_width - 1, expanded_y + expanded_height - 1), (0, 180, 0), 2)
+            cv2.putText(annotated, identifier, (expanded_x + 2, max(16, expanded_y + 16)), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 120, 0), 1, cv2.LINE_AA)
         analysis = OcrAnalysis(
             training_report=self._training_report,
             observations=tuple(observations),

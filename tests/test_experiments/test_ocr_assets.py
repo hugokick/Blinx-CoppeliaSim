@@ -32,6 +32,14 @@ def test_committed_manifest_loads_hash_bound_training_and_labels() -> None:
     assert all(not image.flags.writeable for items in assets.samples.values() for image in items)
 
 
+def test_training_parameters_are_recursively_immutable() -> None:
+    assets = load_ocr_assets(MANIFEST)
+    with pytest.raises(TypeError):
+        assets.training_parameters["image_size_px"][0] = 128
+    with pytest.raises(TypeError):
+        assets.training_parameters["nested"] = "not-allowed"
+
+
 def test_loader_rejects_path_escape_and_duplicate_paths(tmp_path: Path) -> None:
     manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
     first = manifest["training"][0]
@@ -90,6 +98,33 @@ def test_loader_rejects_unknown_scene_and_manifest_parameters(tmp_path: Path) ->
 
     manifest["training_parameters"]["method"] = "svm"
     path.write_text(json.dumps(manifest), encoding="utf-8")
+    with pytest.raises(OcrAssetError) as exc:
+        load_ocr_assets(path)
+    assert exc.value.code == "OCR_ASSET_CONFIG_INVALID"
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("schema_version", True),
+        ("schema_version", 1.0),
+        ("seed", 20260802.0),
+    ],
+)
+def test_loader_rejects_bool_or_float_schema_and_seed_before_asset_reads(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, field: str, value: object
+) -> None:
+    import vision_platform.experiments.ocr_assets as module
+
+    manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
+    manifest[field] = value
+    path = tmp_path / "ocr_assets_manifest.json"
+    path.write_text(json.dumps(manifest), encoding="utf-8")
+    monkeypatch.setattr(
+        module,
+        "_require_regular_file",
+        lambda *_args, **_kwargs: pytest.fail("invalid manifest metadata must fail before asset reads"),
+    )
     with pytest.raises(OcrAssetError) as exc:
         load_ocr_assets(path)
     assert exc.value.code == "OCR_ASSET_CONFIG_INVALID"
