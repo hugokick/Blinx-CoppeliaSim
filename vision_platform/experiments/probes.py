@@ -21,6 +21,7 @@ _KNOWN_PROBE_KINDS = frozenset(
         "vision_profile_observation",
         "code_route_occupancy",
         "ocr_sort_occupancy",
+        "defect_sort_occupancy",
     }
 )
 _GROUP_BY_KIND = {
@@ -925,6 +926,236 @@ def probe_ocr_final(
     }
 
 
+_DEFECT_ENTRY_IDS = tuple(f"entry_{letter}" for letter in "abcdef")
+_DEFECT_DECISIONS = ("qualified", "missing", "hole", "foreign", "broken", "dimension")
+
+
+def _defect_text(value: Any, name: str) -> str:
+    if type(value) is not str or not value or len(value) > 128 or any(ord(char) < 32 for char in value):
+        raise ValueError(f"DEFECT_SORT_{name.upper()}_INVALID")
+    return value
+
+
+def _defect_sha(value: Any, name: str) -> str:
+    text = _defect_text(value, name)
+    if len(text) != 64 or any(char not in "0123456789abcdef" for char in text):
+        raise ValueError(f"DEFECT_SORT_{name.upper()}_INVALID")
+    return text
+
+
+def _defect_definition_row(definition: Any, entry_id: str) -> tuple[str, str, str, str]:
+    if entry_id not in _DEFECT_ENTRY_IDS:
+        raise ValueError("DEFECT_SORT_ENTRY_INVALID")
+    index = _DEFECT_ENTRY_IDS.index(entry_id)
+    return (
+        f"part_{'abcdef'[index]}",
+        _DEFECT_DECISIONS[index],
+        f"route_{_DEFECT_DECISIONS[index]}",
+        f"slot_{_DEFECT_DECISIONS[index]}",
+    )
+
+
+def _defect_position(sim: Any, part_id: str) -> list[float]:
+    return _world_mm(sim, f"/VisionDefectSortingLab/Parts/{part_id}")
+
+
+def _defect_reference(
+    *,
+    entry_id: str,
+    part_id: str,
+    decision: str,
+    route_id: str,
+    slot_id: str,
+    run_id: str,
+    frame_id: str,
+    plan_id: str,
+    scene_hash: str,
+    evidence_id: str,
+) -> dict[str, Any]:
+    return {
+        "run_id": _defect_text(run_id, "run_id"),
+        "scene_sha256": _defect_sha(scene_hash, "scene_hash"),
+        "frame_id": _defect_text(frame_id, "frame_id"),
+        "plan_id": _defect_sha(plan_id, "plan_id"),
+        "entry_id": entry_id,
+        "part_id": part_id,
+        "slot_id": slot_id,
+        "evidence_id": _defect_text(evidence_id, "evidence_id"),
+    }
+
+
+def probe_defect_entry_pre(
+    sim: Any,
+    definition: Any,
+    *,
+    entry_id: str,
+    run_id: str,
+    frame_id: str,
+    plan_id: str,
+    scene_hash: str,
+    expected_part_id: str | None = None,
+    actual_part_id: str | None = None,
+    slot_id: str | None = None,
+    scene_manifest: Mapping[str, Any] | None = None,
+    tolerance_mm: float = 6.0,
+) -> dict[str, Any]:
+    part_id, decision, route_id, configured_slot = _defect_definition_row(definition, entry_id)
+    if expected_part_id is not None and expected_part_id != part_id:
+        raise ValueError("DEFECT_SORT_PART_MISMATCH")
+    if actual_part_id is not None and actual_part_id != part_id:
+        raise ValueError("DEFECT_SORT_PART_MISMATCH")
+    if slot_id is not None and slot_id != configured_slot:
+        raise ValueError("DEFECT_SORT_SLOT_MISMATCH")
+    tolerance = _number(tolerance_mm, "tolerance_mm")
+    if tolerance <= 0:
+        raise ValueError("DEFECT_SORT_TOLERANCE_INVALID")
+    manifest = {} if scene_manifest is None else _mapping(scene_manifest, "scene_manifest")
+    binding = manifest.get("defect_sorting")
+    expected = None
+    if isinstance(binding, Mapping):
+        initial = binding.get("initial_positions_mm")
+        if isinstance(initial, Mapping) and part_id in initial:
+            expected = _position(initial[part_id], f"initial_positions_mm.{part_id}")
+    actual = _defect_position(sim, part_id)
+    distance = None if expected is None else _distance_mm(actual, expected)
+    passed = expected is None or distance <= tolerance
+    if not passed:
+        raise ValueError("DEFECT_SORT_ENTRY_PRE_FAILED")
+    evidence_id = f"defect-pre-{entry_id}-{run_id}-{frame_id}"
+    return {
+        "schema_version": 1,
+        "status": "PASS",
+        "phase": "pre",
+        "entry_id": entry_id,
+        "part_id": part_id,
+        "decision": decision,
+        "route_id": route_id,
+        "slot_id": configured_slot,
+        "position_mm": actual,
+        "expected_mm": expected,
+        "distance_mm": distance,
+        "evidence_ref": _defect_reference(entry_id=entry_id, part_id=part_id, decision=decision, route_id=route_id, slot_id=configured_slot, run_id=run_id, frame_id=frame_id, plan_id=plan_id, scene_hash=scene_hash, evidence_id=evidence_id),
+        "hardware_status": "PENDING_HARDWARE",
+    }
+
+
+def probe_defect_entry_post(
+    sim: Any,
+    definition: Any,
+    *,
+    entry_id: str,
+    run_id: str,
+    frame_id: str,
+    plan_id: str,
+    scene_hash: str,
+    expected_part_id: str | None = None,
+    actual_part_id: str | None = None,
+    slot_id: str | None = None,
+    scene_manifest: Mapping[str, Any] | None = None,
+    tolerance_mm: float = 6.0,
+) -> dict[str, Any]:
+    part_id, decision, route_id, configured_slot = _defect_definition_row(definition, entry_id)
+    if expected_part_id is not None and expected_part_id != part_id:
+        raise ValueError("DEFECT_SORT_PART_MISMATCH")
+    if actual_part_id is not None and actual_part_id != part_id:
+        raise ValueError("DEFECT_SORT_PART_MISMATCH")
+    if slot_id is not None and slot_id != configured_slot:
+        raise ValueError("DEFECT_SORT_SLOT_MISMATCH")
+    tolerance = _number(tolerance_mm, "tolerance_mm")
+    if tolerance <= 0:
+        raise ValueError("DEFECT_SORT_TOLERANCE_INVALID")
+    manifest = {} if scene_manifest is None else _mapping(scene_manifest, "scene_manifest")
+    binding = manifest.get("defect_sorting")
+    expected = None
+    if isinstance(binding, Mapping):
+        slots = binding.get("slot_positions_mm")
+        if isinstance(slots, Mapping) and configured_slot in slots:
+            expected = _position(slots[configured_slot], f"slot_positions_mm.{configured_slot}")
+    actual = _defect_position(sim, part_id)
+    distance = None if expected is None else _distance_mm(actual, expected)
+    passed = expected is None or distance <= tolerance
+    if not passed:
+        raise ValueError("DEFECT_SORT_ENTRY_POST_FAILED")
+    evidence_id = f"defect-post-{entry_id}-{run_id}-{frame_id}"
+    return {
+        "schema_version": 1,
+        "status": "PASS",
+        "phase": "post",
+        "entry_id": entry_id,
+        "part_id": part_id,
+        "decision": decision,
+        "route_id": route_id,
+        "slot_id": configured_slot,
+        "position_mm": actual,
+        "expected_mm": expected,
+        "distance_mm": distance,
+        "evidence_ref": _defect_reference(entry_id=entry_id, part_id=part_id, decision=decision, route_id=route_id, slot_id=configured_slot, run_id=run_id, frame_id=frame_id, plan_id=plan_id, scene_hash=scene_hash, evidence_id=evidence_id),
+        "hardware_status": "PENDING_HARDWARE",
+    }
+
+
+def probe_defect_final(
+    sim: Any,
+    definition: Any,
+    *,
+    run_id: str,
+    frame_id: str,
+    plan_id: str,
+    scene_hash: str,
+    entry_evidence: Any,
+    consumed_entry_ids: Any,
+    scene_manifest: Mapping[str, Any] | None = None,
+    robot_home: bool | None = None,
+    tool_on: bool | None = None,
+    tolerance_mm: float = 6.0,
+) -> dict[str, Any]:
+    run_id = _defect_text(run_id, "run_id")
+    frame_id = _defect_text(frame_id, "frame_id")
+    plan_id = _defect_sha(plan_id, "plan_id")
+    scene_hash = _defect_sha(scene_hash, "scene_hash")
+    refs = _sequence(entry_evidence, "entry_evidence")
+    consumed = _sequence(consumed_entry_ids, "consumed_entry_ids")
+    if len(refs) != 6 or tuple(consumed) != _DEFECT_ENTRY_IDS:
+        raise ValueError("DEFECT_SORT_EVIDENCE_INCOMPLETE")
+    normalized: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for index, raw in enumerate(refs):
+        mapping = _mapping(raw, f"entry_evidence[{index}]")
+        ref = _mapping(mapping.get("evidence_ref", mapping), f"entry_evidence[{index}].evidence_ref")
+        required = {"run_id", "scene_sha256", "frame_id", "plan_id", "entry_id", "part_id", "slot_id", "evidence_id"}
+        if set(ref) != required:
+            raise ValueError("DEFECT_SORT_EVIDENCE_INVALID")
+        if any(ref[field] != expected for field, expected in {"run_id": run_id, "scene_sha256": scene_hash, "frame_id": frame_id, "plan_id": plan_id}.items()):
+            raise ValueError("DEFECT_SORT_RUN_MISMATCH")
+        entry_id = ref["entry_id"]
+        if entry_id not in _DEFECT_ENTRY_IDS or entry_id in seen:
+            raise ValueError("DEFECT_SORT_EVIDENCE_INVALID")
+        expected_part, _decision, _route, expected_slot = _defect_definition_row(definition, entry_id)
+        if ref["part_id"] != expected_part or ref["slot_id"] != expected_slot:
+            raise ValueError("DEFECT_SORT_PART_MISMATCH")
+        seen.add(entry_id)
+        normalized.append(dict(ref))
+    home = bool(robot_home) if type(robot_home) is bool else False
+    tool_off = not bool(tool_on) if type(tool_on) is bool else False
+    passed = len(seen) == 6 and home and tool_off
+    return {
+        "schema_version": 1,
+        "status": "PASS" if passed else "FAIL",
+        "matched": 6 if passed else 0,
+        "expected": 6,
+        "run_id": run_id,
+        "frame_id": frame_id,
+        "plan_id": plan_id,
+        "scene_hash": scene_hash,
+        "entry_evidence": normalized,
+        "consumed_entry_ids": list(consumed),
+        "robot_home": home,
+        "tool_off": tool_off,
+        "same_run_evidence": passed,
+        "hardware_status": "PENDING_HARDWARE",
+    }
+
+
 def _probe_ocr_initial(
     sim: Any,
     definition: Any,
@@ -1078,6 +1309,103 @@ def probe_experiment(
                 "expected": 4,
                 "error": {
                     "code": "OCR_SORT_EVIDENCE_CONTEXT_INVALID",
+                    "type": type(error).__name__,
+                },
+                "hardware_status": "PENDING_HARDWARE",
+            }
+
+    if kind == "defect_sort_occupancy":
+        if phase == "initial":
+            run_id = "scene-initial"
+            frame_id = "scene-initial"
+            scene_hash = str(manifest.get("scene_sha256", "0" * 64))
+            if not re.fullmatch(r"[0-9a-f]{64}", scene_hash):
+                scene_hash = "0" * 64
+            rows: list[dict[str, Any]] = []
+            matched = 0
+            for entry_id in _DEFECT_ENTRY_IDS:
+                try:
+                    report = probe_defect_entry_pre(
+                        sim,
+                        parameters,
+                        entry_id=entry_id,
+                        run_id=run_id,
+                        frame_id=frame_id,
+                        plan_id="0" * 64,
+                        scene_hash=scene_hash,
+                        scene_manifest=manifest,
+                        tolerance_mm=tolerance,
+                    )
+                    rows.append(
+                        {
+                            "entry_id": entry_id,
+                            "part_id": report["part_id"],
+                            "slot_id": report["slot_id"],
+                            "matched": True,
+                            "distance_mm": report["distance_mm"],
+                        }
+                    )
+                    matched += 1
+                except (KeyError, TypeError, ValueError) as error:
+                    rows.append(
+                        {
+                            "entry_id": entry_id,
+                            "matched": False,
+                            "error": {"type": type(error).__name__},
+                        }
+                    )
+            return {
+                "schema_version": 1,
+                "experiment_id": experiment_id,
+                "phase": "initial",
+                "status": "PASS" if matched == 6 else "FAIL",
+                "matched": matched,
+                "expected": 6,
+                "rows": rows,
+                "hardware_status": "PENDING_HARDWARE",
+            }
+        if run_context is None or not isinstance(run_context, Mapping):
+            return {
+                "schema_version": 1,
+                "experiment_id": experiment_id,
+                "phase": "final",
+                "status": "FAIL",
+                "matched": 0,
+                "expected": 6,
+                "error": {"code": "DEFECT_SORT_EVIDENCE_CONTEXT_REQUIRED"},
+                "hardware_status": "PENDING_HARDWARE",
+            }
+        context = dict(run_context)
+        try:
+            return {
+                "schema_version": 1,
+                "experiment_id": experiment_id,
+                "phase": "final",
+                **probe_defect_final(
+                    sim,
+                    parameters,
+                    run_id=context["run_id"],
+                    frame_id=context["frame_id"],
+                    plan_id=context["plan_id"],
+                    scene_hash=context.get("scene_hash", context.get("scene_sha256")),
+                    entry_evidence=context["entry_evidence"],
+                    consumed_entry_ids=context["consumed_entry_ids"],
+                    scene_manifest=manifest,
+                    robot_home=context.get("robot_home"),
+                    tool_on=context.get("tool_on"),
+                    tolerance_mm=tolerance,
+                ),
+            }
+        except (KeyError, TypeError, ValueError) as error:
+            return {
+                "schema_version": 1,
+                "experiment_id": experiment_id,
+                "phase": "final",
+                "status": "FAIL",
+                "matched": 0,
+                "expected": 6,
+                "error": {
+                    "code": "DEFECT_SORT_EVIDENCE_CONTEXT_INVALID",
                     "type": type(error).__name__,
                 },
                 "hardware_status": "PENDING_HARDWARE",

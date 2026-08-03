@@ -43,6 +43,7 @@ _APPROVED_SCENE_ROOTS = (
     "/VisionQualityLab",
     "/VisionCodeRoutingLab",
     "/VisionOcrSortingLab",
+    "/VisionDefectSortingLab",
 )
 _PROFILE_ID = re.compile(r"[a-z][a-z0-9_]{0,31}\Z")
 
@@ -104,7 +105,7 @@ def _validate_profile(value: Any) -> VisionProfile:
         raise ValueError("resolution components must be between 128 and 1024")
 
     angle = _finite_number(profile["perspective_angle_deg"], "perspective_angle_deg", 20, 90)
-    rig_z = _finite_number(profile["camera_rig_z_m"], "camera_rig_z_m", 0.50, 0.90)
+    rig_z = _finite_number(profile["camera_rig_z_m"], "camera_rig_z_m", 0.49, 0.90)
     key_rgb = _validate_rgb(profile["key_diffuse_rgb"], "key_diffuse_rgb")
     fill_rgb = _validate_rgb(profile["fill_diffuse_rgb"], "fill_diffuse_rgb")
     return VisionProfile(profile_id, label, tuple(resolution), angle, rig_z, key_rgb, fill_rgb)

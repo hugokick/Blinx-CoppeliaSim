@@ -7,3 +7,10 @@ simulation/vision_ocr_sorting_lab/scene_spec.json text eol=lf
 simulation/vision_ocr_sorting_lab/scene_manifest.json text eol=lf
 simulation/vision_ocr_sorting_lab/profiles.json text eol=lf
 simulation/rgbd_lab/*.json text eol=lf
+simulation/vision_defect_sorting_lab/scene_spec.json text eol=lf
+simulation/vision_defect_sorting_lab/scene_manifest.json text eol=lf
+simulation/vision_defect_sorting_lab/profiles.json text eol=lf
+simulation/vision_defect_sorting_lab/defect_assets_manifest.json text eol=lf
+simulation/vision_defect_sorting_lab/acceptance_ground_truth.json text eol=lf
+simulation/vision_defect_sorting_lab/assets/*.png binary
+simulation/vision_defect_sorting_lab/BL23_vision_defect_sorting_lab.ttt binary

@@ -448,7 +448,7 @@ def test_student_camera_exposes_profile_ids_not_raw_sim_parameters():
         _profile_value(
             resolution=[128, 128],
             perspective_angle_deg=20,
-            camera_rig_z_m=0.50,
+            camera_rig_z_m=0.49,
             key_diffuse_rgb=[0, 0, 0],
             fill_diffuse_rgb=[0, 0, 0],
         ),
@@ -467,7 +467,7 @@ def test_student_camera_accepts_profile_numeric_contract_boundaries(value):
     assert 128 <= profile.resolution[0] <= 1024
     assert 128 <= profile.resolution[1] <= 1024
     assert 20 <= profile.perspective_angle_deg <= 90
-    assert 0.50 <= profile.camera_rig_z_m <= 0.90
+    assert 0.49 <= profile.camera_rig_z_m <= 0.90
     assert all(0 <= component <= 1 for component in profile.key_diffuse_rgb)
     assert all(0 <= component <= 1 for component in profile.fill_diffuse_rgb)
 
@@ -499,7 +499,7 @@ def test_student_camera_accepts_profile_numeric_contract_boundaries(value):
         _profile_value(perspective_angle_deg=90.001),
         _profile_value(perspective_angle_deg=float("nan")),
         _profile_value(perspective_angle_deg=10**400),
-        _profile_value(camera_rig_z_m=0.499),
+        _profile_value(camera_rig_z_m=0.489),
         _profile_value(camera_rig_z_m=0.901),
         _profile_value(camera_rig_z_m=float("inf")),
         _profile_value(key_diffuse_rgb=[0.8, 0.8]),

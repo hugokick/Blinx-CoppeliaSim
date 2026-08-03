@@ -1,0 +1,332 @@
+{
+  "calibration_matrix": [
+    [
+      -0.16000295944756412,
+      0.0,
+      166.84151375742906
+    ],
+    [
+      0.0,
+      0.16000295944756412,
+      -81.84151375742906
+    ]
+  ],
+  "camera": {
+    "alias": "Camera",
+    "orientation_deg": [
+      180,
+      0,
+      0
+    ],
+    "path": "/VisionDefectSortingLab/CameraRig/Camera",
+    "rig_position_m": [
+      0.085,
+      0.0,
+      0.492
+    ],
+    "surface_face_plane_z_mm": 27.4
+  },
+  "defect_assets_manifest": "simulation/vision_defect_sorting_lab/defect_assets_manifest.json",
+  "lighting": {
+    "fill_path": "/VisionDefectSortingLab/Lighting/FillLight",
+    "key_path": "/VisionDefectSortingLab/Lighting/KeyLight"
+  },
+  "output": "simulation/vision_defect_sorting_lab/BL23_vision_defect_sorting_lab.ttt",
+  "reference": {
+    "alias": "reference",
+    "asset_id": "reference",
+    "position_mm": [
+      85,
+      -57,
+      18
+    ],
+    "size_mm": [
+      28,
+      28,
+      16
+    ]
+  },
+  "parts": [
+    {
+      "alias": "part_a",
+      "asset_id": "entry_a",
+      "position_mm": [
+        140,
+        -16,
+        18
+      ],
+      "size_mm": [
+        28,
+        28,
+        16
+      ]
+    },
+    {
+      "alias": "part_b",
+      "asset_id": "entry_b",
+      "position_mm": [
+        85,
+        -16,
+        18
+      ],
+      "size_mm": [
+        28,
+        28,
+        16
+      ]
+    },
+    {
+      "alias": "part_c",
+      "asset_id": "entry_c",
+      "position_mm": [
+        30,
+        -16,
+        18
+      ],
+      "size_mm": [
+        28,
+        28,
+        16
+      ]
+    },
+    {
+      "alias": "part_d",
+      "asset_id": "entry_d",
+      "position_mm": [
+        140,
+        38,
+        18
+      ],
+      "size_mm": [
+        28,
+        28,
+        16
+      ]
+    },
+    {
+      "alias": "part_e",
+      "asset_id": "entry_e",
+      "position_mm": [
+        85,
+        38,
+        18
+      ],
+      "size_mm": [
+        28,
+        28,
+        16
+      ]
+    },
+    {
+      "alias": "part_f",
+      "asset_id": "entry_f",
+      "position_mm": [
+        30,
+        38,
+        18
+      ],
+      "size_mm": [
+        28,
+        28,
+        16
+      ]
+    }
+  ],
+  "port": 23010,
+  "profiles": "simulation/vision_defect_sorting_lab/profiles.json",
+  "remove_paths": [
+    "/VisionLab"
+  ],
+  "required_paths": [
+    "/BLX_base_link",
+    "/BLX_joint1",
+    "/BLX_joint2",
+    "/BLX_joint3",
+    "/BLX_joint4",
+    "/BLX_joint5",
+    "/BLX_joint6",
+    "/BLX_tool_suction",
+    "/VisionDefectSortingLab",
+    "/VisionDefectSortingLab/Workspace",
+    "/VisionDefectSortingLab/CameraRig",
+    "/VisionDefectSortingLab/CameraRig/Camera",
+    "/VisionDefectSortingLab/Lighting",
+    "/VisionDefectSortingLab/Lighting/KeyLight",
+    "/VisionDefectSortingLab/Lighting/FillLight",
+    "/VisionDefectSortingLab/Reference",
+    "/VisionDefectSortingLab/Reference/InspectionFace",
+    "/VisionDefectSortingLab/Parts",
+    "/VisionDefectSortingLab/Parts/part_a",
+    "/VisionDefectSortingLab/Parts/part_a/InspectionFace",
+    "/VisionDefectSortingLab/Parts/part_b",
+    "/VisionDefectSortingLab/Parts/part_b/InspectionFace",
+    "/VisionDefectSortingLab/Parts/part_c",
+    "/VisionDefectSortingLab/Parts/part_c/InspectionFace",
+    "/VisionDefectSortingLab/Parts/part_d",
+    "/VisionDefectSortingLab/Parts/part_d/InspectionFace",
+    "/VisionDefectSortingLab/Parts/part_e",
+    "/VisionDefectSortingLab/Parts/part_e/InspectionFace",
+    "/VisionDefectSortingLab/Parts/part_f",
+    "/VisionDefectSortingLab/Parts/part_f/InspectionFace",
+    "/VisionDefectSortingLab/Slots",
+    "/VisionDefectSortingLab/Slots/slot_qualified",
+    "/VisionDefectSortingLab/Slots/slot_missing",
+    "/VisionDefectSortingLab/Slots/slot_hole",
+    "/VisionDefectSortingLab/Slots/slot_foreign",
+    "/VisionDefectSortingLab/Slots/slot_broken",
+    "/VisionDefectSortingLab/Slots/slot_dimension"
+  ],
+  "reset_contract": {
+    "robot_home": true,
+    "strategy": "scene_reload",
+    "tool_off": true
+  },
+  "rois": {
+    "entry_a": [
+      80,
+      320,
+      192,
+      192
+    ],
+    "entry_b": [
+      416,
+      320,
+      192,
+      192
+    ],
+    "entry_c": [
+      752,
+      320,
+      192,
+      192
+    ],
+    "entry_d": [
+      80,
+      648,
+      192,
+      192
+    ],
+    "entry_e": [
+      416,
+      648,
+      192,
+      192
+    ],
+    "entry_f": [
+      752,
+      648,
+      192,
+      192
+    ],
+    "reference": [
+      416,
+      56,
+      192,
+      192
+    ]
+  },
+  "root_path": "/VisionDefectSortingLab",
+  "safe_z_mm": 110,
+  "scene_id": "vision-defect-sorting-lab",
+  "schema_version": 1,
+  "slots": [
+    {
+      "alias": "slot_qualified",
+      "color_rgb": [
+        0.15,
+        0.65,
+        0.25
+      ],
+      "decision": "qualified",
+      "position_mm": [
+        132,
+        -93,
+        22
+      ]
+    },
+    {
+      "alias": "slot_missing",
+      "color_rgb": [
+        0.82,
+        0.32,
+        0.18
+      ],
+      "decision": "missing",
+      "position_mm": [
+        85,
+        -93,
+        22
+      ]
+    },
+    {
+      "alias": "slot_hole",
+      "color_rgb": [
+        0.88,
+        0.55,
+        0.12
+      ],
+      "decision": "hole",
+      "position_mm": [
+        38,
+        -93,
+        22
+      ]
+    },
+    {
+      "alias": "slot_foreign",
+      "color_rgb": [
+        0.16,
+        0.45,
+        0.82
+      ],
+      "decision": "foreign",
+      "position_mm": [
+        132,
+        75,
+        22
+      ]
+    },
+    {
+      "alias": "slot_broken",
+      "color_rgb": [
+        0.55,
+        0.25,
+        0.75
+      ],
+      "decision": "broken",
+      "position_mm": [
+        85,
+        75,
+        22
+      ]
+    },
+    {
+      "alias": "slot_dimension",
+      "color_rgb": [
+        0.18,
+        0.68,
+        0.72
+      ],
+      "decision": "dimension",
+      "position_mm": [
+        38,
+        75,
+        22
+      ]
+    }
+  ],
+  "template": "simulation/vision_lab/BL23_vision_lab.ttt",
+  "workspace": {
+      "alias": "Workspace",
+      "center_mm": [
+      85,
+      0,
+      5
+    ],
+      "size_mm": [
+      150,
+      220,
+      10
+    ]
+  }
+}

@@ -3,6 +3,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import numpy as np
+from PyQt5.QtWidgets import QPushButton
 
 from vision_platform.student.evidence import StudentRunEvidence
 from vision_platform.student.protocol import RunState
@@ -75,6 +76,83 @@ def _record_five_layer_bundle(tmp_path):
         layers=layers,
         result={"experiment_id": "V1-05", "count": 3},
         profile={"profile_id": "standard", "resolution": [32, 24]},
+    )
+    record_vision_bundle(evidence, bundle)
+    return evidence.directory
+
+
+def _record_defect_bundle(tmp_path):
+    program = tmp_path / "defect-student.py"
+    program.write_text("def main(ctx):\n    pass\n", encoding="utf-8")
+    evidence = StudentRunEvidence.create(
+        output_root=tmp_path / "defect-runs",
+        program_path=program,
+        robot_backend="sim",
+        run_id="vision-defect-run",
+    )
+    raw = np.zeros((32, 48, 3), dtype=np.uint8)
+    layers = {
+        "raw": ("原图", raw),
+        "reference": ("参考件", raw + 10),
+        "annotated": ("缺陷检测标注", raw + 20),
+        "candidate-entry_a": ("候选件 entry_a", raw + 30),
+        "mask-entry_a": ("缺陷区域示意", raw + 40),
+    }
+    result = {
+        "experiment_id": "V1-09",
+        "plan_id": "a" * 64,
+        "status": "PASS",
+        "config_sha256": "b" * 64,
+        "asset_manifest_sha256": "c" * 64,
+        "entries": [
+            {
+                "entry_id": "entry_a",
+                "part_id": "part_a",
+                "decision": "qualified",
+                "defect_type": None,
+                "findings": [],
+                "findings_sha256": "d" * 64,
+                "slot_id": "slot_qualified",
+                "status": "APPROVED",
+            },
+            {
+                "entry_id": "entry_b",
+                "part_id": "part_b",
+                "decision": "missing",
+                "defect_type": "missing",
+                "findings": [
+                    {
+                        "defect_type": "missing",
+                        "bbox_px": [10, 12, 8, 9],
+                        "area_px2": 72.0,
+                        "relative_area": 0.02,
+                        "metric": 0.81,
+                        "threshold": 0.40,
+                        "confidence": 0.96,
+                    }
+                ],
+                "findings_sha256": "e" * 64,
+                "slot_id": "slot_missing",
+                "status": "APPROVED",
+            },
+        ],
+        "thresholds": {"missing": 0.40},
+        "motion_status": "PASS",
+        "final_slots": {"slot_missing": "part_b"},
+        "robot_home": True,
+        "tool_off": True,
+        "same_run_evidence": True,
+        "human_acceptance": "PENDING_HUMAN_ACCEPTANCE",
+        "hardware_status": "PENDING_HARDWARE",
+    }
+    bundle = make_result_bundle(
+        bundle_id="v1-09-defect-000001",
+        experiment_id="V1-09",
+        source_snapshot_id="frame-000001",
+        status="PASS",
+        layers=layers,
+        result=result,
+        profile={"profile_id": "standard", "resolution": [1024, 1024]},
     )
     record_vision_bundle(evidence, bundle)
     return evidence.directory
@@ -236,3 +314,36 @@ def test_panel_callback_contains_hostile_bundle_error_and_unsubscribes(
     panel.release_subscription()
     assert controller.unsubscribe_calls == 1
     assert controller.handlers == []
+
+
+def test_panel_renders_read_only_v1_09_defect_evidence(qtbot, tmp_path):
+    run = _record_defect_bundle(tmp_path)
+    panel = VisionResultPanel()
+    qtbot.addWidget(panel)
+
+    panel.load_run(run)
+
+    assert "缺陷分拣：PASS" in panel.defect_summary_label.text()
+    text = panel.defect_text.toPlainText()
+    assert "entry_b" in text
+    assert "missing" in text
+    assert "bbox_px" in text
+    assert "area_px2=72.000" in text
+    assert "threshold=0.400" in text
+    assert "plan_id" in text
+    assert "PENDING_HUMAN_ACCEPTANCE" in text
+    assert "PENDING_HARDWARE" in text
+    assert panel.defect_text.isReadOnly() is True
+    assert panel.layer_combo.findData("reference") >= 0
+    assert panel.layer_combo.findData("mask-entry_a") >= 0
+
+
+def test_panel_defect_state_is_read_only_and_has_no_device_controls(qtbot):
+    panel = VisionResultPanel()
+    qtbot.addWidget(panel)
+
+    assert panel.defect_text.isReadOnly() is True
+    assert not panel.findChildren(QPushButton)
+    panel.clear_result("已停止")
+    assert panel.status_label.text() == "已停止"
+    assert panel.defect_summary_label.text() == "表面缺陷分拣：—"

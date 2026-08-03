@@ -1,0 +1,13 @@
+{
+  "decisions": {
+    "entry_a": "qualified",
+    "entry_b": "missing",
+    "entry_c": "hole",
+    "entry_d": "foreign",
+    "entry_e": "broken",
+    "entry_f": "dimension"
+  },
+  "scene_id": "V1-09",
+  "source": "acceptance-only",
+  "version": 1
+}

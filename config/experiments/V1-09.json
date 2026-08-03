@@ -1,0 +1,79 @@
+{
+  "schema_version": 1,
+  "experiment_id": "V1-09",
+  "pack_id": "V1",
+  "title": "构件表面缺陷检测与合格/缺陷分流",
+  "version": "2.2.0",
+  "scene": "simulation/vision_defect_sorting_lab/BL23_vision_defect_sorting_lab.ttt",
+  "scene_manifest": "simulation/vision_defect_sorting_lab/scene_manifest.json",
+  "student_template": "student_programs/templates/v1_09_surface_defects.py",
+  "guide": "docs/experiments/V1-09.md",
+  "capabilities": [
+    "camera.rgb",
+    "camera.profile",
+    "lighting.profile",
+    "vision2d.surface_defects"
+  ],
+  "workspace": {
+    "x_mm": [20.0, 155.0],
+    "y_mm": [-95.0, 95.0],
+    "z_mm": [10.0, 140.0],
+    "safe_z_mm": 110.0
+  },
+  "public_parameters": {
+    "baseline_profile_id": "standard",
+    "allowed_profile_ids": ["standard"],
+    "camera_path": "/VisionDefectSortingLab/CameraRig/Camera",
+    "scene_group_path": "/VisionDefectSortingLab",
+    "pickables_path": "/VisionDefectSortingLab/Parts",
+    "defect_sorting": {
+      "profile_id": "standard",
+      "image_size_px": [1024, 1024],
+      "entry_ids": ["entry_a", "entry_b", "entry_c", "entry_d", "entry_e", "entry_f"],
+      "fixed_rois_px": {
+        "reference": [416, 56, 192, 192],
+        "entry_a": [80, 320, 192, 192],
+        "entry_b": [416, 320, 192, 192],
+        "entry_c": [752, 320, 192, 192],
+        "entry_d": [80, 648, 192, 192],
+        "entry_e": [416, 648, 192, 192],
+        "entry_f": [752, 648, 192, 192]
+      },
+      "config": {
+        "missing_ratio": 0.01,
+        "hole_ratio": 0.005,
+        "foreign_ratio": 0.002,
+        "dimension_ratio": 0.08,
+        "min_component_ratio": 0.002,
+        "morphology_kernel_size": 3,
+        "max_alignment_shift_px": 8.0,
+        "min_contrast": 4.0
+      }
+    }
+  },
+  "acceptance": {
+    "probe_kind": "defect_sort_occupancy",
+    "automated_checks": [
+      "standard_profile",
+      "defect_assets_manifest_hash",
+      "fixed_reference_and_six_candidate_rois",
+      "one_capture_six_kernel_calls",
+      "complete_defect_plan",
+      "no_motion_before_plan",
+      "six_guarded_transfers",
+      "post_entry_probes",
+      "final_slot_occupancy",
+      "robot_home",
+      "tool_off",
+      "same_run_evidence"
+    ],
+    "human_checks": [
+      "PENDING_HUMAN_ACCEPTANCE",
+      "PENDING_HARDWARE",
+      "学生能说明参考件、候选件、缺陷类型和固定阈值的作用",
+      "学生能解释缺陷区域示意不是工业像素级分割真值",
+      "学生能在不提交坐标或 raw robot/tool 命令的情况下选择受控分拣条目"
+    ]
+  },
+  "hardware_status": "PENDING_HARDWARE"
+}

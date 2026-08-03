@@ -128,7 +128,60 @@ _OCR_EVIDENCE_FIELDS = frozenset({"raw_path", "annotated_path", "bundle_path"})
 _OCR_RECEIPT_FIELDS = frozenset(
     {"schema_version", "entry_id", "status", "plan_id", "run_id", "evidence_id", "hardware_status"}
 )
+_DEFECT_SORTING_RESULT_FIELDS = frozenset(
+    {
+        "schema_version",
+        "run_id",
+        "frame_id",
+        "scene_sha256",
+        "config_sha256",
+        "asset_manifest_sha256",
+        "plan_id",
+        "status",
+        "image_size",
+        "entries",
+        "evidence",
+        "hardware_status",
+    }
+)
+_DEFECT_ENTRY_FIELDS = frozenset(
+    {
+        "entry_id",
+        "part_id",
+        "decision",
+        "defect_type",
+        "findings",
+        "findings_sha256",
+        "reference_crop_sha256",
+        "candidate_crop_sha256",
+        "route_id",
+        "status",
+    }
+)
+_DEFECT_FINDING_FIELDS = frozenset(
+    {"defect_type", "bbox_px", "area_px2", "relative_area", "metric", "threshold", "confidence"}
+)
+_DEFECT_EVIDENCE_FIELDS = frozenset(
+    {"raw_sha256", "reference_sha256", "candidate_sha256", "annotated_sha256", "mask_sha256"}
+)
+_DEFECT_RECEIPT_FIELDS = frozenset(
+    {
+        "schema_version",
+        "run_id",
+        "plan_id",
+        "entry_id",
+        "part_id",
+        "decision",
+        "defect_type",
+        "slot_id",
+        "status",
+        "evidence_id",
+        "evidence_sha256",
+        "hardware_status",
+    }
+)
 _ENTRY_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,79}\Z")
+_DEFECT_ENTRY_IDS = ("entry_a", "entry_b", "entry_c", "entry_d", "entry_e", "entry_f")
 
 
 def _copy_json_native(value: Any, *, path: str) -> Any:
@@ -471,6 +524,120 @@ class StudentOcrSortReceipt:
             "plan_id": self.plan_id,
             "run_id": self.run_id,
             "evidence_id": self.evidence_id,
+            "hardware_status": self.hardware_status,
+        }
+
+
+@dataclass(frozen=True)
+class StudentDefectFinding:
+    defect_type: str
+    bbox_px: tuple[int, int, int, int]
+    area_px2: float
+    relative_area: float
+    metric: float
+    threshold: float
+    confidence: float
+
+
+@dataclass(frozen=True)
+class StudentDefectEntry:
+    entry_id: str
+    part_id: str
+    decision: str
+    defect_type: str | None
+    findings: tuple[StudentDefectFinding, ...]
+    findings_sha256: str
+    reference_crop_sha256: str
+    candidate_crop_sha256: str
+    route_id: str
+    status: str
+
+
+@dataclass(frozen=True)
+class StudentDefectSortingResult:
+    schema_version: int
+    run_id: str
+    frame_id: str
+    scene_sha256: str
+    config_sha256: str
+    asset_manifest_sha256: str
+    plan_id: str
+    status: str
+    image_size: tuple[int, int]
+    entries: tuple[StudentDefectEntry, ...]
+    evidence: Mapping[str, str]
+    hardware_status: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "schema_version": self.schema_version,
+            "run_id": self.run_id,
+            "frame_id": self.frame_id,
+            "scene_sha256": self.scene_sha256,
+            "config_sha256": self.config_sha256,
+            "asset_manifest_sha256": self.asset_manifest_sha256,
+            "plan_id": self.plan_id,
+            "status": self.status,
+            "image_size": list(self.image_size),
+            "entries": [
+                {
+                    "entry_id": entry.entry_id,
+                    "part_id": entry.part_id,
+                    "decision": entry.decision,
+                    "defect_type": entry.defect_type,
+                    "findings": [
+                        {
+                            "defect_type": finding.defect_type,
+                            "bbox_px": list(finding.bbox_px),
+                            "area_px2": finding.area_px2,
+                            "relative_area": finding.relative_area,
+                            "metric": finding.metric,
+                            "threshold": finding.threshold,
+                            "confidence": finding.confidence,
+                        }
+                        for finding in entry.findings
+                    ],
+                    "findings_sha256": entry.findings_sha256,
+                    "reference_crop_sha256": entry.reference_crop_sha256,
+                    "candidate_crop_sha256": entry.candidate_crop_sha256,
+                    "route_id": entry.route_id,
+                    "status": entry.status,
+                }
+                for entry in self.entries
+            ],
+            "evidence": dict(self.evidence),
+            "hardware_status": self.hardware_status,
+        }
+
+
+@dataclass(frozen=True)
+class StudentDefectSortReceipt:
+    schema_version: int
+    run_id: str
+    plan_id: str
+    entry_id: str
+    part_id: str
+    decision: str
+    defect_type: str | None
+    slot_id: str
+    status: str
+    evidence_id: str
+    evidence_sha256: str
+    hardware_status: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "schema_version": self.schema_version,
+            "run_id": self.run_id,
+            "plan_id": self.plan_id,
+            "entry_id": self.entry_id,
+            "part_id": self.part_id,
+            "decision": self.decision,
+            "defect_type": self.defect_type,
+            "slot_id": self.slot_id,
+            "status": self.status,
+            "evidence_id": self.evidence_id,
+            "evidence_sha256": self.evidence_sha256,
             "hardware_status": self.hardware_status,
         }
 
@@ -1052,6 +1219,167 @@ def _ocr_sort_receipt(value: Any) -> StudentOcrSortReceipt:
     return StudentOcrSortReceipt(1, entry_id, "COMPLETED", plan_id, run_id, evidence_id, "PENDING_HARDWARE")
 
 
+def _defect_error(field: str) -> RuntimeError:
+    return RuntimeError(f"PROTOCOL_RESPONSE_INVALID: vision2d.surface_defects {field}")
+
+
+def _defect_receipt_error(field: str) -> RuntimeError:
+    return RuntimeError(f"PROTOCOL_RESPONSE_INVALID: vision2d.defect_sort_entry {field}")
+
+
+def _defect_sha(value: Any, field: str) -> str:
+    if type(value) is not str or len(value) != 64 or any(char not in "0123456789abcdef" for char in value):
+        raise _defect_error(field)
+    return value
+
+
+def _defect_identifier(value: Any, field: str) -> str:
+    if type(value) is not str or _ENTRY_ID_PATTERN.fullmatch(value) is None:
+        raise _defect_error(field)
+    return value
+
+
+def _defect_entry_id(value: Any, field: str) -> str:
+    identifier = _defect_identifier(value, field)
+    if identifier not in _DEFECT_ENTRY_IDS:
+        raise _defect_error(field)
+    return identifier
+
+
+def _defect_finite(value: Any, field: str) -> float:
+    if type(value) not in {int, float}:
+        raise _defect_error(field)
+    normalized = float(value)
+    if not isfinite(normalized):
+        raise _defect_error(field)
+    return normalized
+
+
+def _defect_bbox(value: Any, field: str) -> tuple[int, int, int, int]:
+    if type(value) is not list or len(value) != 4 or any(type(item) is not int for item in value):
+        raise _defect_error(field)
+    x, y, width, height = value
+    if x < 0 or y < 0 or width <= 0 or height <= 0 or x + width > 4096 or y + height > 4096:
+        raise _defect_error(field)
+    return x, y, width, height
+
+
+def _defect_sorting_result(value: Any) -> StudentDefectSortingResult:
+    if not isinstance(value, Mapping) or set(value) != _DEFECT_SORTING_RESULT_FIELDS:
+        raise _defect_error("fields")
+    if type(value["schema_version"]) is not int or value["schema_version"] != 1:
+        raise _defect_error("schema_version")
+    identifiers = {}
+    for field in ("run_id", "frame_id"):
+        item = value[field]
+        if type(item) is not str or _SNAPSHOT_ID_PATTERN.fullmatch(item) is None:
+            raise _defect_error(field)
+        identifiers[field] = item
+    for field in ("scene_sha256", "config_sha256", "asset_manifest_sha256", "plan_id"):
+        identifiers[field] = _defect_sha(value[field], field)
+    if value["status"] != "PASS":
+        raise _defect_error("status")
+    image_size = value["image_size"]
+    if type(image_size) is not list or len(image_size) != 2 or any(type(item) is not int or item <= 0 or item > 4096 for item in image_size):
+        raise _defect_error("image_size")
+    raw_entries = value["entries"]
+    if type(raw_entries) is not list or len(raw_entries) != 6:
+        raise _defect_error("entries")
+    expected = (
+        ("entry_a", "part_a", "qualified", None, "route_qualified"),
+        ("entry_b", "part_b", "missing", "missing", "route_missing"),
+        ("entry_c", "part_c", "hole", "hole", "route_hole"),
+        ("entry_d", "part_d", "foreign", "foreign", "route_foreign"),
+        ("entry_e", "part_e", "broken", "broken", "route_broken"),
+        ("entry_f", "part_f", "dimension", "dimension", "route_dimension"),
+    )
+    entries: list[StudentDefectEntry] = []
+    for index, (raw, expected_row) in enumerate(zip(raw_entries, expected)):
+        if not isinstance(raw, Mapping) or set(raw) != _DEFECT_ENTRY_FIELDS:
+            raise _defect_error(f"entries[{index}].fields")
+        entry_id, part_id, decision, defect_type, route_id = expected_row
+        if raw["entry_id"] != entry_id or raw["part_id"] != part_id or raw["decision"] != decision or raw["defect_type"] != defect_type or raw["route_id"] != route_id or raw["status"] != "APPROVED":
+            raise _defect_error(f"entries[{index}]")
+        findings_raw = raw["findings"]
+        if type(findings_raw) is not list or len(findings_raw) > 32:
+            raise _defect_error(f"entries[{index}].findings")
+        findings: list[StudentDefectFinding] = []
+        for finding_index, finding in enumerate(findings_raw):
+            if not isinstance(finding, Mapping) or set(finding) != _DEFECT_FINDING_FIELDS:
+                raise _defect_error(f"entries[{index}].findings[{finding_index}].fields")
+            kind = finding["defect_type"]
+            if type(kind) is not str or kind not in {"missing", "hole", "foreign", "broken", "dimension"}:
+                raise _defect_error(f"entries[{index}].findings[{finding_index}].defect_type")
+            findings.append(StudentDefectFinding(
+                kind,
+                _defect_bbox(finding["bbox_px"], f"entries[{index}].findings[{finding_index}].bbox_px"),
+                _defect_finite(finding["area_px2"], f"entries[{index}].findings[{finding_index}].area_px2"),
+                _defect_finite(finding["relative_area"], f"entries[{index}].findings[{finding_index}].relative_area"),
+                _defect_finite(finding["metric"], f"entries[{index}].findings[{finding_index}].metric"),
+                _defect_finite(finding["threshold"], f"entries[{index}].findings[{finding_index}].threshold"),
+                _defect_finite(finding["confidence"], f"entries[{index}].findings[{finding_index}].confidence"),
+            ))
+        if decision == "qualified" and findings:
+            raise _defect_error(f"entries[{index}].findings")
+        if decision != "qualified" and not findings:
+            raise _defect_error(f"entries[{index}].findings")
+        entries.append(StudentDefectEntry(
+            entry_id=entry_id,
+            part_id=part_id,
+            decision=decision,
+            defect_type=defect_type,
+            findings=tuple(findings),
+            findings_sha256=_defect_sha(raw["findings_sha256"], f"entries[{index}].findings_sha256"),
+            reference_crop_sha256=_defect_sha(raw["reference_crop_sha256"], f"entries[{index}].reference_crop_sha256"),
+            candidate_crop_sha256=_defect_sha(raw["candidate_crop_sha256"], f"entries[{index}].candidate_crop_sha256"),
+            route_id=route_id,
+            status="APPROVED",
+        ))
+    evidence = value["evidence"]
+    if not isinstance(evidence, Mapping) or set(evidence) != _DEFECT_EVIDENCE_FIELDS:
+        raise _defect_error("evidence.fields")
+    evidence_copy = {field: _defect_sha(evidence[field], f"evidence.{field}") for field in _DEFECT_EVIDENCE_FIELDS}
+    if value["hardware_status"] != "PENDING_HARDWARE":
+        raise _defect_error("hardware_status")
+    return StudentDefectSortingResult(
+        schema_version=1,
+        run_id=identifiers["run_id"],
+        frame_id=identifiers["frame_id"],
+        scene_sha256=identifiers["scene_sha256"],
+        config_sha256=identifiers["config_sha256"],
+        asset_manifest_sha256=identifiers["asset_manifest_sha256"],
+        plan_id=identifiers["plan_id"],
+        status="PASS",
+        image_size=(image_size[0], image_size[1]),
+        entries=tuple(entries),
+        evidence=_freeze_json_native(evidence_copy),
+        hardware_status="PENDING_HARDWARE",
+    )
+
+
+def _defect_sort_receipt(value: Any) -> StudentDefectSortReceipt:
+    if not isinstance(value, Mapping) or set(value) != _DEFECT_RECEIPT_FIELDS:
+        raise _defect_receipt_error("fields")
+    if type(value["schema_version"]) is not int or value["schema_version"] != 1:
+        raise _defect_receipt_error("schema_version")
+    for field in ("run_id", "part_id", "slot_id", "evidence_id"):
+        if type(value[field]) is not str or _SNAPSHOT_ID_PATTERN.fullmatch(value[field]) is None:
+            raise _defect_receipt_error(field)
+    entry_id = value["entry_id"]
+    if type(entry_id) is not str or entry_id not in _DEFECT_ENTRY_IDS:
+        raise _defect_receipt_error("entry_id")
+    plan_id = _defect_sha(value["plan_id"], "plan_id")
+    if value["decision"] not in {"qualified", "missing", "hole", "foreign", "broken", "dimension"}:
+        raise _defect_receipt_error("decision")
+    expected_defect = None if value["decision"] == "qualified" else value["decision"]
+    if value["defect_type"] != expected_defect or value["status"] != "COMPLETED":
+        raise _defect_receipt_error("status")
+    evidence_sha = _defect_sha(value["evidence_sha256"], "evidence_sha256")
+    if value["hardware_status"] != "PENDING_HARDWARE":
+        raise _defect_receipt_error("hardware_status")
+    return StudentDefectSortReceipt(1, value["run_id"], plan_id, entry_id, value["part_id"], value["decision"], value["defect_type"], value["slot_id"], "COMPLETED", value["evidence_id"], evidence_sha, "PENDING_HARDWARE")
+
+
 def _profile_error(field: str) -> RuntimeError:
     return RuntimeError(f"PROTOCOL_RESPONSE_INVALID: camera.profile {field}")
 
@@ -1114,7 +1442,7 @@ def _vision_profile(value: Any) -> StudentVisionProfile:
         camera_rig_z_m=_bounded_profile_number(
             value["camera_rig_z_m"],
             "camera_rig_z_m",
-            0.50,
+            0.49,
             0.90,
         ),
         key_diffuse_rgb=_profile_rgb(
@@ -1278,6 +1606,16 @@ class StudentVision2D:
 
     def ocr_sorting(self) -> StudentOcrSortingResult:
         return _ocr_sorting_result(self._rpc.call("vision2d.ocr_sorting"))
+
+    def surface_defects(self) -> StudentDefectSortingResult:
+        return _defect_sorting_result(self._rpc.call("vision2d.surface_defects"))
+
+    def defect_sort_entry(self, entry_id: str) -> StudentDefectSortReceipt:
+        if type(entry_id) is not str or entry_id not in _DEFECT_ENTRY_IDS:
+            raise ValueError("entry_id must be one of the published V1-09 entries")
+        return _defect_sort_receipt(
+            self._rpc.call("vision2d.defect_sort_entry", entry_id=entry_id)
+        )
 
     def sort_ocr_entry(self, entry_id: str) -> StudentOcrSortReceipt:
         if type(entry_id) is not str or _ENTRY_ID_PATTERN.fullmatch(entry_id) is None:

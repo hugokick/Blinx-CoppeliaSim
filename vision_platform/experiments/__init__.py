@@ -36,6 +36,39 @@ from vision_platform.experiments.ocr_sorting import (
     ocr_sort_plan_to_dict,
     validate_training_report,
 )
+from vision_platform.experiments.defect_sorting import (
+    APPROVED_DEFECTS,
+    EXPECTED_ENTRIES,
+    ApprovedDefectSortEntry,
+    DefectObservation,
+    DefectSortError,
+    DefectSortPlan,
+    DefectSortReceipt,
+    build_defect_sort_plan,
+    classify_defect_result,
+    defect_sort_plan_to_dict,
+    defect_sort_receipt_to_dict,
+)
+from vision_platform.experiments.defect_assets import (
+    EXPECTED_ASSET_IDS,
+    DefectAssetError,
+    DefectAssetLoader,
+    DefectAssetRecord,
+    DefectAssets,
+    load_defect_assets,
+    load_hash_bound_defect_assets,
+)
+from vision_platform.experiments.defect_service import (
+    FIXED_ROIS,
+    FORMAL_DEFECT_CONFIG,
+    DefectServiceError,
+    DefectServiceResult,
+    DefectSortingService,
+)
+from vision_platform.experiments.defect_visualization import (
+    DefectTeachingLayers,
+    render_defect_teaching_layers,
+)
 
 __all__ = [
     "ApprovedCodeRoute",
@@ -68,4 +101,29 @@ __all__ = [
     "build_ocr_sort_plan",
     "ocr_sort_plan_to_dict",
     "validate_training_report",
+    "APPROVED_DEFECTS",
+    "EXPECTED_ENTRIES",
+    "ApprovedDefectSortEntry",
+    "DefectObservation",
+    "DefectSortError",
+    "DefectSortPlan",
+    "DefectSortReceipt",
+    "build_defect_sort_plan",
+    "classify_defect_result",
+    "defect_sort_plan_to_dict",
+    "defect_sort_receipt_to_dict",
+    "EXPECTED_ASSET_IDS",
+    "DefectAssetError",
+    "DefectAssetLoader",
+    "DefectAssetRecord",
+    "DefectAssets",
+    "load_defect_assets",
+    "load_hash_bound_defect_assets",
+    "FIXED_ROIS",
+    "FORMAL_DEFECT_CONFIG",
+    "DefectServiceError",
+    "DefectServiceResult",
+    "DefectSortingService",
+    "DefectTeachingLayers",
+    "render_defect_teaching_layers",
 ]

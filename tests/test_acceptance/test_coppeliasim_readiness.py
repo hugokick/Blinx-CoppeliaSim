@@ -227,6 +227,7 @@ def test_readiness_returns_client_only_after_scene_and_sentinels_match(
         ("BL23_vision_quality_lab.ttt", "/VisionQualityLab"),
         ("BL23_vision_code_routing_lab.ttt", "/VisionCodeRoutingLab"),
         ("BL23_vision_ocr_sorting_lab.ttt", "/VisionOcrSortingLab"),
+        ("BL23_vision_defect_sorting_lab.ttt", "/VisionDefectSortingLab"),
     ),
 )
 def test_readiness_selects_scene_specific_root_without_weakening_robot_sentinel(

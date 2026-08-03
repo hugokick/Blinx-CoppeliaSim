@@ -141,6 +141,45 @@ _OCR_SORTING_REQUIRED_PATHS = (
     "/VisionOcrSortingLab/Routes/route_beta/slot_1",
     "/VisionOcrSortingLab/Routes/route_beta/slot_2",
 )
+_DEFECT_SORTING_REQUIRED_PATHS = (
+    "/BLX_base_link",
+    "/BLX_joint1",
+    "/BLX_joint2",
+    "/BLX_joint3",
+    "/BLX_joint4",
+    "/BLX_joint5",
+    "/BLX_joint6",
+    "/BLX_tool_suction",
+    "/VisionDefectSortingLab",
+    "/VisionDefectSortingLab/Workspace",
+    "/VisionDefectSortingLab/CameraRig",
+    "/VisionDefectSortingLab/CameraRig/Camera",
+    "/VisionDefectSortingLab/Lighting",
+    "/VisionDefectSortingLab/Lighting/KeyLight",
+    "/VisionDefectSortingLab/Lighting/FillLight",
+    "/VisionDefectSortingLab/Reference",
+    "/VisionDefectSortingLab/Reference/InspectionFace",
+    "/VisionDefectSortingLab/Parts",
+    "/VisionDefectSortingLab/Parts/part_a",
+    "/VisionDefectSortingLab/Parts/part_a/InspectionFace",
+    "/VisionDefectSortingLab/Parts/part_b",
+    "/VisionDefectSortingLab/Parts/part_b/InspectionFace",
+    "/VisionDefectSortingLab/Parts/part_c",
+    "/VisionDefectSortingLab/Parts/part_c/InspectionFace",
+    "/VisionDefectSortingLab/Parts/part_d",
+    "/VisionDefectSortingLab/Parts/part_d/InspectionFace",
+    "/VisionDefectSortingLab/Parts/part_e",
+    "/VisionDefectSortingLab/Parts/part_e/InspectionFace",
+    "/VisionDefectSortingLab/Parts/part_f",
+    "/VisionDefectSortingLab/Parts/part_f/InspectionFace",
+    "/VisionDefectSortingLab/Slots",
+    "/VisionDefectSortingLab/Slots/slot_qualified",
+    "/VisionDefectSortingLab/Slots/slot_missing",
+    "/VisionDefectSortingLab/Slots/slot_hole",
+    "/VisionDefectSortingLab/Slots/slot_foreign",
+    "/VisionDefectSortingLab/Slots/slot_broken",
+    "/VisionDefectSortingLab/Slots/slot_dimension",
+)
 
 
 @dataclass(frozen=True)
@@ -323,6 +362,13 @@ _FORMAL_SCENES = {
         output_relative="simulation/vision_ocr_sorting_lab/BL23_vision_ocr_sorting_lab.ttt",
         required_paths=_OCR_SORTING_REQUIRED_PATHS,
     ),
+    "simulation/vision_defect_sorting_lab/scene_spec.json": _FormalScene(
+        spec_relative="simulation/vision_defect_sorting_lab/scene_spec.json",
+        scene_id="vision-defect-sorting-lab",
+        root_path="/VisionDefectSortingLab",
+        output_relative="simulation/vision_defect_sorting_lab/BL23_vision_defect_sorting_lab.ttt",
+        required_paths=_DEFECT_SORTING_REQUIRED_PATHS,
+    ),
 }
 
 
@@ -464,6 +510,74 @@ def _load_ocr_profile_catalog(path: Path) -> VisionProfileCatalog:
     )
 
 
+def _load_defect_profile_catalog(path: Path) -> VisionProfileCatalog:
+    """Load the V1-09 profile without changing the shared catalog allowlist."""
+
+    payload = _load(path)
+    fields = {
+        "schema_version",
+        "baseline_profile_id",
+        "sensor_path",
+        "camera_rig_path",
+        "key_light_path",
+        "fill_light_path",
+        "near_clip_m",
+        "far_clip_m",
+        "profiles",
+    }
+    if set(payload) != fields or payload["schema_version"] != 1 or payload["baseline_profile_id"] != "standard":
+        raise ValueError("V1-09 profile catalog schema is invalid")
+    expected_paths = {
+        "sensor_path": "/VisionDefectSortingLab/CameraRig/Camera",
+        "camera_rig_path": "/VisionDefectSortingLab/CameraRig",
+        "key_light_path": "/VisionDefectSortingLab/Lighting/KeyLight",
+        "fill_light_path": "/VisionDefectSortingLab/Lighting/FillLight",
+    }
+    if any(payload[name] != value for name, value in expected_paths.items()):
+        raise ValueError("V1-09 profile paths are invalid")
+    if payload["near_clip_m"] != 0.05 or payload["far_clip_m"] != 1.0:
+        raise ValueError("V1-09 profile clipping values are invalid")
+    profiles = payload["profiles"]
+    required_profile = {
+        "profile_id",
+        "label",
+        "resolution",
+        "perspective_angle_deg",
+        "camera_rig_z_m",
+        "key_diffuse_rgb",
+        "fill_diffuse_rgb",
+    }
+    if not isinstance(profiles, list) or len(profiles) != 1 or set(profiles[0]) != required_profile:
+        raise ValueError("V1-09 profile fields are invalid")
+    item = profiles[0]
+    if item["profile_id"] != "standard" or item["label"] != "表面缺陷固定视图" or item["resolution"] != [1024, 1024]:
+        raise ValueError("V1-09 profile identity/resolution is invalid")
+    if item["perspective_angle_deg"] != 20 or item["camera_rig_z_m"] != 0.492:
+        raise ValueError("V1-09 profile camera parameters are invalid")
+    if item["key_diffuse_rgb"] != [0.8, 0.8, 0.8] or item["fill_diffuse_rgb"] != [0.35, 0.35, 0.35]:
+        raise ValueError("V1-09 profile lighting values are invalid")
+    return VisionProfileCatalog(
+        baseline_profile_id="standard",
+        sensor_path=payload["sensor_path"],
+        camera_rig_path=payload["camera_rig_path"],
+        key_light_path=payload["key_light_path"],
+        fill_light_path=payload["fill_light_path"],
+        near_clip_m=0.05,
+        far_clip_m=1.0,
+        profiles=(
+            VisionProfile(
+                profile_id="standard",
+                label=item["label"],
+                resolution=(1024, 1024),
+                perspective_angle_deg=20,
+                camera_rig_z_m=0.492,
+                key_diffuse_rgb=(0.8, 0.8, 0.8),
+                fill_diffuse_rgb=(0.35, 0.35, 0.35),
+            ),
+        ),
+    )
+
+
 def _validate_ocr_assets_manifest(path: Path) -> dict[str, Any]:
     """Validate every scene label before opening a CoppeliaSim connection."""
     payload = _load(path)
@@ -546,6 +660,70 @@ def _validate_ocr_assets_manifest(path: Path) -> dict[str, Any]:
             raise ValueError("OCR scene label image cannot be decoded")
         validated.append(dict(item))
     return {"labels": validated}
+
+
+def _validate_defect_assets_manifest(path: Path) -> dict[str, Any]:
+    """Validate the seven deterministic V1-09 surface textures."""
+
+    payload = _load(path)
+    if set(payload) != {
+        "assets",
+        "generator",
+        "generator_version",
+        "schema_version",
+        "scene_id",
+        "seed",
+        "source",
+    }:
+        raise ValueError("V1-09 defect assets manifest fields are invalid")
+    if type(payload["schema_version"]) is not int or payload["schema_version"] != 1:
+        raise ValueError("V1-09 defect assets manifest schema_version is invalid")
+    if payload["scene_id"] != "V1-09" or payload["seed"] != 20260803 or payload["source"] != "project-original-generated":
+        raise ValueError("V1-09 defect asset provenance is invalid")
+    assets = payload["assets"]
+    if not isinstance(assets, list) or len(assets) != 7:
+        raise ValueError("V1-09 defect assets manifest must contain seven PNGs")
+    expected_ids = ("reference", "entry_a", "entry_b", "entry_c", "entry_d", "entry_e", "entry_f")
+    validated: list[dict[str, Any]] = []
+    seen_paths: set[str] = set()
+    for item, expected_id in zip(assets, expected_ids):
+        required = {"asset_id", "generator", "generator_version", "path", "purpose", "sha256", "size_px", "source"}
+        if not isinstance(item, dict) or set(item) != required or item["asset_id"] != expected_id:
+            raise ValueError("V1-09 defect asset fields are invalid")
+        raw_path = item["path"]
+        if (
+            not isinstance(raw_path, str)
+            or not raw_path.startswith("assets/")
+            or Path(raw_path).is_absolute()
+            or bool(Path(raw_path).anchor)
+            or "\\" in raw_path
+            or any(part in {".", ".."} for part in Path(raw_path).parts)
+            or raw_path in seen_paths
+            or not raw_path.lower().endswith(".png")
+        ):
+            raise ValueError("V1-09 defect asset path is invalid")
+        seen_paths.add(raw_path)
+        asset_path = path.parent / Path(raw_path)
+        if not asset_path.is_file() or _is_reparse_or_symlink(asset_path):
+            raise ValueError("V1-09 defect asset path must be a regular file")
+        if item["size_px"] != [256, 256] or item["source"] != "project-original-generated":
+            raise ValueError("V1-09 defect asset dimensions/provenance are invalid")
+        digest = item["sha256"]
+        if not isinstance(digest, str) or _LOWER_SHA256.fullmatch(digest) is None or _sha256(asset_path) != digest:
+            raise ValueError("V1-09 defect asset sha256 does not match bytes")
+        image = cv2.imread(str(asset_path), cv2.IMREAD_GRAYSCALE)
+        if image is None or image.shape != (256, 256) or image.dtype != np.uint8:
+            raise ValueError("V1-09 defect asset image must be 256x256 uint8 grayscale")
+        validated.append(dict(item))
+    return {
+        "assets": validated,
+        "generator": payload["generator"],
+        "generator_version": payload["generator_version"],
+        "schema_version": payload["schema_version"],
+        "scene_id": payload["scene_id"],
+        "seed": payload["seed"],
+        "source": payload["source"],
+    }
 
 
 def _write_exclusive(path: Path, payload: dict[str, Any]) -> None:
@@ -1111,6 +1289,170 @@ def _validate_ocr_sorting(spec: dict[str, Any], formal: _FormalScene) -> None:
         raise ValueError("reset_contract must bind host-controlled scene reload")
 
 
+def _validate_defect_sorting(spec: dict[str, Any], formal: _FormalScene) -> None:
+    """Validate the offline, hash-bound V1-09 scene contract."""
+
+    _exact_keys(
+        spec,
+        {
+            "calibration_matrix",
+            "camera",
+            "defect_assets_manifest",
+            "lighting",
+            "output",
+            "parts",
+            "port",
+            "profiles",
+            "remove_paths",
+            "required_paths",
+            "reset_contract",
+            "reference",
+            "rois",
+            "root_path",
+            "safe_z_mm",
+            "scene_id",
+            "schema_version",
+            "slots",
+            "template",
+            "workspace",
+        },
+        label="V1-09 scene spec",
+    )
+    if type(spec["schema_version"]) is not int or spec["schema_version"] != 1:
+        raise ValueError("V1-09 scene schema_version must be integer 1")
+    bindings = {
+        "scene_id": formal.scene_id,
+        "root_path": formal.root_path,
+        "template": TEMPLATE_RELATIVE,
+        "output": formal.output_relative,
+        "defect_assets_manifest": "simulation/vision_defect_sorting_lab/defect_assets_manifest.json",
+        "profiles": "simulation/vision_defect_sorting_lab/profiles.json",
+    }
+    for field, expected in bindings.items():
+        if spec[field] != expected:
+            raise ValueError(f"{field} must be {expected}")
+    if spec["remove_paths"] != ["/VisionLab"]:
+        raise ValueError("V1-09 remove_paths must be exactly ['/VisionLab']")
+    if spec["required_paths"] != list(formal.required_paths):
+        raise ValueError("V1-09 required paths must match the formal scene contract")
+    if type(spec["port"]) is not int or spec["port"] != 23010:
+        raise ValueError("V1-09 must use dedicated port 23010")
+    if type(spec["safe_z_mm"]) not in (int, float) or float(spec["safe_z_mm"]) != 110.0:
+        raise ValueError("V1-09 safe_z_mm must be 110 mm")
+
+    _validate_workspace(spec["workspace"])
+    workspace = spec["workspace"]
+    center = _vector(workspace["center_mm"], label="workspace center_mm", length=3)
+    size = _vector(workspace["size_mm"], label="workspace size_mm", length=3, positive=True)
+    if center != [85.0, 0.0, 5.0] or size != [150.0, 220.0, 10.0]:
+        raise ValueError("V1-09 workspace geometry is fixed")
+
+    reference = _exact_keys(
+        spec["reference"],
+        {"alias", "asset_id", "position_mm", "size_mm"},
+        label="V1-09 reference",
+    )
+    if reference["alias"] != "reference" or reference["asset_id"] != "reference":
+        raise ValueError("V1-09 reference identity is fixed")
+    if tuple(_vector(reference["position_mm"], label="V1-09 reference position_mm", length=3)) != (85.0, -57.0, 18.0):
+        raise ValueError("V1-09 reference position is fixed")
+    if _vector(reference["size_mm"], label="V1-09 reference size_mm", length=3, positive=True) != [28.0, 28.0, 16.0]:
+        raise ValueError("V1-09 reference geometry is fixed")
+
+    camera = _exact_keys(
+        spec["camera"],
+        {"alias", "orientation_deg", "path", "rig_position_m", "surface_face_plane_z_mm"},
+        label="V1-09 camera",
+    )
+    if camera["alias"] != "Camera" or camera["path"] != f"{formal.root_path}/CameraRig/Camera":
+        raise ValueError("V1-09 camera alias/path must match the formal scene root")
+    if _vector(camera["rig_position_m"], label="camera rig_position_m", length=3) != [0.085, 0.0, 0.492]:
+        raise ValueError("V1-09 camera rig position is fixed")
+    if _vector(camera["orientation_deg"], label="camera orientation_deg", length=3) != [180.0, 0.0, 0.0]:
+        raise ValueError("V1-09 camera orientation is fixed")
+    if _vector([camera["surface_face_plane_z_mm"]], label="surface face plane", length=1)[0] != 27.4:
+        raise ValueError("V1-09 surface face plane must be 27.4 mm")
+
+    lighting = _exact_keys(spec["lighting"], {"fill_path", "key_path"}, label="V1-09 lighting")
+    if lighting != {
+        "key_path": f"{formal.root_path}/Lighting/KeyLight",
+        "fill_path": f"{formal.root_path}/Lighting/FillLight",
+    }:
+        raise ValueError("V1-09 lighting paths are fixed")
+
+    matrix = spec["calibration_matrix"]
+    if not isinstance(matrix, list) or len(matrix) != 2 or any(
+        not isinstance(row, list)
+        or len(row) != 3
+        or any(type(value) not in (int, float) or not math.isfinite(float(value)) for value in row)
+        for row in matrix
+    ):
+        raise ValueError("V1-09 calibration_matrix must be finite 2x3")
+    expected_matrix = [
+        [-0.16000295944756412, 0.0, 166.84151375742906],
+        [0.0, 0.16000295944756412, -81.84151375742906],
+    ]
+    if matrix != expected_matrix:
+        raise ValueError("V1-09 calibration_matrix must match the fixed camera calibration")
+
+    rois = spec["rois"]
+    expected_roi_ids = ("entry_a", "entry_b", "entry_c", "entry_d", "entry_e", "entry_f", "reference")
+    if not isinstance(rois, dict) or tuple(sorted(rois)) != expected_roi_ids:
+        raise ValueError("V1-09 ROIs must contain the reference and six entry IDs")
+    rectangles: list[tuple[int, int, int, int]] = []
+    for key in expected_roi_ids:
+        roi = rois[key]
+        if not isinstance(roi, list) or len(roi) != 4 or any(type(value) is not int for value in roi):
+            raise ValueError("V1-09 ROI must be four integers")
+        x, y, width, height = roi
+        if x < 0 or y < 0 or width <= 0 or height <= 0 or x + width > 1024 or y + height > 1024:
+            raise ValueError("V1-09 ROI is outside the fixed 1024x1024 frame")
+        rectangles.append((x, y, width, height))
+    for index, (x, y, width, height) in enumerate(rectangles):
+        for other_x, other_y, other_width, other_height in rectangles[index + 1 :]:
+            if not (x + width <= other_x or other_x + other_width <= x or y + height <= other_y or other_y + other_height <= y):
+                raise ValueError("V1-09 ROIs must not overlap")
+
+    expected_parts = tuple(f"part_{letter}" for letter in "abcdef")
+    parts = spec["parts"]
+    if not isinstance(parts, list) or len(parts) != 6:
+        raise ValueError("V1-09 must contain six candidate parts")
+    positions = ((140, -16, 18), (85, -16, 18), (30, -16, 18), (140, 38, 18), (85, 38, 18), (30, 38, 18))
+    for index, (item, expected_alias, expected_position) in enumerate(zip(parts, expected_parts, positions)):
+        part = _exact_keys(item, {"alias", "asset_id", "position_mm", "size_mm"}, label="V1-09 part")
+        if part["alias"] != expected_alias or part["asset_id"] != f"entry_{expected_alias[-1]}":
+            raise ValueError("V1-09 parts must bind neutral entry IDs in order")
+        if tuple(_vector(part["position_mm"], label="V1-09 part position_mm", length=3)) != expected_position:
+            raise ValueError("V1-09 part positions are fixed")
+        if _vector(part["size_mm"], label="V1-09 part size_mm", length=3, positive=True) != [28.0, 28.0, 16.0]:
+            raise ValueError("V1-09 candidate geometry must be identical")
+
+    expected_decisions = ("qualified", "missing", "hole", "foreign", "broken", "dimension")
+    slots = spec["slots"]
+    if not isinstance(slots, list) or len(slots) != 6:
+        raise ValueError("V1-09 must contain six decision slots")
+    slot_positions: set[tuple[float, float, float]] = set()
+    slot_positions_expected = ((132, -93, 22), (85, -93, 22), (38, -93, 22), (132, 75, 22), (85, 75, 22), (38, 75, 22))
+    for slot, decision, expected_position in zip(slots, expected_decisions, slot_positions_expected):
+        item = _exact_keys(slot, {"alias", "color_rgb", "decision", "position_mm"}, label="V1-09 slot")
+        if item["alias"] != f"slot_{decision}" or item["decision"] != decision:
+            raise ValueError("V1-09 slots must be ordered by decision")
+        position = tuple(_vector(item["position_mm"], label="V1-09 slot position_mm", length=3))
+        if position != expected_position or position in slot_positions:
+            raise ValueError("V1-09 slot positions are fixed and unique")
+        slot_positions.add(position)
+        color = _vector(item["color_rgb"], label="V1-09 slot color_rgb", length=3)
+        if any(value < 0.0 or value > 1.0 for value in color):
+            raise ValueError("V1-09 slot colors must be between 0 and 1")
+
+    reset = _exact_keys(spec["reset_contract"], {"strategy", "tool_off", "robot_home"}, label="V1-09 reset_contract")
+    if reset != {"strategy": "scene_reload", "tool_off": True, "robot_home": True}:
+        raise ValueError("V1-09 reset_contract must bind host-controlled scene reload")
+    _project_file_from_relative(spec["profiles"], label="profiles", must_exist=True)
+    _load_defect_profile_catalog(_project_file_from_relative(spec["profiles"], label="profiles", must_exist=True))
+    _project_file_from_relative(spec["defect_assets_manifest"], label="defect_assets_manifest", must_exist=False)
+
+
 def _validate_spec(spec: dict[str, Any], formal: _FormalScene) -> None:
     if formal.scene_id == "robot-basics":
         detail_field = "markers"
@@ -1165,6 +1507,9 @@ def _validate_spec(spec: dict[str, Any], formal: _FormalScene) -> None:
         _load_ocr_profile_catalog(
             _project_file_from_relative(spec["profiles"], label="profiles", must_exist=True)
         )
+        return
+    elif formal.scene_id == "vision-defect-sorting-lab":
+        _validate_defect_sorting(spec, formal)
         return
     else:
         raise ValueError("unsupported formal scene")
@@ -1353,6 +1698,7 @@ def _shape(
     color: list[float],
     parent: int,
     respondable: bool,
+    emissive: bool = False,
 ) -> int:
     primitive = (
         sim.primitiveshape_cylinder
@@ -1376,6 +1722,13 @@ def _shape(
         sim.colorcomponent_ambient_diffuse,
         [float(value) for value in color],
     )
+    if emissive:
+        sim.setShapeColor(
+            handle,
+            "",
+            sim.colorcomponent_emission,
+            [float(value) for value in color],
+        )
     _set_int_parameter(sim, handle, sim.shapeintparam_static, 1)
     _set_int_parameter(
         sim,
@@ -2263,12 +2616,223 @@ def _build_ocr_sorting(
     _build_vision_lighting(sim, profile_catalog, root)
 
 
+def _defect_surface_part(
+    sim: Any,
+    part: dict[str, Any],
+    asset_path: Path,
+    parent: int,
+    *,
+    group_alias: str | None = None,
+    inspection_face_direct: bool = False,
+    respondable: bool,
+) -> int:
+    """Build one identical pickable body with a deterministic surface face."""
+
+    center = [float(value) for value in part["position_mm"]]
+    size = [float(value) for value in part["size_mm"]]
+    pieces = [
+        _shape(
+            sim,
+            name=f"{part['alias']}_body",
+            shape="cuboid",
+            size_mm=size,
+            position_mm=center,
+            color=[0.74, 0.75, 0.77],
+            parent=parent,
+            respondable=respondable,
+            emissive=True,
+        )
+    ]
+    face_width = size[0] - 4.0
+    face_height = size[1] - 4.0
+    face_z = center[2] + size[2] / 2.0 + 0.6
+    pieces.append(
+        _shape(
+            sim,
+            name=f"{part['alias']}_face_plate",
+            shape="cuboid",
+            size_mm=[face_width, face_height, 1.0],
+            position_mm=[center[0], center[1], face_z],
+            color=[0.98, 0.98, 0.98],
+            parent=parent,
+            respondable=False,
+            emissive=True,
+        )
+    )
+    image = cv2.imread(str(asset_path), cv2.IMREAD_GRAYSCALE)
+    bitmap = _rasterize_defect_surface(image, asset_path=asset_path)
+    raster_height, raster_width = bitmap.shape
+    pitch_x = face_width / float(raster_width)
+    pitch_y = face_height / float(raster_height)
+    origin_x = center[0] - face_width / 2.0
+    origin_y = center[1] - face_height / 2.0
+    pixel_index = 0
+    for row in range(raster_height):
+        for column in range(raster_width):
+            if int(bitmap[row, column]) >= 160:
+                continue
+            pieces.append(
+                _shape(
+                    sim,
+                    name=f"{part['alias']}_surface_{pixel_index:03d}",
+                    shape="cuboid",
+                    size_mm=[pitch_x * 0.90, pitch_y * 0.90, 0.3],
+                    position_mm=[
+                        origin_x + pitch_x * (column + 0.5),
+                        origin_y + pitch_y * (row + 0.5),
+                        face_z + 0.65,
+                    ],
+                    color=[0.01, 0.01, 0.01],
+                    parent=parent,
+                    respondable=False,
+                )
+            )
+            pixel_index += 1
+    compound = int(sim.groupShapes(pieces, False))
+    _alias(sim, compound, "InspectionFace" if inspection_face_direct else group_alias or part["alias"])
+    sim.setObjectParent(compound, parent, True)
+    relocate_frame = getattr(sim, "relocateShapeFrame", None)
+    if callable(relocate_frame):
+        relocate_frame(
+            compound,
+            [
+                center[0] / 1000.0,
+                center[1] / 1000.0,
+                center[2] / 1000.0,
+                0.0,
+                0.0,
+                0.0,
+                1.0,
+            ],
+        )
+    _set_int_parameter(sim, compound, sim.shapeintparam_static, 1)
+    _set_int_parameter(sim, compound, sim.shapeintparam_respondable, int(respondable))
+    if not inspection_face_direct:
+        _dummy(sim, "InspectionFace", compound)
+    return compound
+
+
+def _rasterize_defect_surface(
+    image: np.ndarray | None,
+    *,
+    asset_path: Path,
+    raster_size: int = 35,
+) -> np.ndarray:
+    if image is None or image.shape != (256, 256) or image.dtype != np.uint8:
+        raise ValueError(f"could not decode V1-09 defect surface asset: {asset_path}")
+    return cv2.resize(image, (raster_size, raster_size), interpolation=cv2.INTER_NEAREST)
+
+
+def _defect_slot(sim: Any, slot: dict[str, Any], parent: int) -> None:
+    group = _dummy(sim, slot["alias"], parent)
+    center = [float(value) for value in slot["position_mm"]]
+    color = [float(value) for value in slot["color_rgb"]]
+    _shape(
+        sim,
+        name="Floor",
+        shape="cuboid",
+        size_mm=[30, 30, 2],
+        position_mm=[center[0], center[1], 11],
+        color=color,
+        parent=group,
+        respondable=True,
+    )
+    for name, dx, dy, sx, sy in (
+        ("WallLeft", -16, 0, 2, 34),
+        ("WallRight", 16, 0, 2, 34),
+        ("WallFront", 0, -16, 34, 2),
+        ("WallBack", 0, 16, 34, 2),
+    ):
+        _shape(
+            sim,
+            name=name,
+            shape="cuboid",
+            size_mm=[sx, sy, 12],
+            position_mm=[center[0] + dx, center[1] + dy, 17],
+            color=color,
+            parent=group,
+            respondable=True,
+        )
+    marker = _dummy(sim, "Target", group)
+    sim.setObjectPosition(marker, [center[0] / 1000.0, center[1] / 1000.0, center[2] / 1000.0], sim.handle_world)
+
+
+def _build_defect_sorting(
+    sim: Any,
+    spec: dict[str, Any],
+    root: int,
+    *,
+    defect_assets: dict[str, Any],
+    profile_catalog: Any,
+    assets_root: Path,
+) -> None:
+    _build_workspace(sim, spec["workspace"], root)
+    reference_group = _dummy(sim, "Reference", root)
+    parts_group = _dummy(sim, "Parts", root)
+    slots_group = _dummy(sim, "Slots", root)
+    camera_rig = _dummy(sim, "CameraRig", root)
+    standard = profile_catalog.require(profile_catalog.baseline_profile_id)
+    camera_spec = spec["camera"]
+    sim.setObjectPosition(camera_rig, [float(value) for value in camera_spec["rig_position_m"]], sim.handle_world)
+    options = 1 | 2 | 4 | 64 | 128
+    camera = int(
+        sim.createVisionSensor(
+            options,
+            [int(standard.resolution[0]), int(standard.resolution[1]), 0, 0],
+            [
+                float(profile_catalog.near_clip_m),
+                float(profile_catalog.far_clip_m),
+                math.radians(float(standard.perspective_angle_deg)),
+                0.02,
+                0.0,
+                0.0,
+                0.08,
+                0.08,
+                0.10,
+                0.0,
+                0.0,
+            ],
+        )
+    )
+    _alias(sim, camera, camera_spec["alias"])
+    sim.setObjectParent(camera, camera_rig, False)
+    sim.setObjectPosition(camera, [0.0, 0.0, 0.0], camera_rig)
+    sim.setObjectOrientation(camera, [math.radians(float(value)) for value in camera_spec["orientation_deg"]], camera_rig)
+    assets = {item["asset_id"]: item for item in defect_assets["assets"]}
+    reference = spec["reference"]
+    _defect_surface_part(
+        sim,
+        reference,
+        assets_root / assets["reference"]["path"],
+        reference_group,
+        inspection_face_direct=True,
+        respondable=False,
+    )
+    for part in spec["parts"]:
+        asset = assets.get(part["asset_id"])
+        if asset is None:
+            raise ValueError("V1-09 defect asset IDs and scene parts do not match")
+        _defect_surface_part(sim, part, assets_root / asset["path"], parts_group, respondable=True)
+    for slot in spec["slots"]:
+        _defect_slot(sim, slot, slots_group)
+    _build_vision_lighting(sim, profile_catalog, root)
+
+
 def _attach_ocr_camera_scope(sim: Any, root: int) -> int:
     return _attach_camera_scope(
         sim,
         root,
         scene_root_path="/VisionOcrSortingLab",
         camera_path="/VisionOcrSortingLab/CameraRig/Camera",
+    )
+
+
+def _attach_defect_camera_scope(sim: Any, root: int) -> int:
+    return _attach_camera_scope(
+        sim,
+        root,
+        scene_root_path="/VisionDefectSortingLab",
+        camera_path="/VisionDefectSortingLab/CameraRig/Camera",
     )
 
 
@@ -2283,6 +2847,7 @@ def _attach_camera_scope(
         ("/LogisticsLab", "/LogisticsLab/Camera"),
         ("/VisionCodeRoutingLab", "/VisionCodeRoutingLab/CameraRig/Camera"),
         ("/VisionOcrSortingLab", "/VisionOcrSortingLab/CameraRig/Camera"),
+        ("/VisionDefectSortingLab", "/VisionDefectSortingLab/CameraRig/Camera"),
     }
     if (scene_root_path, camera_path) not in allowed:
         raise ValueError("camera render scope is not an approved formal scene")
@@ -2356,6 +2921,7 @@ def _recoverable_release(
     profile_catalog: tuple[str, Path, str] | None = None,
     code_assets_manifest: tuple[str, Path, str] | None = None,
     ocr_assets_manifest: tuple[str, Path, str] | None = None,
+    defect_assets_manifest: tuple[str, Path, str] | None = None,
 ) -> _RecoverableRelease | None:
     if not output.is_file() or not manifest_path.is_file():
         return None
@@ -2382,6 +2948,7 @@ def _recoverable_release(
             "vision-quality-lab",
             "vision-code-routing-lab",
             "vision-ocr-sorting-lab",
+            "vision-defect-sorting-lab",
         }:
             if profile_catalog is None:
                 return None
@@ -2415,6 +2982,18 @@ def _recoverable_release(
                     or set(manifest["ocr_assets_manifest"]) != {"path", "sha256"}
                     or manifest["ocr_assets_manifest"].get("path") != asset_relative
                     or manifest["ocr_assets_manifest"].get("sha256") != asset_hash
+                    or _sha256(asset_path) != asset_hash
+                ):
+                    return None
+            if formal.scene_id == "vision-defect-sorting-lab":
+                if defect_assets_manifest is None:
+                    return None
+                asset_relative, asset_path, asset_hash = defect_assets_manifest
+                if (
+                    not isinstance(manifest.get("defect_assets_manifest"), dict)
+                    or set(manifest["defect_assets_manifest"]) != {"path", "sha256"}
+                    or manifest["defect_assets_manifest"].get("path") != asset_relative
+                    or manifest["defect_assets_manifest"].get("sha256") != asset_hash
                     or _sha256(asset_path) != asset_hash
                 ):
                     return None
@@ -2532,10 +3111,15 @@ def build_scene(
         ocr_assets_content: bytes | None = None
         ocr_assets_hash: str | None = None
         ocr_assets = None
+        defect_assets_path: Path | None = None
+        defect_assets_content: bytes | None = None
+        defect_assets_hash: str | None = None
+        defect_assets = None
         if formal.scene_id in {
             "vision-quality-lab",
             "vision-code-routing-lab",
             "vision-ocr-sorting-lab",
+            "vision-defect-sorting-lab",
         }:
             profile_catalog_path = _project_file_from_relative(
                 spec["profiles"],
@@ -2548,6 +3132,8 @@ def build_scene(
             ).hexdigest()
             if formal.scene_id == "vision-ocr-sorting-lab":
                 profile_catalog = _load_ocr_profile_catalog(profile_catalog_path)
+            elif formal.scene_id == "vision-defect-sorting-lab":
+                profile_catalog = _load_defect_profile_catalog(profile_catalog_path)
             else:
                 profile_catalog = load_profile_catalog_bytes(
                     profile_catalog_content
@@ -2570,6 +3156,15 @@ def build_scene(
             ocr_assets_content = ocr_assets_path.read_bytes()
             ocr_assets_hash = hashlib.sha256(ocr_assets_content).hexdigest()
             ocr_assets = json.loads(ocr_assets_content.decode("utf-8"))
+        if formal.scene_id == "vision-defect-sorting-lab":
+            defect_assets_path = _project_file_from_relative(
+                spec["defect_assets_manifest"],
+                label="defect_assets_manifest",
+                must_exist=True,
+            )
+            defect_assets_content = defect_assets_path.read_bytes()
+            defect_assets_hash = hashlib.sha256(defect_assets_content).hexdigest()
+            defect_assets = _validate_defect_assets_manifest(defect_assets_path)
         token = uuid.uuid4().hex
         staged_scene = output.parent / (
             f".{output.stem}.staged-{token}.ttt"
@@ -2631,6 +3226,18 @@ def build_scene(
                 assets_root=ocr_assets_path.parent,
             )
             _attach_ocr_camera_scope(sim, root)
+        elif formal.scene_id == "vision-defect-sorting-lab":
+            if defect_assets_path is None or defect_assets is None:
+                raise RuntimeError("V1-09 defect assets manifest was not loaded")
+            _build_defect_sorting(
+                sim,
+                spec,
+                root,
+                defect_assets=defect_assets,
+                profile_catalog=profile_catalog,
+                assets_root=defect_assets_path.parent,
+            )
+            _attach_defect_camera_scope(sim, root)
         else:
             raise RuntimeError(f"unsupported formal scene: {formal.scene_id}")
         for path in formal.required_paths:
@@ -2669,6 +3276,12 @@ def build_scene(
             and ocr_assets_path.read_bytes() != ocr_assets_content
         ):
             raise RuntimeError("OCR assets manifest changed during scene build")
+        if (
+            defect_assets_path is not None
+            and defect_assets_content is not None
+            and defect_assets_path.read_bytes() != defect_assets_content
+        ):
+            raise RuntimeError("V1-09 defect assets manifest changed during scene build")
 
         manifest = {
             "schema_version": 1,
@@ -2772,6 +3385,43 @@ def build_scene(
                 "safe_z_mm": float(spec["safe_z_mm"]),
             }
             manifest["reset_contract"] = dict(spec["reset_contract"])
+        if formal.scene_id == "vision-defect-sorting-lab":
+            if defect_assets_hash is None:
+                raise RuntimeError("V1-09 defect assets manifest hash was not loaded")
+            standard = profile_catalog.require(profile_catalog.baseline_profile_id)
+            plane_z_mm = float(spec["camera"]["surface_face_plane_z_mm"])
+            distance_mm = float(standard.camera_rig_z_m) * 1000.0 - plane_z_mm
+            scale_mm_per_px = (
+                2.0
+                * distance_mm
+                * math.tan(math.radians(float(standard.perspective_angle_deg)) / 2.0)
+                / float(standard.resolution[0])
+            )
+            pixel_center = (float(standard.resolution[0]) - 1.0) / 2.0
+            rig_x_mm = float(spec["camera"]["rig_position_m"][0]) * 1000.0
+            rig_y_mm = float(spec["camera"]["rig_position_m"][1]) * 1000.0
+            manifest["defect_assets_manifest"] = {
+                "path": spec["defect_assets_manifest"],
+                "sha256": defect_assets_hash,
+            }
+            manifest["defect_sorting"] = {
+                "part_ids": [part["alias"] for part in spec["parts"]],
+                "reference_position_mm": list(spec["reference"]["position_mm"]),
+                "initial_positions_mm": {
+                    part["alias"]: list(part["position_mm"]) for part in spec["parts"]
+                },
+                "calibration_plane_z_mm": plane_z_mm,
+                "calibration_matrix": [
+                    [-scale_mm_per_px, 0.0, rig_x_mm + scale_mm_per_px * pixel_center],
+                    [0.0, scale_mm_per_px, rig_y_mm - scale_mm_per_px * pixel_center],
+                ],
+                "rois": {key: list(value) for key, value in spec["rois"].items()},
+                "slot_positions_mm": {
+                    slot["decision"]: list(slot["position_mm"]) for slot in spec["slots"]
+                },
+                "safe_z_mm": float(spec["safe_z_mm"]),
+            }
+            manifest["reset_contract"] = dict(spec["reset_contract"])
         _write_exclusive(staged_manifest, manifest)
 
         old_release = _recoverable_release(
@@ -2793,6 +3443,11 @@ def build_scene(
             (
                 (spec["ocr_assets_manifest"], ocr_assets_path, ocr_assets_hash)
                 if ocr_assets_path is not None and ocr_assets_hash is not None
+                else None
+            ),
+            (
+                (spec["defect_assets_manifest"], defect_assets_path, defect_assets_hash)
+                if defect_assets_path is not None and defect_assets_hash is not None
                 else None
             ),
         )

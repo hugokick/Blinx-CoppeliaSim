@@ -122,6 +122,19 @@ class VisionResultPanel(QWidget):
         self.ocr_text.setMinimumHeight(150)
         root.addWidget(self.ocr_text)
 
+        self.defect_summary_label = QLabel("表面缺陷分拣：—")
+        self.defect_summary_label.setObjectName("visionDefectSummary")
+        self.defect_summary_label.setTextInteractionFlags(
+            Qt.TextSelectableByMouse
+        )
+        root.addWidget(self.defect_summary_label)
+        self.defect_text = QPlainTextEdit()
+        self.defect_text.setObjectName("visionDefectDetails")
+        self.defect_text.setReadOnly(True)
+        self.defect_text.setMaximumBlockCount(360)
+        self.defect_text.setMinimumHeight(180)
+        root.addWidget(self.defect_text)
+
         layer_row = QHBoxLayout()
         layer_row.addWidget(QLabel("显示图层"))
         self.layer_combo = QComboBox()
@@ -197,6 +210,10 @@ class VisionResultPanel(QWidget):
                 color: #315a78;
                 font-weight: 600;
             }
+            QLabel#visionDefectSummary {
+                color: #315a78;
+                font-weight: 600;
+            }
             """
         )
 
@@ -241,6 +258,8 @@ class VisionResultPanel(QWidget):
         self.route_text.clear()
         self.ocr_summary_label.setText("OCR 分拣：—")
         self.ocr_text.clear()
+        self.defect_summary_label.setText("表面缺陷分拣：—")
+        self.defect_text.clear()
         self.preview_label.clear()
         self.preview_label.setText("等待视觉结果")
         self.result_text.clear()
@@ -380,6 +399,7 @@ class VisionResultPanel(QWidget):
         )
         self._show_code_routes(result)
         self._show_ocr_sorting(result)
+        self._show_defect_sorting(result)
         public_bundle = {
             key: value
             for key, value in bundle.items()
@@ -494,6 +514,83 @@ class VisionResultPanel(QWidget):
             f"代码路由：{result['status']}　计划：{result['plan_id']}"
         )
         self.route_text.setPlainText("\n".join(lines))
+
+    def _show_defect_sorting(self, result: Any) -> None:
+        """Render V1-09 as bounded, read-only teaching evidence."""
+
+        if (
+            not isinstance(result, dict)
+            or not isinstance(result.get("entries"), list)
+            or not result.get("plan_id")
+        ):
+            self.defect_summary_label.setText("表面缺陷分拣：—")
+            self.defect_text.clear()
+            return
+
+        plan_id = str(result.get("plan_id", "—"))
+        display_plan = (
+            plan_id
+            if len(plan_id) <= 28
+            else f"{plan_id[:12]}…{plan_id[-10:]}"
+        )
+        status = result.get("status", "—")
+        entries = result["entries"]
+        self.defect_summary_label.setText(
+            f"表面缺陷分拣：{status}　计划：{display_plan}　"
+            f"条目：{len(entries)}/6"
+        )
+        lines = [
+            f"plan_id={plan_id}",
+            f"config_sha256={result.get('config_sha256', '—')}",
+            f"asset_manifest_sha256={result.get('asset_manifest_sha256', '—')}",
+            f"thresholds={result.get('thresholds', '—')}",
+        ]
+        for item in entries:
+            if not isinstance(item, dict):
+                lines.append("entry=<invalid>")
+                continue
+            lines.extend(
+                (
+                    f"{item.get('entry_id', '—')} | decision={item.get('decision', '—')} | "
+                    f"defect_type={item.get('defect_type', '—')} | "
+                    f"slot={item.get('slot_id', '—')} | status={item.get('status', '—')}",
+                    f"  reference_crop_sha256={item.get('reference_crop_sha256', '—')}",
+                    f"  candidate_crop_sha256={item.get('candidate_crop_sha256', '—')}",
+                    f"  findings_sha256={item.get('findings_sha256', '—')}",
+                )
+            )
+            findings = item.get("findings")
+            if not isinstance(findings, list):
+                lines.append("  findings=<invalid>")
+                continue
+            if not findings:
+                lines.append("  findings=none")
+            for finding in findings:
+                if not isinstance(finding, dict):
+                    lines.append("  finding=<invalid>")
+                    continue
+                lines.append(
+                    "  finding="
+                    f"{finding.get('defect_type', '—')} "
+                    f"bbox_px={finding.get('bbox_px', '—')} "
+                    f"area_px2={self._format_number(finding.get('area_px2'), digits=3, suffix='')} "
+                    f"relative_area={self._format_number(finding.get('relative_area'), digits=4, suffix='')} "
+                    f"metric={self._format_number(finding.get('metric'), digits=3, suffix='')} "
+                    f"threshold={self._format_number(finding.get('threshold'), digits=3, suffix='')} "
+                    f"confidence={self._format_number(finding.get('confidence'), digits=3, suffix='')}"
+                )
+        lines.extend(
+            (
+                f"motion_status={result.get('motion_status', '—')}",
+                f"final_slots={result.get('final_slots', '—')}",
+                f"same_run_evidence={result.get('same_run_evidence', '—')}",
+                f"robot_home={result.get('robot_home', '—')} tool_off={result.get('tool_off', '—')}",
+                f"error={str(result.get('error', '—'))[:1800]}",
+                f"human_acceptance={result.get('human_acceptance', '—')}",
+                f"hardware_status={result.get('hardware_status', '—')}",
+            )
+        )
+        self.defect_text.setPlainText("\n".join(lines))
 
     @staticmethod
     def _format_number(value: Any, *, digits: int, suffix: str) -> str:

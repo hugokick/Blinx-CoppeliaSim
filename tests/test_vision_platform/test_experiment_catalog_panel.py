@@ -82,7 +82,7 @@ def test_catalog_panel_preserves_formal_order_through_v1_07(qtbot):
         panel.experiment_combo.itemData(index)
         for index in range(panel.experiment_combo.count())
     )
-    assert visible_ids[-8:-2] == (
+    assert visible_ids[-9:-3] == (
         "V1-01",
         "V1-02",
         "V1-03",
@@ -90,8 +90,8 @@ def test_catalog_panel_preserves_formal_order_through_v1_07(qtbot):
         "V1-05",
         "V1-06",
     )
-    assert visible_ids[-2:] == ("V1-07", "V1-08")
-    panel.experiment_combo.setCurrentIndex(panel.experiment_combo.count() - 3)
+    assert visible_ids[-3:] == ("V1-07", "V1-08", "V1-09")
+    panel.experiment_combo.setCurrentIndex(panel.experiment_combo.count() - 4)
     assert "模板匹配" in panel.capabilities_label.text()
 
 
