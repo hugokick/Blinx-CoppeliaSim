@@ -36,7 +36,11 @@ from vision_platform.student.defect_sort_guard import (
     DefectSortGuard,
     DefectSortGuardError,
 )
-from vision_platform.experiments.defect_sorting import defect_sort_receipt_to_dict, DefectSortReceipt
+from vision_platform.experiments.defect_sorting import (
+    DefectSortReceipt,
+    defect_sort_plan_to_dict,
+    defect_sort_receipt_to_dict,
+)
 from vision_platform.student.protocol import (
     CommandMessage,
     ResponseMessage,
@@ -2826,6 +2830,8 @@ class StudentProgramController:
                 "COMMAND_NOT_ALLOWED",
                 "V1-08/V1-09 不公开机器人或吸盘原始命令",
             )
+        if command.name == "vision2d.surface_defects":
+            return self._command_surface_defects(command.args)
         if command.name in {
             "camera.capture",
             "camera.profile.apply",
@@ -2836,7 +2842,6 @@ class StudentProgramController:
             "vision2d.template_match",
             "vision2d.code_routes",
             "vision2d.ocr_sorting",
-            "vision2d.surface_defects",
         }:
             gateway = self._experiment_gateway
             if gateway is None:
@@ -2860,6 +2865,46 @@ class StudentProgramController:
             "tool.off": self._command_tool_off,
         }
         return dispatch[command.name](command.args)
+
+    def _fail_defect_analysis(self, primary_error: Mapping[str, Any]) -> None:
+        try:
+            if self._defect_guard.state == "ANALYZING":
+                self._defect_guard.fail_analysis(primary_error)
+            else:
+                self._defect_guard.fail(primary_error)
+        except BaseException:
+            pass
+
+    def _command_surface_defects(self, args: Mapping[str, Any]) -> Any:
+        gateway = self._experiment_gateway
+        if gateway is None:
+            raise VisionPlatformError(
+                "EXPERIMENT_CONTEXT_REQUIRED",
+                "当前运行没有选择 V2.2 实验",
+            )
+        try:
+            self._defect_guard.begin_analysis()
+        except DefectSortGuardError as guard_error:
+            raise VisionPlatformError(
+                guard_error.code,
+                _safe_text(guard_error),
+            ) from None
+        try:
+            result = gateway.dispatch("vision2d.surface_defects", args)
+        except BaseException as command_error:
+            self._fail_defect_analysis(_exception_error(command_error))
+            raise
+        if self._defect_guard.state != "ACTIVE":
+            error = _error(
+                "DEFECT_SORT_PLAN_NOT_ACTIVE",
+                "缺陷分拣计划未在分析响应返回前激活",
+            )
+            self._fail_defect_analysis(error)
+            raise VisionPlatformError(
+                "DEFECT_SORT_PLAN_NOT_ACTIVE",
+                "缺陷分拣计划未在分析响应返回前激活",
+            )
+        return result
 
     def _is_v1_08_experiment(self) -> bool:
         definition = self._experiment_definition
@@ -3909,10 +3954,10 @@ class StudentProgramController:
                             cleanup_errors,
                             quarantined=backend_quarantined,
                         )
-            record_defect_evidence = getattr(
-                experiment_gateway,
-                "record_defect_final",
-                None,
+            record_defect_evidence = (
+                getattr(experiment_gateway, "record_defect_final", None)
+                if self._is_v1_09_experiment()
+                else None
             )
             if callable(record_defect_evidence):
                 defect_primary_error = (

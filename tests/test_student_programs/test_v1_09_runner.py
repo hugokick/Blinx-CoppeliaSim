@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from types import SimpleNamespace
 import threading
@@ -76,6 +77,130 @@ def _controller(tmp_path: Path) -> tuple[StudentProgramController, Robot, Tool]:
     )
     controller._experiment_definition = SimpleNamespace(capabilities=("vision2d.surface_defects",))
     return controller, robot, tool
+
+
+def _surface_command(controller: StudentProgramController):
+    return controller._dispatch(
+        CommandMessage("000001", "vision2d.surface_defects", {})
+    )
+
+
+def test_v1_09_surface_analysis_begins_before_gateway_activation(tmp_path: Path) -> None:
+    controller, _, _ = _controller(tmp_path)
+    calls: list[str] = []
+    plan = _build()
+
+    class Gateway:
+        def dispatch(self, name: str, args: dict):
+            calls.append(name)
+            assert controller._defect_guard.state == "ANALYZING"
+            controller._defect_guard.activate(plan)
+            return {"status": "PASS", "plan_id": plan.plan_id}
+
+    controller._experiment_gateway = Gateway()
+
+    result = _surface_command(controller)
+
+    assert result == {"status": "PASS", "plan_id": plan.plan_id}
+    assert calls == ["vision2d.surface_defects"]
+    assert controller._defect_guard.state == "ACTIVE"
+    assert controller._defect_guard.plan_id == plan.plan_id
+
+
+def test_v1_09_surface_analysis_failure_fails_guard_and_preserves_primary_error(tmp_path: Path) -> None:
+    controller, _, _ = _controller(tmp_path)
+    calls: list[str] = []
+
+    class Gateway:
+        def dispatch(self, name: str, args: dict):
+            calls.append(name)
+            assert controller._defect_guard.state == "ANALYZING"
+            raise VisionPlatformError("DEFECT_SORT_ANALYSIS_FAILED", "analysis rejected")
+
+    controller._experiment_gateway = Gateway()
+
+    with pytest.raises(VisionPlatformError) as captured:
+        _surface_command(controller)
+
+    assert captured.value.code == "DEFECT_SORT_ANALYSIS_FAILED"
+    assert calls == ["vision2d.surface_defects"]
+    assert controller._defect_guard.state == "FAILED"
+    assert controller._defect_guard.plan_id is None
+    assert controller._defect_guard.actions == ()
+    assert controller._defect_guard.error["code"] == "DEFECT_SORT_ANALYSIS_FAILED"
+
+
+def test_v1_09_surface_response_failure_invalidates_activated_plan(tmp_path: Path) -> None:
+    controller, _, _ = _controller(tmp_path)
+    plan = _build()
+    calls: list[str] = []
+
+    class Gateway:
+        def dispatch(self, name: str, args: dict):
+            calls.append(name)
+            assert controller._defect_guard.state == "ANALYZING"
+            controller._defect_guard.activate(plan)
+            raise VisionPlatformError("DEFECT_SORT_RESPONSE_INVALID", "response rejected")
+
+    controller._experiment_gateway = Gateway()
+
+    with pytest.raises(VisionPlatformError) as captured:
+        _surface_command(controller)
+
+    assert captured.value.code == "DEFECT_SORT_RESPONSE_INVALID"
+    assert calls == ["vision2d.surface_defects"]
+    assert controller._defect_guard.state == "FAILED"
+    assert controller._defect_guard.plan_id is None
+    assert controller._defect_guard.actions == ()
+    assert controller._defect_guard.error["code"] == "DEFECT_SORT_RESPONSE_INVALID"
+
+
+def test_v1_09_surface_analysis_without_activation_fails_closed(tmp_path: Path) -> None:
+    controller, _, _ = _controller(tmp_path)
+    calls: list[str] = []
+
+    class Gateway:
+        def dispatch(self, name: str, args: dict):
+            calls.append(name)
+            assert controller._defect_guard.state == "ANALYZING"
+            return {"status": "PASS", "plan_id": "not-activated"}
+
+    controller._experiment_gateway = Gateway()
+
+    with pytest.raises(VisionPlatformError) as captured:
+        _surface_command(controller)
+
+    assert captured.value.code == "DEFECT_SORT_PLAN_NOT_ACTIVE"
+    assert calls == ["vision2d.surface_defects"]
+    assert controller._defect_guard.state == "FAILED"
+    assert controller._defect_guard.plan_id is None
+    assert controller._defect_guard.actions == ()
+    assert controller._defect_guard.error["code"] == "DEFECT_SORT_PLAN_NOT_ACTIVE"
+
+
+def test_v1_09_repeated_surface_analysis_is_rejected_before_gateway_reentry(tmp_path: Path) -> None:
+    controller, _, _ = _controller(tmp_path)
+    plan = _build()
+    calls: list[str] = []
+
+    class Gateway:
+        def dispatch(self, name: str, args: dict):
+            calls.append(name)
+            assert controller._defect_guard.state == "ANALYZING"
+            controller._defect_guard.activate(plan)
+            return {"status": "PASS", "plan_id": plan.plan_id}
+
+    controller._experiment_gateway = Gateway()
+
+    first = _surface_command(controller)
+    with pytest.raises(VisionPlatformError) as captured:
+        _surface_command(controller)
+
+    assert first == {"status": "PASS", "plan_id": plan.plan_id}
+    assert captured.value.code == "DEFECT_SORT_ANALYSIS_ALREADY_ACTIVE"
+    assert calls == ["vision2d.surface_defects"]
+    assert controller._defect_guard.state == "ACTIVE"
+    assert controller._defect_guard.plan_id == plan.plan_id
 
 
 @pytest.mark.parametrize("name", ["robot.home", "robot.pose", "robot.move_world", "tool.on", "tool.off"])
@@ -161,6 +286,47 @@ def test_v1_09_private_runner_completes_only_after_post_probe(tmp_path: Path) ->
     assert len(robot.moves) == 6  # one safe pick/drop transfer plus the repeated guard actions
     assert tool.events == ["on", "off"]
     assert controller._defect_guard.consumed_entry_ids == ("entry_a",)
+
+
+def test_v1_09_complete_guard_captures_same_run_final_probe_context(
+    tmp_path: Path,
+) -> None:
+    controller, _, _, evidence = _active_defect_controller(tmp_path)
+    gateway = controller._experiment_gateway
+    plan = gateway._defect_evidence["plan"]
+    controller._experiment_context = SimpleNamespace(
+        scene_sha256=plan.scene_sha256,
+    )
+
+    for entry in plan.entries:
+        receipt = controller._command_defect_sort_entry(
+            {"entry_id": entry.entry_id}
+        )
+        assert receipt["entry_id"] == entry.entry_id
+        assert receipt["status"] == "COMPLETED"
+
+    assert controller._defect_guard.state == "COMPLETE"
+    context = controller._defect_probe_context()
+
+    assert context is not None
+    expected_ids = [f"entry_{letter}" for letter in "abcdef"]
+    assert context["run_id"] == evidence.run_id
+    assert context["frame_id"] == plan.frame_id
+    assert context["scene_hash"] == plan.scene_sha256
+    assert context["plan_id"] == plan.plan_id
+    assert context["plan_public"] == defect_sort_plan_to_dict(plan)
+    assert context["consumed_entry_ids"] == expected_ids
+    assert [item["entry_id"] for item in context["entry_evidence"]] == expected_ids
+    assert context["guard"]["state"] == "COMPLETE"
+    assert context["guard"]["consumed_entry_ids"] == expected_ids
+    assert context["robot_home"] is False
+    assert context["tool_on"] is False
+    json.dumps(
+        context,
+        ensure_ascii=False,
+        sort_keys=True,
+        allow_nan=False,
+    )
 
 
 def test_v1_09_single_step_permits_one_device_call(tmp_path: Path) -> None:
