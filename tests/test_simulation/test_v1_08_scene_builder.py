@@ -102,6 +102,102 @@ def test_existing_v1_08_release_recovery_does_not_require_code_assets_manifest()
     assert release.scene_sha256 == manifest["scene"]["sha256"]
 
 
+def test_v1_08_bitmap_cells_are_contiguous_for_connected_strokes():
+    """The rendered 10x7 label must not break adjacent bitmap pixels apart."""
+
+    geometry = scene_builder._ocr_bitmap_geometry(face_width=30.0, face_height=30.0)
+
+    assert geometry["cell_width_mm"] >= geometry["pitch_width_mm"]
+    assert geometry["cell_height_mm"] >= geometry["pitch_height_mm"]
+
+
+def test_v1_08_bitmap_footprint_fits_the_fixed_roi():
+    geometry = scene_builder._ocr_bitmap_geometry(face_width=30.0, face_height=30.0)
+
+    assert 11 * geometry["cell_width_mm"] <= 18.0
+    assert 7 * geometry["cell_height_mm"] <= 18.0
+
+
+def test_v1_08_bitmap_cells_keep_the_training_scale():
+    geometry = scene_builder._ocr_bitmap_geometry(face_width=30.0, face_height=30.0)
+
+    assert 1.0 <= geometry["pitch_width_mm"] <= 1.15
+    # The training generator uses square bitmap pixels.  A vertically
+    # stretched scene glyph changes the normalized 20x20 feature shape and
+    # lowers the raw KNN confidence before the published 0.90 gate.
+    assert geometry["pitch_height_mm"] == pytest.approx(geometry["pitch_width_mm"])
+    # Training variants include the deterministic one-pixel dilation case;
+    # scene blocks must preserve that stroke thickness after rasterisation.
+    assert geometry["cell_width_mm"] >= 1.15 * geometry["pitch_width_mm"]
+
+
+def test_v1_08_bitmap_keeps_a_gap_between_identifier_glyphs():
+    geometry = scene_builder._ocr_bitmap_geometry(face_width=30.0, face_height=30.0)
+
+    assert geometry["glyph_gap_pitch_mm"] >= geometry["pitch_width_mm"]
+
+
+def test_v1_08_ocr_part_uses_contiguous_cell_size(monkeypatch):
+    calls = []
+
+    def fake_shape(_sim, **kwargs):
+        calls.append(kwargs)
+        return len(calls)
+
+    class FakeSim:
+        shapeintparam_static = 1
+        shapeintparam_respondable = 2
+
+        def groupShapes(self, pieces, _merge):
+            return 99
+
+        def setObjectParent(self, *_args):
+            return None
+
+    monkeypatch.setattr(scene_builder, "_shape", fake_shape)
+    monkeypatch.setattr(scene_builder, "_alias", lambda _sim, handle, _name: handle)
+    monkeypatch.setattr(scene_builder, "_set_int_parameter", lambda *_args: None)
+    monkeypatch.setattr(scene_builder, "_dummy", lambda *_args: 100)
+    # Two adjacent pixels force the generated cuboids to meet in both axes.
+    np = __import__("numpy")
+    label = np.full((96, 64), 255, dtype="uint8")
+    for row, column in ((0, 0), (0, 1), (1, 0)):
+        label[30 + row * 5 : 35 + row * 5, 3 + column * 5 : 8 + column * 5] = 0
+    monkeypatch.setattr(scene_builder.cv2, "imread", lambda *_args: label)
+    scene_builder._ocr_part(
+        FakeSim(),
+        {"alias": "part_a", "position_mm": [40, -45, 18], "size_mm": [34, 34, 16]},
+        Path("label.png"),
+        100,
+    )
+
+    glyphs = calls[2:]
+    assert len(glyphs) == 3
+    assert glyphs[0]["size_mm"][0] >= glyphs[1]["position_mm"][0] - glyphs[0]["position_mm"][0]
+    assert glyphs[0]["size_mm"][1] >= glyphs[2]["position_mm"][1] - glyphs[0]["position_mm"][1]
+    assert glyphs[0]["position_mm"][0] > glyphs[1]["position_mm"][0]
+
+
+def test_v1_08_label_bitmap_preserves_the_two_source_glyphs():
+    label = scene_builder.cv2.imread(
+        str(SPEC.parent / "labels" / "A1.png"), scene_builder.cv2.IMREAD_GRAYSCALE
+    )
+
+    bitmap = scene_builder._ocr_label_bitmap(label)
+
+    assert [
+        "".join("#" if value < 160 else "." for value in row) for row in bitmap
+    ] == [
+        ".###...#..",
+        "#...#.##..",
+        "#...#..#..",
+        "#####..#..",
+        "#...#..#..",
+        "#...#..#..",
+        "#...#.###.",
+    ]
+
+
 @pytest.mark.parametrize(
     ("field", "value"),
     [

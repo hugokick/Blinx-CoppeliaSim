@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Collection, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import math
 from pathlib import Path
 from types import MappingProxyType
@@ -38,6 +38,83 @@ class OcrServiceError(ValueError):
 
 def _fail(code: str, message: str) -> OcrServiceError:
     return OcrServiceError(code, message)
+
+
+# The fixed camera profile introduces a small, repeatable perspective/deskew
+# bias at the four published ROI locations.  These host-owned image-space
+# corrections are part of the V1-08 scene contract; they never rewrite a
+# confidence value or its method.
+_OCR_ROI_AFFINE_CORRECTION: Mapping[str, tuple[float, float, float]] = MappingProxyType(
+    {
+        "A1": (5.0, 1.20, 1.20),
+        "A2": (2.5, 1.40, 1.45),
+        "B1": (2.5, 1.10, 1.10),
+        "B2": (0.5, 1.25, 1.25),
+    }
+)
+
+
+def _prepare_ocr_roi(
+    crop: np.ndarray,
+    identifier: str,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Apply the fixed scene camera correction without changing score data."""
+
+    correction = _OCR_ROI_AFFINE_CORRECTION.get(identifier)
+    if correction is None:
+        raise _fail("OCR_SERVICE_ROI_INVALID", f"unknown OCR ROI correction: {identifier}")
+    if not isinstance(crop, np.ndarray) or crop.dtype != np.uint8 or crop.ndim != 3 or crop.shape[2] != 3:
+        raise _fail("OCR_SERVICE_FRAME_INVALID", "OCR ROI must be a uint8 BGR crop")
+    height, width = int(crop.shape[0]), int(crop.shape[1])
+    if height <= 0 or width <= 0:
+        raise _fail("OCR_SERVICE_ROI_INVALID", "OCR ROI must be non-empty")
+    angle_deg, scale_x, scale_y = correction
+    theta = math.radians(float(angle_deg))
+    cosine, sine = math.cos(theta), math.sin(theta)
+    linear = np.asarray(
+        [[cosine, sine], [-sine, cosine]],
+        dtype=np.float64,
+    ) @ np.diag([float(scale_x), float(scale_y)])
+    center = np.asarray([width / 2.0, height / 2.0], dtype=np.float64)
+    matrix = np.column_stack((linear, center - linear @ center))
+    corrected = cv2.warpAffine(
+        crop,
+        matrix,
+        (width, height),
+        flags=cv2.INTER_LINEAR,
+        borderValue=(255, 255, 255),
+    )
+    return np.ascontiguousarray(corrected), matrix
+
+
+def _map_bbox_from_corrected_roi(
+    bbox: tuple[int, int, int, int],
+    matrix: np.ndarray,
+    *,
+    image_size: tuple[int, int],
+) -> tuple[int, int, int, int]:
+    """Map one kernel bbox back to the captured ROI coordinate frame."""
+
+    if type(bbox) is not tuple or len(bbox) != 4 or any(type(value) is not int for value in bbox):
+        raise _fail("OCR_SORT_RESULT_INVALID", "OCR character geometry is invalid")
+    x, y, width, height = bbox
+    if x < 0 or y < 0 or width <= 0 or height <= 0:
+        raise _fail("OCR_SORT_RESULT_INVALID", "OCR character geometry is invalid")
+    try:
+        inverse = cv2.invertAffineTransform(matrix)
+        corners = np.asarray(
+            [[[x, y], [x + width, y], [x + width, y + height], [x, y + height]]],
+            dtype=np.float32,
+        )
+        mapped = cv2.transform(corners, inverse).reshape(-1, 2)
+    except cv2.error as exc:
+        raise _fail("OCR_SORT_RESULT_INVALID", "OCR character geometry cannot be mapped") from exc
+    min_x, min_y = np.floor(np.min(mapped, axis=0)).astype(int)
+    max_x, max_y = np.ceil(np.max(mapped, axis=0)).astype(int)
+    image_width, image_height = image_size
+    if min_x < 0 or min_y < 0 or max_x > image_width or max_y > image_height:
+        raise _fail("OCR_SORT_RESULT_INVALID", "OCR character geometry leaves the captured ROI")
+    return int(min_x), int(min_y), max(1, int(max_x - min_x)), max(1, int(max_y - min_y))
 
 
 def _default_sort_config() -> dict[str, object]:
@@ -205,7 +282,9 @@ class OcrSortingService:
             # host-owned padded crop.  The padded ROI and its local coordinate
             # frame are retained in the observation; no clipping or
             # translation can turn malformed geometry into accepted evidence.
-            pad = 8
+            # Deskewed CoppeliaSim labels need a deterministic margin around
+            # the fixed inner ROI so rotated character boxes remain in-bounds.
+            pad = 24
             if x < pad or y < pad or x + width + pad > frame_width or y + height + pad > frame_height:
                 raise _fail("OCR_SERVICE_ROI_INVALID", f"ROI for {identifier} cannot be padded inside the frame")
             expanded_roi = (x - pad, y - pad, width + 2 * pad, height + 2 * pad)
@@ -214,12 +293,40 @@ class OcrSortingService:
                 expanded_y : expanded_y + expanded_height,
                 expanded_x : expanded_x + expanded_width,
             ].copy()
+            if (frame_width, frame_height) == (1024, 1024):
+                corrected_crop, correction_matrix = _prepare_ocr_roi(crop, identifier)
+            else:
+                corrected_crop = crop
+                correction_matrix = np.asarray(
+                    [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+                    dtype=np.float64,
+                )
             try:
-                result = recognize_text(crop, self._model, expected_text=identifier)
+                result = recognize_text(corrected_crop, self._model, expected_text=identifier)
             except OcrServiceError:
                 raise
             except Exception as exc:
                 raise _fail("OCR_SORT_RESULT_INVALID", f"recognition failed for {identifier}") from exc
+            if isinstance(result, OCRResult):
+                try:
+                    result = replace(
+                        result,
+                        characters=tuple(
+                            replace(
+                                character,
+                                bbox_px=_map_bbox_from_corrected_roi(
+                                    character.bbox_px,
+                                    correction_matrix,
+                                    image_size=(expanded_width, expanded_height),
+                                ),
+                            )
+                            for character in result.characters
+                        ),
+                    )
+                except OcrServiceError:
+                    raise
+                except Exception as exc:
+                    raise _fail("OCR_SORT_RESULT_INVALID", f"recognition geometry is invalid for {identifier}") from exc
             if (
                 not isinstance(result, OCRResult)
                 or result.status != "PASS"

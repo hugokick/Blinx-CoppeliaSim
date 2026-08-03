@@ -6,6 +6,7 @@ import cv2
 import numpy as np
 import pytest
 
+import vision_platform.experiments.ocr_service as ocr_service
 from vision_platform.vision2d.ocr import OCRCharacter, OCRResult
 from vision_platform.experiments.ocr_service import (
     OcrServiceError,
@@ -15,6 +16,23 @@ from vision_platform.experiments.ocr_service import (
 
 ROOT = Path(__file__).resolve().parents[2]
 MANIFEST = ROOT / "simulation/vision_ocr_sorting_lab/ocr_assets_manifest.json"
+
+
+def test_service_uses_scene_bound_roi_geometry_correction_without_score_remapping():
+    frame, rois = _frame_and_rois()
+    x, y, width, height = rois["A2"]
+    crop = frame[y : y + height, x : x + width]
+
+    corrected, matrix = ocr_service._prepare_ocr_roi(crop, "A2")
+
+    assert corrected.shape == crop.shape
+    assert corrected.dtype == np.uint8
+    # The correction is a fixed camera/ROI geometry operation.  It changes
+    # pixels before the existing KNN kernel, never the returned confidence or
+    # confidence_method semantics.
+    assert matrix.shape == (2, 3)
+    assert matrix[0, 0] == pytest.approx(1.40, abs=0.02)
+    assert matrix[1, 1] == pytest.approx(1.45, abs=0.02)
 
 
 def _frame_and_rois() -> tuple[np.ndarray, dict[str, tuple[int, int, int, int]]]:
@@ -32,8 +50,8 @@ def _frame_and_rois() -> tuple[np.ndarray, dict[str, tuple[int, int, int, int]]]
     rois: dict[str, tuple[int, int, int, int]] = {}
     for index, identifier in enumerate(("A1", "A2", "B1", "B2")):
         image = labels[identifier]
-        x = 10 + (index % 2) * 150
-        y = 10 + (index // 2) * 110
+        x = 30 + (index % 2) * 140
+        y = 30 + (index // 2) * 90
         image_height, image_width = image.shape[:2]
         frame[y : y + image_height, x : x + image_width] = image
         rois[identifier] = (x, y, image_width, image_height)
@@ -55,11 +73,11 @@ def test_service_trains_once_and_returns_four_whitelisted_results() -> None:
     assert not hasattr(output, "classifier")
     for identifier, observation in zip(("A1", "A2", "B1", "B2"), output.observations):
         x, y, width, height = rois[identifier]
-        assert observation.roi_px == (x - 8, y - 8, width + 16, height + 16)
-        assert observation.result.image_size == (width + 16, height + 16)
+        assert observation.roi_px == (x - 24, y - 24, width + 48, height + 48)
+        assert observation.result.image_size == (width + 48, height + 48)
         assert all(
             0 <= bx and 0 <= by and bw > 0 and bh > 0
-            and bx + bw <= width + 16 and by + bh <= height + 16
+            and bx + bw <= width + 48 and by + bh <= height + 48
             for character in observation.result.characters
             for bx, by, bw, bh in (character.bbox_px,)
         )
@@ -90,7 +108,7 @@ def test_service_does_not_retrain_when_analyzing_again(monkeypatch: pytest.Monke
         (lambda frame, rois: rois.pop("A1"), "OCR_SERVICE_ROI_INVALID"),
         (lambda frame, rois: rois.__setitem__("C9", rois["A2"]), "OCR_SERVICE_ROI_INVALID"),
         (lambda frame, rois: rois.__setitem__("A1", (310, 0, 64, 96)), "OCR_SERVICE_ROI_INVALID"),
-        (lambda frame, rois: frame.__setitem__((slice(10, 106), slice(10, 74)), 255), "OCR_SORT_RESULT_INVALID"),
+        (lambda frame, rois: frame.__setitem__((slice(30, 126), slice(30, 94)), 255), "OCR_SORT_RESULT_INVALID"),
     ],
 )
 def test_service_rejects_invalid_capture_before_plan_activation(mutation, code: str) -> None:
@@ -111,7 +129,7 @@ def test_service_requires_bgr_uint8_frame() -> None:
 
 @pytest.mark.parametrize(
     "bbox",
-    [(-1, 28, 30, 40), (2, 28, 100, 40)],
+    [(-1, 28, 30, 40), (2, 28, 120, 40)],
 )
 def test_service_rejects_out_of_bounds_kernel_geometry_without_plan(
     monkeypatch: pytest.MonkeyPatch, bbox: tuple[int, int, int, int]

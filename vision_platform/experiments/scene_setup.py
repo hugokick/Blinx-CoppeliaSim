@@ -8,7 +8,10 @@ LOGISTICS_GROUPS = (
     "/LogisticsLab/Tasks/Digits",
     "/LogisticsLab/Tasks/Classes",
 )
-INDEPENDENT_SCENE_GROUPS = ("/VisionCodeRoutingLab",)
+INDEPENDENT_SCENE_GROUPS = (
+    "/VisionCodeRoutingLab",
+    "/VisionOcrSortingLab",
+)
 
 _PARKED_Z = {
     "/LogisticsLab/Tasks/Stack": -2.0,

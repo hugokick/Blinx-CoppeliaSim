@@ -387,9 +387,11 @@ docs/experiments/V1-07.md
 student_programs/templates/v1_07_code_routing.py
 tests/test_vision_quality/test_v1_07_materials.py
 tools/vision_lab/run_v1_07_code_routing.ps1
+tools/vision_lab/run_v1_08_ocr_sorting.ps1
 tests/test_experiments/test_v1_07_cli.py
 tests/test_vision_platform/test_v1_07_result_panel.py
 tests/test_acceptance/test_coppeliasim_v1_07.py
+tests/test_acceptance/test_coppeliasim_v1_08.py
 docs/superpowers/reports/2026-08-02-v1-07-validation-report.md
 vision_platform/rgbd/errors.py
 vision_platform/rgbd/models.py

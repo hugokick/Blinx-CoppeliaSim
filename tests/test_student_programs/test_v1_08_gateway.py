@@ -393,6 +393,52 @@ def test_gateway_rejects_result_geometry_before_guard_activation(tmp_path, monke
     assert application.tool.calls == []
 
 
+def test_gateway_rejects_raw_confidence_below_release_min_before_motion(tmp_path, monkeypatch) -> None:
+    activated: list[OcrSortPlan] = []
+    gateway, camera, application, _ = _gateway(tmp_path, activate=activated.append)
+
+    def low_confidence_result() -> SimpleNamespace:
+        output = _service_result()
+        result = output.results[0]
+        low_character = OCRCharacter(
+            result.characters[0].character,
+            result.characters[0].bbox_px,
+            0.899,
+            confidence_method=result.characters[0].confidence_method,
+        )
+        output.results = (
+            OCRResult(
+                status=result.status,
+                text=result.text,
+                characters=(low_character, result.characters[1]),
+                image_size=result.image_size,
+                threshold_method=result.threshold_method,
+                character_count=result.character_count,
+                failure_code=result.failure_code,
+                processing_ms=result.processing_ms,
+                confidence_method=result.confidence_method,
+            ),
+            *output.results[1:],
+        )
+        return output
+
+    monkeypatch.setattr(
+        "vision_platform.student.experiment_gateway.OcrSortingService.from_manifest",
+        lambda *args, **kwargs: SimpleNamespace(
+            analyze=lambda frame, rois: low_confidence_result(),
+        ),
+    )
+    monkeypatch.setattr(gateway, "_ocr_sort_config", lambda: {"confidence_min": 0.90})
+    with pytest.raises(VisionPlatformError) as captured:
+        gateway.dispatch("vision2d.ocr_sorting", {})
+
+    assert captured.value.code == "OCR_SORT_RESULT_INVALID"
+    assert activated == []
+    assert camera.read_calls == 1
+    assert application.robot.calls == []
+    assert application.tool.calls == []
+
+
 @pytest.mark.parametrize("args", [{"roi": [0, 0, 10, 10]}, {"path": "x.png"}, {"entry_id": "entry_a"}])
 def test_gateway_rejects_ocr_arguments_before_capture(tmp_path, args) -> None:
     gateway, camera, application, _ = _gateway(tmp_path, activate=lambda plan: None)
@@ -505,6 +551,21 @@ def test_private_ocr_runner_executes_only_guard_actions_and_probe(tmp_path: Path
     assert tool.events == ["on", "off"]
     assert controller._ocr_guard.consumed_entry_ids == ("entry_a",)
     assert len(evidence.events) == 8
+
+
+def test_private_ocr_runner_lifts_before_first_horizontal_move(tmp_path: Path) -> None:
+    controller, robot, tool, evidence = _controller_for_private_ocr(tmp_path)
+    robot.pose[2] = 100.0
+
+    receipt = controller._command_ocr_sort_entry({"entry_id": "entry_a"})
+
+    assert receipt["status"] == "COMPLETED"
+    assert robot.moves[0][:3] == (100.0, 0.0, 110.0)
+    assert robot.moves[1][:3] == (40.0, -45.0, 110.0)
+    assert len(robot.moves) == 7
+    assert tool.events == ["on", "off"]
+    assert controller._ocr_guard.consumed_entry_ids == ("entry_a",)
+    assert len(evidence.events) == 9
 
 
 def test_unknown_or_duplicate_entry_fails_before_any_cleanup_device_call(tmp_path: Path) -> None:

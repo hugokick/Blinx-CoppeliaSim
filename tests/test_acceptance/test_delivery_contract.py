@@ -245,6 +245,64 @@ V22_V1_07_REQUIRED_RELEASE_PATHS = frozenset(
     }
 )
 
+V22_V1_08_REQUIRED_RELEASE_PATHS = frozenset(
+    {
+        "config/experiments/V1-08.json",
+        "docs/experiments/V1-08.md",
+        "docs/superpowers/plans/2026-08-02-v1-08-ocr-sorting-plan.md",
+        "docs/superpowers/specs/2026-08-02-v1-08-d1-01-parallel-coordination-design.md",
+        "simulation/vision_ocr_sorting_lab/BL23_vision_ocr_sorting_lab.ttt",
+        "simulation/vision_ocr_sorting_lab/ocr_assets_manifest.json",
+        "simulation/vision_ocr_sorting_lab/profiles.json",
+        "simulation/vision_ocr_sorting_lab/scene_manifest.json",
+        "simulation/vision_ocr_sorting_lab/scene_spec.json",
+        "student_programs/templates/v1_08_ocr_sorting.py",
+        "tests/test_acceptance/test_coppeliasim_v1_08.py",
+        "tests/test_experiments/test_ocr_assets.py",
+        "tests/test_experiments/test_ocr_service.py",
+        "tests/test_experiments/test_ocr_sorting.py",
+        "tests/test_experiments/test_v1_08_cli.py",
+        "tests/test_experiments/test_v1_08_probe.py",
+        "tests/test_experiments/test_scene_setup.py",
+        "tests/test_simulation/test_v1_08_ocr_assets.py",
+        "tests/test_simulation/test_v1_08_scene_builder.py",
+        "tests/test_simulation/test_v1_08_scene_contract.py",
+        "tests/test_student_programs/test_v1_08_gateway.py",
+        "tests/test_student_programs/test_v1_08_protocol_sdk.py",
+        "tests/test_student_programs/test_v1_08_sort_guard.py",
+        "tests/test_vision_platform/test_v1_08_result_panel.py",
+        "tests/test_vision_quality/test_catalog.py",
+        "tests/test_vision_quality/test_v1_08_materials.py",
+        "tools/vision_lab/build_v1_08_scene.ps1",
+        "tools/vision_lab/build_v1_08_scene.py",
+        "tools/vision_lab/generate_ocr_assets.py",
+        "tools/vision_lab/run_experiment.ps1",
+        "tools/vision_lab/run_v1_08_ocr_sorting.ps1",
+        "vision_platform/cli.py",
+        "vision_platform/experiments/ocr_assets.py",
+        "vision_platform/experiments/ocr_service.py",
+        "vision_platform/experiments/ocr_sorting.py",
+        "vision_platform/experiments/scene_setup.py",
+        "vision_platform/student/experiment_gateway.py",
+        "vision_platform/student/ocr_sort_guard.py",
+        "vision_platform/student/protocol.py",
+        "vision_platform/student/runner.py",
+        "vision_platform/student/sdk.py",
+        "vision_platform/vision_quality/catalog.py",
+        "vision_platform/ui/experiment_catalog_panel.py",
+        "vision_platform/ui/vision_result_panel.py",
+    }
+    | {
+        f"simulation/vision_ocr_sorting_lab/training/{glyph}/{index:02d}.png"
+        for glyph in ("1", "2", "A", "B")
+        for index in range(1, 13)
+    }
+    | {
+        f"simulation/vision_ocr_sorting_lab/labels/{identifier}.png"
+        for identifier in ("A1", "A2", "B1", "B2")
+    }
+)
+
 
 def _retained_release_paths() -> set[str]:
     return {
@@ -937,6 +995,7 @@ def test_formal_experiment_catalog_resolves_every_delivery_path():
         "V1-05",
         "V1-06",
         "V1-07",
+        "V1-08",
     )
     for item in catalog.definitions:
         assert item.scene.is_file()
@@ -998,6 +1057,15 @@ def test_retained_files_contains_complete_v1_07_delivery() -> None:
     assert all((ROOT / path).is_file() for path in V22_V1_07_REQUIRED_RELEASE_PATHS)
 
 
+def test_retained_files_contains_complete_v1_08_delivery() -> None:
+    retained = _retained_release_paths()
+    missing = sorted(V22_V1_08_REQUIRED_RELEASE_PATHS - retained)
+    assert not missing, "missing V1-08 paths: " + ", ".join(missing)
+    assert all(
+        (ROOT / path).is_file() for path in V22_V1_08_REQUIRED_RELEASE_PATHS
+    )
+
+
 def test_formal_v1_definitions_stay_hardware_pending_without_grading_fields():
     import json
 
@@ -1020,6 +1088,7 @@ def test_formal_v1_definitions_stay_hardware_pending_without_grading_fields():
         "V1-05",
         "V1-06",
         "V1-07",
+        "V1-08",
     ):
         payload = json.loads(
             (ROOT / "config" / "experiments" / f"{experiment_id}.json")

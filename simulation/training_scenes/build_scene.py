@@ -2062,6 +2062,46 @@ def _build_code_routing(
     _build_vision_lighting(sim, profile_catalog, root)
 
 
+def _ocr_label_bitmap(label: np.ndarray) -> np.ndarray:
+    """Recover the original two 5x7 glyphs from one fixed OCR label."""
+
+    if not isinstance(label, np.ndarray) or label.dtype != np.uint8 or label.ndim != 2:
+        raise ValueError("OCR label must be an 8-bit grayscale image")
+    if label.shape[0] < 65 or label.shape[1] < 56:
+        raise ValueError("OCR label is smaller than the fixed 5x7 source region")
+    bitmap = np.full((7, 10), 255, dtype=np.uint8)
+    for glyph_index, origin_x in enumerate((3, 31)):
+        source = label[30:65, origin_x : origin_x + 25]
+        blocks = source.reshape(7, 5, 5, 5)
+        bitmap[:, glyph_index * 5 : (glyph_index + 1) * 5] = np.min(
+            blocks, axis=(1, 3)
+        )
+    return bitmap
+
+
+def _ocr_bitmap_geometry(*, face_width: float, face_height: float) -> dict[str, float]:
+    """Return a gap-free pitch and cell size for the rendered 10x7 bitmap."""
+
+    # Keep the complete 10x7 label inside the fixed 96x128 pixel ROIs while
+    # leaving enough white border for the host-side segmentation contract.
+    pitch_width = float(face_width) / 28.0
+    # The OCR training generator renders square bitmap pixels.  Keep the
+    # scene cells square in world units so the perspective camera does not
+    # create a vertically stretched glyph before kernel normalization.
+    pitch_height = float(face_height) / 28.0
+    # Match the generator's one-pixel dilation variant.  The overlap survives
+    # CoppeliaSim rasterisation at cell boundaries, including diagonal
+    # 8-connected bitmap strokes, without reaching the face plate edge.
+    fill_ratio = 1.18
+    return {
+        "pitch_width_mm": pitch_width,
+        "pitch_height_mm": pitch_height,
+        "cell_width_mm": pitch_width * fill_ratio,
+        "cell_height_mm": pitch_height * fill_ratio,
+        "glyph_gap_pitch_mm": pitch_width,
+    }
+
+
 def _ocr_part(
     sim: Any,
     part: dict[str, Any],
@@ -2103,25 +2143,32 @@ def _ocr_part(
         raise ValueError(f"could not decode OCR scene label: {label_path}")
     # The original label is generated from two 5x7 glyphs.  Rendering a
     # compact 10x7 bitmap keeps the scene small while preserving its meaning.
-    bitmap = cv2.resize(label, (10, 7), interpolation=cv2.INTER_AREA)
-    cell_width = face_width / 12.0
-    cell_height = face_height / 9.0
-    origin_x = center[0] - 5.0 * cell_width
-    origin_y = center[1] - 3.5 * cell_height
+    bitmap = _ocr_label_bitmap(label)
+    geometry = _ocr_bitmap_geometry(face_width=face_width, face_height=face_height)
+    pitch_width = geometry["pitch_width_mm"]
+    pitch_height = geometry["pitch_height_mm"]
+    cell_width = geometry["cell_width_mm"]
+    cell_height = geometry["cell_height_mm"]
+    origin_x = center[0] - 5.5 * pitch_width
+    origin_y = center[1] - 3.5 * pitch_height
     bar_index = 0
     for row in range(7):
         for column in range(10):
             if int(bitmap[row, column]) >= 160:
                 continue
+            logical_column = column + (1 if column >= 5 else 0)
+            render_column = 10 - logical_column
             pieces.append(
                 _shape(
                     sim,
                     name=f"{part['alias']}_glyph_{bar_index:03d}",
                     shape="cuboid",
-                    size_mm=[cell_width * 0.78, cell_height * 0.78, 0.3],
+                    size_mm=[cell_width, cell_height, 0.3],
                     position_mm=[
-                        origin_x + (column + 0.5) * cell_width,
-                        origin_y + (row + 0.5) * cell_height,
+                        origin_x
+                        + (render_column + 0.5)
+                        * pitch_width,
+                        origin_y + (row + 0.5) * pitch_height,
                         face_z + 0.65,
                     ],
                     color=[0.01, 0.01, 0.01],

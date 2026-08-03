@@ -39,7 +39,11 @@ _FIXED_PATHS = {
     "key_light_path": "/VisionQualityLab/Lighting/KeyLight",
     "fill_light_path": "/VisionQualityLab/Lighting/FillLight",
 }
-_APPROVED_SCENE_ROOTS = ("/VisionQualityLab", "/VisionCodeRoutingLab")
+_APPROVED_SCENE_ROOTS = (
+    "/VisionQualityLab",
+    "/VisionCodeRoutingLab",
+    "/VisionOcrSortingLab",
+)
 _PROFILE_ID = re.compile(r"[a-z][a-z0-9_]{0,31}\Z")
 
 

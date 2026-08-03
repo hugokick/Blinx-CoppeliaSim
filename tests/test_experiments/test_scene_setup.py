@@ -63,6 +63,15 @@ def test_code_routing_scene_group_is_independently_reset_without_logistics_mutat
     assert sim.positions == []
 
 
+def test_ocr_sorting_scene_group_is_independently_reset_without_logistics_mutation() -> None:
+    sim = FakeSim()
+
+    activate_scene_group(sim, active_path="/VisionOcrSortingLab")
+
+    assert sim.requested_paths == []
+    assert sim.positions == []
+
+
 def test_unknown_scene_group_fails_closed_before_mutating_scene() -> None:
     sim = FakeSim()
 

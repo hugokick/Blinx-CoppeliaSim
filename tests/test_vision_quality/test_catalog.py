@@ -74,6 +74,19 @@ def test_loads_fixed_immutable_catalog(tmp_path):
         catalog.near_clip_m = 0.1
 
 
+def test_loads_v1_08_ocr_catalog_with_its_independent_scene_root():
+    root = Path(__file__).resolve().parents[2]
+    catalog = load_profile_catalog(
+        root / "simulation" / "vision_ocr_sorting_lab" / "profiles.json"
+    )
+
+    assert catalog.sensor_path == "/VisionOcrSortingLab/CameraRig/Camera"
+    assert catalog.camera_rig_path == "/VisionOcrSortingLab/CameraRig"
+    assert catalog.key_light_path == "/VisionOcrSortingLab/Lighting/KeyLight"
+    assert catalog.fill_light_path == "/VisionOcrSortingLab/Lighting/FillLight"
+    assert catalog.profile_ids == ("standard",)
+
+
 @pytest.mark.parametrize(
     ("mutate", "message"),
     [

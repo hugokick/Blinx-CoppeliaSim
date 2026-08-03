@@ -3007,10 +3007,39 @@ class StudentProgramController:
             plan = getattr(self._experiment_gateway, "_ocr_evidence", None)
             plan_value = plan.get("plan") if isinstance(plan, Mapping) else None
             speed = getattr(plan_value, "speed_mm_s", self._policy.min_speed)
+            safe_z = float(self._application.workspace.safe_z_mm)
+            feedback_tolerance = 1.0
+            horizontal = (
+                abs(current[0] - float(action.target_xyz_mm[0])) > feedback_tolerance
+                or abs(current[1] - float(action.target_xyz_mm[1])) > feedback_tolerance
+            )
+            if current[2] < safe_z and horizontal:
+                lift = (current[0], current[1], safe_z)
+                lift_target = self._guard.validate_move(
+                    current,
+                    lift,
+                    speed=speed,
+                )
+                self._raise_if_stopping()
+                self._application.robot.move_world(
+                    lift_target[0], lift_target[1], lift_target[2], speed=float(speed)
+                )
+                self._last_pose = lift_target
+                evidence = self._evidence
+                if evidence is not None:
+                    evidence.record_event(
+                        "OCR_SORT_SAFETY_LIFT",
+                        "V1-08 首次水平移动前抬升至安全高度",
+                        entry_id=action.entry_id,
+                        action_id=action.action_id,
+                        target_xyz_mm=list(lift_target),
+                    )
+                current = lift_target
             target = self._guard.validate_move(
                 current,
                 action.target_xyz_mm,
                 speed=speed,
+                horizontal_tolerance_mm=feedback_tolerance,
             )
             self._raise_if_stopping()
             self._application.robot.move_world(
