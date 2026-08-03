@@ -73,7 +73,7 @@
 - 允许新增/修改仅在 `vision_platform/rgbd_sim/**`、`tests/test_rgbd_sim/**`、`simulation/rgbd_lab/**`、`tools/rgbd_lab/**`、本报告、`.gitattributes` 和 `RETAINED_FILES.txt`。
 - `vision_platform/rgbd/**`、`vision_platform/cameras/coppeliasim.py`、V1-07/V1-08、正式场景、student/experiments/UI/SDK、机器人资产和依赖文件均未修改。
 - sim adapter 只复用只读的 `CoppeliaClientResolver`；OpenCV 只在 preview/CLI 边界使用；测试进程辅助中的 `socket/subprocess` 不进入共享 RGB-D 算法内核。
-- `RETAINED_FILES.txt` 当前 445 条文件记录、445 唯一、0 缺失；已补入 `tests/test_rgbd_sim/test_scene_builder.py`、`tests/test_rgbd_sim/test_scene_contract.py` 和 `tools/rgbd_lab/listener_identity.ps1`。本分支未新增 runtime artifact 路径；现有的 4 条 `simulation/vision_lab/evidence/**` 条目均已存在于 `origin/main`，未被本分支新增或修改。
+- `RETAINED_FILES.txt` 当前 447 条记录、447 唯一、0 缺失；已补入 `tests/test_rgbd_sim/test_scene_builder.py`、`tests/test_rgbd_sim/test_scene_contract.py` 和 `tools/rgbd_lab/listener_identity.ps1`。本分支未新增 runtime artifact 路径；现有的 4 条 `simulation/vision_lab/evidence/**` 条目均已存在于 `origin/main`，未被本分支新增或修改。
 - ownership/dependency diff 审计通过：相对精确基线的修改均落在 D1-01 owned 路径；无 `vision_platform/rgbd`、`vision_platform/cameras/coppeliasim.py`、V1-07/V1-08、正式机器人资产、student/experiments/UI/SDK 或依赖文件改动。
 - 未注册 `config/experiments/D1-01.json`，未接入正式课程、SDK/UI 或机器人动作。
 
