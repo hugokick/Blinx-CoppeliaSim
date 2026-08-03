@@ -137,6 +137,8 @@ def test_allowed_commands_are_exactly_the_public_student_api():
             "vision2d.code_routes",
             "vision2d.ocr_sorting",
             "vision2d.ocr_sort_entry",
+            "vision2d.surface_defects",
+            "vision2d.defect_sort_entry",
             "vision2d.template_match",
         }
     )
@@ -153,6 +155,8 @@ def test_v2_2_vision_commands_are_allowlisted_without_raw_ocr_devices() -> None:
     assert "vision2d.code_routes" in ALLOWED_COMMANDS
     assert "vision2d.ocr_sorting" in ALLOWED_COMMANDS
     assert "vision2d.ocr_sort_entry" in ALLOWED_COMMANDS
+    assert "vision2d.surface_defects" in ALLOWED_COMMANDS
+    assert "vision2d.defect_sort_entry" in ALLOWED_COMMANDS
 
 
 @pytest.mark.parametrize(

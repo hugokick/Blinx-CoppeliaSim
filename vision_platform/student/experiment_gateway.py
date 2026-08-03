@@ -36,6 +36,15 @@ from vision_platform.experiments.ocr_sorting import (
     OcrSortPlan,
     ocr_sort_plan_to_dict,
 )
+from vision_platform.experiments.defect_service import (
+    FIXED_ROIS as DEFECT_FIXED_ROIS,
+    DefectServiceError,
+    DefectSortingService,
+)
+from vision_platform.experiments.defect_sorting import (
+    DefectSortPlan,
+    defect_sort_plan_to_dict,
+)
 from vision_platform.experiments.probes import probe_experiment
 from vision_platform.vision2d import (
     analyze_image,
@@ -90,6 +99,9 @@ _CODE_ROUTE_CAPABILITIES = frozenset(
 )
 _OCR_SORTING_CAPABILITIES = frozenset(
     {"camera.rgb", "camera.profile", "lighting.profile", "vision2d.ocr_sorting"}
+)
+_DEFECT_SORTING_CAPABILITIES = frozenset(
+    {"camera.rgb", "camera.profile", "lighting.profile", "vision2d.surface_defects"}
 )
 
 
@@ -639,6 +651,7 @@ class StudentExperimentGateway:
         capture_timeout_s: float = 2.0,
         profile_controller: Any = _PROFILE_CONTROLLER_UNSET,
         ocr_guard_activator: Callable[[OcrSortPlan], Any] | None = None,
+        defect_guard_activator: Callable[[DefectSortPlan], Any] | None = None,
     ) -> None:
         copied_manifest = validate_experiment_binding(
             context,
@@ -665,7 +678,9 @@ class StudentExperimentGateway:
         self._probe_lock = RLock()
         self.route_guard = CodeRouteGuard()
         self._ocr_guard_activator = ocr_guard_activator
+        self._defect_guard_activator = defect_guard_activator
         self._ocr_evidence: dict[str, Any] | None = None
+        self._defect_evidence: dict[str, Any] | None = None
         self._route_evidence: dict[str, Any] | None = None
         self._route_completion_before_reset: dict[str, Any] | None = None
 
@@ -714,6 +729,15 @@ class StudentExperimentGateway:
             raise VisionPlatformError(
                 "OCR_SORT_ENTRY_RUNNER_ONLY",
                 "OCR 分拣动作必须由运行器的私有安全执行器调用",
+            )
+        if name == "vision2d.surface_defects":
+            self._require_exact_args(name, args, ())
+            return self._surface_defects()
+        if name == "vision2d.defect_sort_entry":
+            self._require_exact_args(name, args, ("entry_id",))
+            raise VisionPlatformError(
+                "DEFECT_SORT_ENTRY_RUNNER_ONLY",
+                "缺陷分拣动作必须由运行器的私有安全执行器调用",
             )
         raise ValueError(f"COMMAND_NOT_ALLOWED: {name}")
 
@@ -1408,6 +1432,169 @@ class StudentExperimentGateway:
             "profile": bundle_profile,
             "manifest_sha256": output.manifest_sha256,
             "scene_id": output.scene_id,
+        }
+        return copied
+
+    def _defect_assets_path(self) -> Path:
+        binding = self._scene_manifest.get("defect_assets_manifest")
+        if (
+            not isinstance(binding, Mapping)
+            or set(binding) != {"path", "sha256"}
+            or type(binding.get("path")) is not str
+            or type(binding.get("sha256")) is not str
+            or len(binding["sha256"]) != 64
+            or any(character not in "0123456789abcdef" for character in binding["sha256"])
+        ):
+            raise VisionPlatformError("DEFECT_SORT_ASSET_INVALID", "缺陷资产清单绑定缺失或格式无效")
+        relative = Path(binding["path"])
+        root = self._definition.scene_manifest.parent.resolve()
+        if relative.is_absolute() or any(part in {".", ".."} for part in relative.parts):
+            raise VisionPlatformError("DEFECT_SORT_ASSET_INVALID", "缺陷资产清单路径不安全")
+        candidate = (root / relative).resolve(strict=True)
+        if candidate.parent != root and root not in candidate.parents:
+            raise VisionPlatformError("DEFECT_SORT_ASSET_INVALID", "缺陷资产清单越出实验目录")
+        if candidate.is_symlink() or _sha256_file(candidate) != binding["sha256"]:
+            raise VisionPlatformError("DEFECT_SORT_ASSET_INVALID", "缺陷资产清单哈希不匹配")
+        return candidate
+
+    @staticmethod
+    def _defect_result_public(result: Any, entry: Any) -> dict[str, Any]:
+        defects = getattr(result, "defects", None)
+        if type(defects) is not tuple:
+            raise VisionPlatformError("DEFECT_SORT_RESULT_INVALID", "缺陷结果集合无效")
+        findings: list[dict[str, Any]] = []
+        image_size = getattr(result, "image_size", None)
+        if type(image_size) is not tuple or len(image_size) != 2 or any(type(value) is not int or value <= 0 for value in image_size):
+            raise VisionPlatformError("DEFECT_SORT_RESULT_INVALID", "缺陷结果尺寸无效")
+        for finding in defects:
+            bbox = getattr(finding, "bbox_px", None)
+            if type(bbox) is not tuple or len(bbox) != 4 or any(type(value) is not int for value in bbox):
+                raise VisionPlatformError("DEFECT_SORT_RESULT_INVALID", "缺陷框无效")
+            x, y, width, height = bbox
+            if x < 0 or y < 0 or width <= 0 or height <= 0 or x + width > image_size[0] or y + height > image_size[1]:
+                raise VisionPlatformError("DEFECT_SORT_RESULT_INVALID", "缺陷框越出 ROI")
+            values = {
+                "defect_type": getattr(finding, "defect_type", None),
+                "bbox_px": list(bbox),
+                "area_px2": float(getattr(finding, "area_px2")),
+                "relative_area": float(getattr(finding, "relative_area")),
+                "metric": float(getattr(finding, "metric")),
+                "threshold": float(getattr(finding, "threshold")),
+                "confidence": float(getattr(finding, "confidence")),
+            }
+            if type(values["defect_type"]) is not str or not all(math.isfinite(values[key]) for key in ("area_px2", "relative_area", "metric", "threshold", "confidence")):
+                raise VisionPlatformError("DEFECT_SORT_RESULT_INVALID", "缺陷 finding 数值无效")
+            findings.append(values)
+        return {
+            "entry_id": entry.entry_id,
+            "part_id": entry.part_id,
+            "decision": entry.decision,
+            "defect_type": entry.defect_type,
+            "findings": findings,
+            "findings_sha256": entry.findings_sha256,
+            "reference_crop_sha256": entry.reference_crop_sha256,
+            "candidate_crop_sha256": entry.candidate_crop_sha256,
+            "route_id": entry.route_id,
+            "status": "APPROVED",
+        }
+
+    def _surface_defects(self) -> dict[str, Any]:
+        if not _DEFECT_SORTING_CAPABILITIES <= set(self._definition.capabilities):
+            raise VisionPlatformError("DEFECT_SORT_CONTEXT_REQUIRED", "当前实验没有受控缺陷分析能力")
+        if self._defect_evidence is not None:
+            raise VisionPlatformError("DEFECT_SORT_PLAN_ALREADY_ACTIVE", "本次运行已有缺陷分拣计划")
+        if not callable(self._defect_guard_activator):
+            raise VisionPlatformError("DEFECT_SORT_EXECUTOR_REQUIRED", "缺陷分拣需要运行器安全守卫")
+        profile = self._profile_public(self._profiles_required().current(), path="vision2d.surface_defects.profile")
+        if profile.get("profile_id") != "standard" or profile.get("resolution") != [1024, 1024]:
+            raise VisionPlatformError("DEFECT_SORT_PROFILE_MISMATCH", "缺陷分析必须使用 standard 1024x1024")
+        try:
+            manifest_path = self._defect_assets_path()
+            recorded = self._capture_raw(profile)
+            run_id = getattr(self.evidence, "run_id", None) or "run-v1-09"
+            frame_id = recorded.value["snapshot_id"]
+            service = DefectSortingService.from_manifest(manifest_path)
+            output = service.analyze(
+                recorded.image_bgr,
+                reference_roi=DEFECT_FIXED_ROIS["reference"],
+                candidate_rois={key: value for key, value in DEFECT_FIXED_ROIS.items() if key != "reference"},
+                run_id=run_id,
+                frame_id=frame_id,
+                scene_sha256=self.context.scene_sha256,
+            )
+            plan = output.plan
+            if not isinstance(plan, DefectSortPlan) or plan.status != "PASS" or len(plan.entries) != 6:
+                raise VisionPlatformError("DEFECT_SORT_PLAN_INVALID", "缺陷分拣计划不是完整六条目计划")
+            plan_public = defect_sort_plan_to_dict(plan)
+            entries_public = [self._defect_result_public(result, entry) for result, entry in zip(output.results, plan.entries)]
+            layers = [
+                VisionImageLayer("raw", "原图", recorded.image_bgr),
+                VisionImageLayer("reference", "参考件", output.reference_crop),
+                VisionImageLayer("annotated", "缺陷检测标注", output.annotated_frame),
+            ]
+            for entry_id in (f"entry_{letter}" for letter in "abcdef"):
+                layers.append(VisionImageLayer(f"candidate-{entry_id}", f"候选件 {entry_id}", output.candidate_crops[entry_id]))
+                layers.append(VisionImageLayer(f"mask-{entry_id}", "缺陷区域示意", output.finding_masks[entry_id]))
+            bundle_result = {"plan": plan_public, "entries": entries_public}
+            bundle = VisionResultBundle(
+                schema_version=1,
+                bundle_id=f"{self.context.experiment_id}-{frame_id}",
+                experiment_id=self.context.experiment_id,
+                source_snapshot_id=frame_id,
+                status="PASS",
+                layers=tuple(layers),
+                result=bundle_result,
+                profile={**profile, "defect_sorting": {"scene_id": output.scene_id, "manifest_sha256": output.manifest_sha256, "config_sha256": plan.config_sha256}},
+                hardware_status="PENDING_HARDWARE",
+            )
+            bundle_path = record_vision_bundle(self.evidence, bundle, existing_layer_records={"raw": recorded.record})
+            self._defect_guard_activator(plan)
+        except VisionPlatformError:
+            raise
+        except DefectServiceError as error:
+            raise VisionPlatformError(error.code, "缺陷分析或分拣计划校验失败") from error
+        except Exception as error:
+            raise VisionPlatformError(getattr(error, "code", "DEFECT_SORT_ANALYSIS_FAILED"), "缺陷分析或分拣计划生成失败", details={"error_type": type(error).__name__}) from error
+
+        raw_sha = recorded.record["sha256"]
+        reference_sha = hashlib.sha256(output.reference_crop.tobytes()).hexdigest()
+        candidate_sha = hashlib.sha256(b"".join(output.candidate_crops[key].tobytes() for key in sorted(output.candidate_crops))).hexdigest()
+        annotated_sha = hashlib.sha256(output.annotated_frame.tobytes()).hexdigest()
+        mask_sha = hashlib.sha256(b"".join(output.finding_masks[key].tobytes() for key in sorted(output.finding_masks))).hexdigest()
+        evidence_public = {
+            "raw_sha256": raw_sha,
+            "reference_sha256": reference_sha,
+            "candidate_sha256": candidate_sha,
+            "annotated_sha256": annotated_sha,
+            "mask_sha256": mask_sha,
+        }
+        response = {
+            "schema_version": 1,
+            "run_id": plan.run_id,
+            "frame_id": plan.frame_id,
+            "scene_sha256": plan.scene_sha256,
+            "config_sha256": plan.config_sha256,
+            "asset_manifest_sha256": plan.asset_manifest_sha256,
+            "plan_id": plan.plan_id,
+            "status": "PASS",
+            "image_size": list(plan.image_size),
+            "entries": entries_public,
+            "evidence": evidence_public,
+            "hardware_status": "PENDING_HARDWARE",
+        }
+        copied = _copy_json_native(response, path="vision2d.surface_defects")
+        json.dumps(copied, ensure_ascii=False, allow_nan=False)
+        self._defect_evidence = {
+            "plan": plan,
+            "snapshot_id": frame_id,
+            "raw": recorded.image_bgr.copy(),
+            "reference": output.reference_crop.copy(),
+            "candidates": {key: value.copy() for key, value in output.candidate_crops.items()},
+            "annotated": output.annotated_frame.copy(),
+            "masks": {key: value.copy() for key, value in output.finding_masks.items()},
+            "raw_record": dict(recorded.record),
+            "bundle_path": bundle_path,
+            "evidence": evidence_public,
         }
         return copied
 

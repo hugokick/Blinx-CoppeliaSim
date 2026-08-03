@@ -24,6 +24,9 @@ _CODE_ROUTING_DEPENDENCIES = frozenset(
 _OCR_SORTING_DEPENDENCIES = frozenset(
     {"camera.rgb", "camera.profile", "lighting.profile"}
 )
+_DEFECT_SORTING_DEPENDENCIES = frozenset(
+    {"camera.rgb", "camera.profile", "lighting.profile"}
+)
 _PROFILE_PAIR_REASON = (
     "视觉配置能力必须同时声明 camera.profile 和 lighting.profile"
 )
@@ -39,6 +42,7 @@ _KNOWN = _ROBOT | frozenset(
         "vision2d.template_matching",
         "vision2d.code_routing",
         "vision2d.ocr_sorting",
+        "vision2d.surface_defects",
     }
 )
 
@@ -164,6 +168,25 @@ def check_capabilities(
             ):
                 missing.append(capability)
                 reasons[capability] = "OCR 分拣缺少场景、相机、机器人或吸盘"
+            else:
+                available.append(capability)
+        elif capability == "vision2d.surface_defects":
+            missing_dependencies = _DEFECT_SORTING_DEPENDENCIES - requested_set
+            if missing_dependencies:
+                missing.append(capability)
+                reasons[capability] = (
+                    "表面缺陷检测必须同时声明相机与成对视觉配置能力："
+                    + ", ".join(sorted(missing_dependencies))
+                )
+            elif str(getattr(application.config, "camera_backend", "")) != "sim":
+                missing.append(capability)
+                reasons[capability] = "表面缺陷检测仅支持 CoppeliaSim 相机后端"
+            elif getattr(application, "sim", None) is None:
+                missing.append(capability)
+                reasons[capability] = "当前应用没有可用 CoppeliaSim 场景连接"
+            elif getattr(application, "camera", None) is None:
+                missing.append(capability)
+                reasons[capability] = "当前应用没有可用相机"
             else:
                 available.append(capability)
         elif capability in _PROFILE_PAIR and profile_pair_incomplete:
