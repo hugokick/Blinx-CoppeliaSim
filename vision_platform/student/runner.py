@@ -3083,6 +3083,8 @@ class StudentProgramController:
                 )
             except BaseException:
                 pass
+        # Stop/failure cleanup is safety-critical: it intentionally bypasses
+        # the interactive pause/single-step gate after the stop boundary.
         try:
             self._application.tool.off()
         except BaseException:
